@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ce3664e8382d4c4cb564d1f8608f70f, type: 3}
+  m_Name: Joy
+  m_EditorClassIdentifier: 
+  musicalEmotion: 3
+  emotionColor: {r: 1, g: 0.989607, b: 0, a: 1}
+  possiblePercussionInstruments:
+  - {fileID: 11400000, guid: 06b0763db4c68b64bbf72064349aefa3, type: 2}
+  - {fileID: 11400000, guid: 5650a528e907a3b4e8ff90c69f2bddd7, type: 2}
+  possibleBackingInstruments:
+  - {fileID: 11400000, guid: b47168eaec2ad9c4c9f661b2feddf064, type: 2}
+  - {fileID: 11400000, guid: b02d241454850624095367128eba4e3a, type: 2}
+  - {fileID: 11400000, guid: f450b54608ae4bc4c98d733cd92af229, type: 2}
+  possibleLeadInstruments:
+  - {fileID: 11400000, guid: 899184eedfc127c41a148c1726781d04, type: 2}
+  - {fileID: 11400000, guid: b0cb07e3f6862a64f845152a4292828a, type: 2}
+  - {fileID: 11400000, guid: 3bf9b79cf7c34674191ef8560e6b3386, type: 2}
+  - {fileID: 11400000, guid: 79faa7da81c835e42b2059ca497b6c78, type: 2}
+  possibleTonalities: 000000000500000006000000
+  possibleTempoRanges: 0200000003000000
+  possibleTimeSignatures: 00000000
+  chordProgressionsList: {fileID: 11400000, guid: c08d55d66fef67a4a9ae14bf79989061, type: 2}
+  drumPatternsList: {fileID: 11400000, guid: d25272b09e054424a8157e061caf4bce, type: 2}
+  melodyPatternsList: {fileID: 11400000, guid: 35164b49db2512b44bdddc51d70a906f, type: 2}

@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 34d865e5908b68f47ace14b7ba938b48, type: 3}
+  m_Name: _Melody Patterns List
+  m_EditorClassIdentifier: 
+  melodyPatternList:
+  - {fileID: 11400000, guid: fae605c169d930b4889fb1949a512c5b, type: 2}
+  - {fileID: 11400000, guid: 3a0b0868de7ad984f882aea5490af4dd, type: 2}
+  - {fileID: 11400000, guid: d6db6760b7a54304ca185c9c52e356b7, type: 2}
+  - {fileID: 11400000, guid: 1e6c649fe9aa0c64ba2451357eed1a32, type: 2}
+  - {fileID: 11400000, guid: 3f2075db4bb82364b81c6634afee17a0, type: 2}
+  - {fileID: 11400000, guid: 31129d899c72acc428bccb61359ced13, type: 2}
+  - {fileID: 11400000, guid: 4f836b6eafeafc74696e56a35db6ce0c, type: 2}
+  - {fileID: 11400000, guid: f041bd8a9fcd6864393b99c48b94e3da, type: 2}
+  - {fileID: 11400000, guid: 4a5e95b1bb37aaa4c8c9fc22804de5e1, type: 2}
+  - {fileID: 11400000, guid: 044fa50c6fe304c488d2be5f4ddc1d27, type: 2}

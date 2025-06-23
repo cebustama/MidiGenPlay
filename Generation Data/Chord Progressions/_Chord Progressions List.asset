@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee2f87b6db5d6284db8f621bdee05219, type: 3}
+  m_Name: _Chord Progressions List
+  m_EditorClassIdentifier: 
+  chordProgressionDatas:
+  - {fileID: 11400000, guid: 511b1068e6925ea4b9981fbeb9413982, type: 2}
+  - {fileID: 11400000, guid: 94a294b2b5d46fa4bb05a84a37198acb, type: 2}
+  - {fileID: 11400000, guid: ba463dfeb5a73ea42a44c9ea92a257b5, type: 2}
+  - {fileID: 11400000, guid: b180189e5ac16e6478282026c5728435, type: 2}
+  - {fileID: 11400000, guid: 43fa1c912c155f74d84fb1088302b8a8, type: 2}
+  - {fileID: 11400000, guid: 26ec5ad91eef3744faf06eaddc7b06f5, type: 2}
+  - {fileID: 11400000, guid: 5177643e22c079942abbd86202139436, type: 2}
+  - {fileID: 11400000, guid: 7eb56db51cdf4c543b8c641631fda685, type: 2}

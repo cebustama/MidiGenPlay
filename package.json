@@ -1,0 +1,11 @@
+{
+    "name": "com.claudiobustamante.midigenplay",
+    "version": "1.0.0",
+    "displayName": "MidiGenPlay",
+    "description": "A MIDI generation and playback system for Unity.",
+    "unity": "2022.3",
+    "author": {
+      "name": "Claudio Bustamante",
+      "email": "cebustama@gmail.com"
+    }
+  }  

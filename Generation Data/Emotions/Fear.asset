@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ce3664e8382d4c4cb564d1f8608f70f, type: 3}
+  m_Name: Fear
+  m_EditorClassIdentifier: 
+  musicalEmotion: 0
+  emotionColor: {r: 0.5188679, g: 0.5188679, b: 0.5188679, a: 1}
+  possiblePercussionInstruments:
+  - {fileID: 11400000, guid: 31173689665d34943b0ddafc5f935470, type: 2}
+  - {fileID: 11400000, guid: 847bd6523c5cdb2489f2fb8fd2ecf73f, type: 2}
+  possibleBackingInstruments:
+  - {fileID: 11400000, guid: 17a59cd1626a18b4b8f9d0fc7a130891, type: 2}
+  - {fileID: 11400000, guid: 19889ea7d34284844a6cf964d9282dce, type: 2}
+  - {fileID: 11400000, guid: 19889ea7d34284844a6cf964d9282dce, type: 2}
+  possibleLeadInstruments:
+  - {fileID: 11400000, guid: ec6ed295fd9f87b458e9670281188ef8, type: 2}
+  - {fileID: 11400000, guid: 964448219f718fc4fba43b65ddd0075d, type: 2}
+  - {fileID: 11400000, guid: 76cc882bae844e848a674467eb56cdfe, type: 2}
+  - {fileID: 11400000, guid: 13b5a7e4acbfe26449fe85762c3a72ef, type: 2}
+  possibleTonalities: 000000000500000006000000
+  possibleTempoRanges: 0200000003000000
+  possibleTimeSignatures: 00000000
+  chordProgressionsList: {fileID: 11400000, guid: c08d55d66fef67a4a9ae14bf79989061, type: 2}
+  drumPatternsList: {fileID: 11400000, guid: d25272b09e054424a8157e061caf4bce, type: 2}
+  melodyPatternsList: {fileID: 11400000, guid: 35164b49db2512b44bdddc51d70a906f, type: 2}

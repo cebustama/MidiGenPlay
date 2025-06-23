@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ce3664e8382d4c4cb564d1f8608f70f, type: 3}
+  m_Name: Despair
+  m_EditorClassIdentifier: 
+  musicalEmotion: 9
+  emotionColor: {r: 0.13759974, g: 0.1509434, b: 0.13171947, a: 1}
+  possiblePercussionInstruments:
+  - {fileID: 11400000, guid: 847bd6523c5cdb2489f2fb8fd2ecf73f, type: 2}
+  - {fileID: 11400000, guid: cb6eea6d346a6954385562d22c831717, type: 2}
+  - {fileID: 11400000, guid: 4d3c154b2c506094abf982c3efed6a8e, type: 2}
+  possibleBackingInstruments:
+  - {fileID: 11400000, guid: f450b54608ae4bc4c98d733cd92af229, type: 2}
+  - {fileID: 11400000, guid: 6937f638d19c6ce428c66dc72afdd8b2, type: 2}
+  - {fileID: 11400000, guid: 1f70eb8dd3528004ca62abae98a6cf04, type: 2}
+  - {fileID: 11400000, guid: b748c22aa0282944c9a1cf4efdf997fb, type: 2}
+  - {fileID: 11400000, guid: 4d53fbfada235e84cb11a76e47e73dc0, type: 2}
+  possibleLeadInstruments:
+  - {fileID: 11400000, guid: 899184eedfc127c41a148c1726781d04, type: 2}
+  - {fileID: 11400000, guid: 3f2aa9aaf2b1c9b4aacabdf58b549b11, type: 2}
+  - {fileID: 11400000, guid: 9a00fc0898e51604dad750f00f222080, type: 2}
+  - {fileID: 11400000, guid: af6a59d30b8ae714b8f321f8911d3bf6, type: 2}
+  - {fileID: 11400000, guid: dfa64ae9864c6f2438b35276f87b1a14, type: 2}
+  - {fileID: 11400000, guid: 0ae17d3c5b7345042a7a997b9bc039ea, type: 2}
+  possibleTonalities: 0100000004000000
+  possibleTempoRanges: 000000000100000002000000
+  possibleTimeSignatures: 010000000300000006000000
+  chordProgressionsList: {fileID: 11400000, guid: c08d55d66fef67a4a9ae14bf79989061, type: 2}
+  drumPatternsList: {fileID: 11400000, guid: d25272b09e054424a8157e061caf4bce, type: 2}
+  melodyPatternsList: {fileID: 11400000, guid: 35164b49db2512b44bdddc51d70a906f, type: 2}

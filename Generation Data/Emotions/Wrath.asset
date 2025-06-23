@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ce3664e8382d4c4cb564d1f8608f70f, type: 3}
+  m_Name: Wrath
+  m_EditorClassIdentifier: 
+  musicalEmotion: 5
+  emotionColor: {r: 0.7169812, g: 0.13715409, b: 0, a: 1}
+  possiblePercussionInstruments:
+  - {fileID: 11400000, guid: 8989df41ef0dc8544b23f003a6aeaf6b, type: 2}
+  - {fileID: 11400000, guid: 80486e651c5b8cd4aa7e2b9974abbd0a, type: 2}
+  - {fileID: 11400000, guid: 5650a528e907a3b4e8ff90c69f2bddd7, type: 2}
+  possibleBackingInstruments:
+  - {fileID: 11400000, guid: fbfaacd61632c1d4bb06ab92c8fc7d7a, type: 2}
+  - {fileID: 11400000, guid: 0ae17d3c5b7345042a7a997b9bc039ea, type: 2}
+  - {fileID: 11400000, guid: af75dc376758a254d9e4eba87d2660b0, type: 2}
+  - {fileID: 11400000, guid: 9a00fc0898e51604dad750f00f222080, type: 2}
+  possibleLeadInstruments:
+  - {fileID: 11400000, guid: fbfaacd61632c1d4bb06ab92c8fc7d7a, type: 2}
+  - {fileID: 11400000, guid: c58e0f63e85edd34aa400979ac4a625c, type: 2}
+  - {fileID: 11400000, guid: 76cc882bae844e848a674467eb56cdfe, type: 2}
+  possibleTonalities: 01000000040000000c000000
+  possibleTempoRanges: 0300000004000000
+  possibleTimeSignatures: 000000000600000007000000
+  chordProgressionsList: {fileID: 11400000, guid: c08d55d66fef67a4a9ae14bf79989061, type: 2}
+  drumPatternsList: {fileID: 11400000, guid: d25272b09e054424a8157e061caf4bce, type: 2}
+  melodyPatternsList: {fileID: 11400000, guid: 35164b49db2512b44bdddc51d70a906f, type: 2}

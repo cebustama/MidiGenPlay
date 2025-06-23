@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ce3664e8382d4c4cb564d1f8608f70f, type: 3}
+  m_Name: Confidence
+  m_EditorClassIdentifier: 
+  musicalEmotion: 6
+  emotionColor: {r: 0.24056602, g: 0.8232244, b: 1, a: 1}
+  possiblePercussionInstruments:
+  - {fileID: 11400000, guid: 31173689665d34943b0ddafc5f935470, type: 2}
+  - {fileID: 11400000, guid: 5650a528e907a3b4e8ff90c69f2bddd7, type: 2}
+  - {fileID: 11400000, guid: 06b0763db4c68b64bbf72064349aefa3, type: 2}
+  possibleBackingInstruments:
+  - {fileID: 11400000, guid: 19889ea7d34284844a6cf964d9282dce, type: 2}
+  - {fileID: 11400000, guid: 4c04ad83fa6dfc24999fbc43d20be6b8, type: 2}
+  - {fileID: 11400000, guid: b748c22aa0282944c9a1cf4efdf997fb, type: 2}
+  - {fileID: 11400000, guid: 17a59cd1626a18b4b8f9d0fc7a130891, type: 2}
+  - {fileID: 11400000, guid: adfb1dbd3048bbc43839e4c257e3d325, type: 2}
+  possibleLeadInstruments:
+  - {fileID: 11400000, guid: b0cb07e3f6862a64f845152a4292828a, type: 2}
+  - {fileID: 11400000, guid: 964448219f718fc4fba43b65ddd0075d, type: 2}
+  - {fileID: 11400000, guid: 3bf9b79cf7c34674191ef8560e6b3386, type: 2}
+  - {fileID: 11400000, guid: fbfaacd61632c1d4bb06ab92c8fc7d7a, type: 2}
+  - {fileID: 11400000, guid: e09d9c72d09f8e9438f57fb63c9e8f4b, type: 2}
+  - {fileID: 11400000, guid: 81165421c637f2b43af67a1af462b693, type: 2}
+  possibleTonalities: 00000000060000000b000000
+  possibleTempoRanges: 0200000003000000
+  possibleTimeSignatures: 0000000003000000
+  chordProgressionsList: {fileID: 11400000, guid: c08d55d66fef67a4a9ae14bf79989061, type: 2}
+  drumPatternsList: {fileID: 11400000, guid: d25272b09e054424a8157e061caf4bce, type: 2}
+  melodyPatternsList: {fileID: 11400000, guid: 35164b49db2512b44bdddc51d70a906f, type: 2}
