@@ -28,7 +28,7 @@ namespace MidiGenPlay
             ChordProgressionData progressionData = null)
         {
             Debug.Log($"<color=blue>Generating Chord Progression: " +
-                $"{progressionData.progressionName} with {instrument.InstrumentName}</color>");
+                $"{progressionData.displayName} with {instrument.InstrumentName}</color>");
 
             // Get chords and degrees from tonality
             var chords = MusicTheory.GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
@@ -44,7 +44,7 @@ namespace MidiGenPlay
 
             if (progressionData != null)
             {
-                Debug.Log($"Using ChordProgressionData: {progressionData.progressionName}");
+                Debug.Log($"Using ChordProgressionData: {progressionData.displayName}");
 
                 for (int repeat = 0; repeat < numRepeats; repeat++)
                 {
@@ -100,7 +100,7 @@ namespace MidiGenPlay
             int channel = 9)
         {
             Debug.Log($"<color=red>Generating Drum Track: " +
-                $"{patternData.patternName} with {percussionInstrument.InstrumentName}</color>");
+                $"{patternData.displayName} with {percussionInstrument.InstrumentName}</color>");
 
             // Extract time signature details
             var timeSignatureInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
@@ -209,7 +209,7 @@ namespace MidiGenPlay
             int channel = 0)
         {
             Debug.Log($"<color=green>Generating Melody Track: " +
-                $"{melodyPattern.melodyName} for {instrument.InstrumentName}</color>");
+                $"{melodyPattern.displayName} for {instrument.InstrumentName}</color>");
 
             // 1️⃣ Retrieve scale and time signature details
             var scale = MusicTheory.GetScaleFromTonality(tonality, rootNote);
@@ -240,7 +240,7 @@ namespace MidiGenPlay
                     if (!MusicTheory.GetNoteFromScale(
                         scale, selectedDegree, rootNote, 4, out MusicTheoryNote note))
                     {
-                        Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.melodyName}");
+                        Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.displayName}");
                         continue;
                     }
 
