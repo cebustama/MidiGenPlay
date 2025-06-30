@@ -67,10 +67,18 @@ namespace MidiGenPlay
                             ((chordData.startMeasure + (repeat * patternLength)) * beatsPerBar)
                             + MusicalTimeSpan.Quarter * chordData.startBeat;
 
+                        var playable = GetPlayableChordNotes(selectedChord, instrument);
+
+                        Debug.Log("Playable chord notes:");
+                        foreach (var n in playable)
+                        {
+                            Debug.Log(n);
+                        }
+
                         // Move to time and add chord
                         patternBuilder.MoveToTime(startTime);
                         patternBuilder.Chord(
-                            selectedChord.ResolveNotes(Octave.Middle),
+                            playable,
                             MusicalTimeSpan.Quarter * chordData.durationBeats,
                             (SevenBitNumber)chordData.velocity
                         );
@@ -224,6 +232,9 @@ namespace MidiGenPlay
             PatternBuilder patternBuilder = new PatternBuilder();
             patternBuilder.MoveToStart(); // Ensure all notes align properly
 
+            int minOct = instrument.octaveMin;
+            int maxOct = instrument.octaveMax;
+
             // 3️⃣ Repeat the melody pattern across all measures
             for (int repeat = 0; repeat < numRepeats; repeat++)
             {
@@ -236,9 +247,11 @@ namespace MidiGenPlay
                     ScaleDegree selectedDegree =
                         noteData.possibleDegrees[Random.Range(0, noteData.possibleDegrees.Count)];
 
+                    int octave = Random.Range(minOct, maxOct + 1);
+
                     // Convert scale degree to actual note
                     if (!MusicTheory.GetNoteFromScale(
-                        scale, selectedDegree, rootNote, 4, out MusicTheoryNote note))
+                        scale, selectedDegree, rootNote, octave, out MusicTheoryNote note))
                     {
                         Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.displayName}");
                         continue;
@@ -431,7 +444,7 @@ namespace MidiGenPlay
                 case TrackRole.Rhythm:
                     return GenerateRhythmTrackWithPattern(
                                 cfg.PercussionInstrument,
-                                ((DrumTrackParameters)cfg.Parameters).SelectedPattern,
+                                (DrumPatternData)cfg.Parameters.Pattern,
                                 bpm,
                                 part.TimeSignature,
                                 part.Measures,
@@ -447,12 +460,12 @@ namespace MidiGenPlay
                                 part.TimeSignature,
                                 part.Measures,
                                 channel,
-                                ((ChordTrackParameters)cfg.Parameters).SelectedPattern);
+                                (ChordProgressionData)cfg.Parameters.Pattern);
 
                 case TrackRole.Lead:
                     return GenerateMelodyTrackWithPattern(
                                 cfg.Instrument,
-                                ((MelodyTrackParameters)cfg.Parameters).SelectedPattern,
+                                (MelodyPatternData)cfg.Parameters.Pattern,
                                 part.Tonality,
                                 part.RootNote,
                                 bpm,
@@ -487,6 +500,27 @@ namespace MidiGenPlay
         {
             foreach (var chunk in source.GetTrackChunks())
                 target.Chunks.Add(chunk.Clone());
+        }
+
+        private MusicTheoryNote[] GetPlayableChordNotes(
+            MusicTheoryChord chord,
+            MIDIInstrumentSO instrument)
+        {
+            int minOct = instrument.octaveMin - 1;
+            int maxOct = instrument.octaveMax - 1;
+
+            int startOct = Random.Range(minOct, maxOct + 1);
+            Debug.Log("<color=white>" + startOct + "</color>");
+            var rawNotes = chord.ResolveNotes(Octave.Get(startOct));
+
+            foreach (var note in rawNotes)
+                Debug.Log($"note {note}");
+
+            return rawNotes
+                .Select(n => MusicTheoryNote.Get(
+                    n.NoteName,
+                    Mathf.Clamp(n.Octave, minOct, maxOct)))
+                .ToArray();
         }
     }
 }

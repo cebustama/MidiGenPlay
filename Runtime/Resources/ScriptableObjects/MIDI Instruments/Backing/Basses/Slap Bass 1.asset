@@ -23,5 +23,5 @@ MonoBehaviour:
     snareNote: 0
     hiHatClosedNote: 0
   PatchIndex: 36
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 2
+  octaveMax: 4

@@ -16,12 +16,12 @@ MonoBehaviour:
   InstrumentType: 1
   SelectedSoundFont: 8MBGMSFX
   BankName: 000
-  PatchName: 33 - Fingered Bass
+  PatchName: 36 - Slap Bass 1
   IsPercussion: 0
   percussionData:
     kickNote: 0
     snareNote: 0
     hiHatClosedNote: 0
-  PatchIndex: 33
-  octaveMin: 1
-  octaveMax: 9
+  PatchIndex: 36
+  octaveMin: 2
+  octaveMax: 4

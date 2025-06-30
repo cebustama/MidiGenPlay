@@ -48,23 +48,8 @@ namespace MidiGenPlay
     /// Base for any role-specific data (drum patterns, chord progressions, melodies…)
     /// </summary>
     [System.Serializable]
-    public abstract class TrackParameters { }
-
-    [System.Serializable]
-    public class DrumTrackParameters : TrackParameters
+    public class TrackParameters 
     {
-        public DrumPatternData SelectedPattern;
-    }
-
-    [System.Serializable]
-    public class ChordTrackParameters : TrackParameters
-    {
-        public ChordProgressionData SelectedPattern;
-    }
-
-    [System.Serializable]
-    public class MelodyTrackParameters : TrackParameters
-    {
-        public MelodyPatternData SelectedPattern;
+        public PatternDataSO Pattern;
     }
 }
