@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Harp
   InstrumentType: 6
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 40 - Violin
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
+  PatchName: 46 - Harp
   PatchIndex: 46
   octaveMin: 1
   octaveMax: 9

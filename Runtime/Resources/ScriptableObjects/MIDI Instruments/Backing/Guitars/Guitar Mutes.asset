@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Guitar Mutes
   InstrumentType: 0
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 28 - Guitar Mutes
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
   PatchIndex: 28
   octaveMin: 1
   octaveMax: 9

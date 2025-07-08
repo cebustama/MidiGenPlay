@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Orchestra Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 48 - Orchestra
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 7 - Orchestra-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 48
+  PatchIndex: 7
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

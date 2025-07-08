@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: SFX Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 56 - SFX
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 8 - SFX-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 56
+  PatchIndex: 8
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

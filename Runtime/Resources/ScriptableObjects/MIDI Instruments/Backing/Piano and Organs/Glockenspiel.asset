@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Glockenspiel
   InstrumentType: 4
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 0 - Piano 1
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
+  PatchName: 9 - Glockenspiel
   PatchIndex: 9
   octaveMin: 1
   octaveMax: 9

@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Brush Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 40 - Brush
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 6 - Brush-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 40
+  PatchIndex: 6
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

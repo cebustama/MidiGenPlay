@@ -1,0 +1,595 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 051d10d3a9a59254584fa71f2affad59, type: 3}
+  m_Name: _SoundFont Cache
+  m_EditorClassIdentifier: 
+  availableSoundFonts:
+  - name: 8MBGMSFX
+    banks:
+    - bankNumber: 0
+      patches:
+      - patchNumber: 0
+        patchName: 0 - Piano 1
+      - patchNumber: 1
+        patchName: 1 - Piano 2
+      - patchNumber: 2
+        patchName: 2 - Piano 3
+      - patchNumber: 3
+        patchName: 3 - Honky-tonk
+      - patchNumber: 4
+        patchName: 4 - E.Piano 1
+      - patchNumber: 5
+        patchName: 5 - E.Piano 2
+      - patchNumber: 6
+        patchName: 6 - Harpsichord
+      - patchNumber: 7
+        patchName: 7 - Clavinet
+      - patchNumber: 8
+        patchName: 8 - Celesta
+      - patchNumber: 9
+        patchName: 9 - Glockenspiel
+      - patchNumber: 10
+        patchName: 10 - Music Box
+      - patchNumber: 11
+        patchName: 11 - Vibraphone
+      - patchNumber: 12
+        patchName: 12 - Marimba
+      - patchNumber: 13
+        patchName: 13 - Xylophone
+      - patchNumber: 14
+        patchName: 14 - Tubular Bells
+      - patchNumber: 15
+        patchName: 15 - Dulcimer
+      - patchNumber: 16
+        patchName: 16 - Organ 1
+      - patchNumber: 17
+        patchName: 17 - Organ 2
+      - patchNumber: 18
+        patchName: 18 - Organ 3
+      - patchNumber: 19
+        patchName: 19 - Church Organ
+      - patchNumber: 20
+        patchName: 20 - Reed Organ
+      - patchNumber: 21
+        patchName: 21 - Accordion
+      - patchNumber: 22
+        patchName: 22 - Harmonica
+      - patchNumber: 23
+        patchName: 23 - Bandoneon
+      - patchNumber: 24
+        patchName: 24 - Nylon Guitar
+      - patchNumber: 25
+        patchName: 25 - Steel Guitar
+      - patchNumber: 26
+        patchName: 26 - Jazz Guitar
+      - patchNumber: 27
+        patchName: 27 - Clean Guitar
+      - patchNumber: 28
+        patchName: 28 - Guitar Mutes
+      - patchNumber: 29
+        patchName: 29 - Overdrive Guitar
+      - patchNumber: 30
+        patchName: 30 - DistortionGuitar
+      - patchNumber: 31
+        patchName: 31 - Guitar Harmonics
+      - patchNumber: 32
+        patchName: 32 - Acoustic Bass
+      - patchNumber: 33
+        patchName: 33 - Fingered Bass
+      - patchNumber: 34
+        patchName: 34 - Picked Bass
+      - patchNumber: 35
+        patchName: 35 - Fretless Bass
+      - patchNumber: 36
+        patchName: 36 - Slap Bass 1
+      - patchNumber: 37
+        patchName: 37 - Slap Bass 2
+      - patchNumber: 38
+        patchName: 38 - Synth Bass 1
+      - patchNumber: 39
+        patchName: 39 - Synth Bass 2
+      - patchNumber: 40
+        patchName: 40 - Violin
+      - patchNumber: 41
+        patchName: 41 - Viola
+      - patchNumber: 42
+        patchName: 42 - Cello
+      - patchNumber: 43
+        patchName: 43 - Contra Bass
+      - patchNumber: 44
+        patchName: 44 - Tremolo Strings
+      - patchNumber: 45
+        patchName: 45 - Pizzicato
+      - patchNumber: 46
+        patchName: 46 - Harp
+      - patchNumber: 47
+        patchName: 47 - Timpani
+      - patchNumber: 48
+        patchName: 48 - Strings
+      - patchNumber: 49
+        patchName: 49 - Slow Strings
+      - patchNumber: 50
+        patchName: 50 - Synth Strings 1
+      - patchNumber: 51
+        patchName: 51 - Synth Strings 2
+      - patchNumber: 52
+        patchName: 52 - Choir Aahs
+      - patchNumber: 53
+        patchName: 53 - Voice Oohs
+      - patchNumber: 54
+        patchName: 54 - Synth Vox
+      - patchNumber: 55
+        patchName: 55 - Orchestra Hit
+      - patchNumber: 56
+        patchName: 56 - Trumpet
+      - patchNumber: 57
+        patchName: 57 - Trombone
+      - patchNumber: 58
+        patchName: 58 - Tuba
+      - patchNumber: 59
+        patchName: 59 - Mute Trumpet
+      - patchNumber: 60
+        patchName: 60 - French Horns
+      - patchNumber: 61
+        patchName: 61 - Brass
+      - patchNumber: 62
+        patchName: 62 - Synth Brass 1
+      - patchNumber: 63
+        patchName: 63 - Synth Brass 2
+      - patchNumber: 64
+        patchName: 64 - Soprano Sax
+      - patchNumber: 65
+        patchName: 65 - Alto Sax
+      - patchNumber: 66
+        patchName: 66 - Tenor Sax
+      - patchNumber: 67
+        patchName: 67 - Baritone Sax
+      - patchNumber: 68
+        patchName: 68 - Oboe
+      - patchNumber: 69
+        patchName: 69 - English Horn
+      - patchNumber: 70
+        patchName: 70 - Bassoon
+      - patchNumber: 71
+        patchName: 71 - Clarinet
+      - patchNumber: 72
+        patchName: 72 - Piccolo
+      - patchNumber: 73
+        patchName: 73 - Flute
+      - patchNumber: 74
+        patchName: 74 - Recorder
+      - patchNumber: 75
+        patchName: 75 - Pan Flute
+      - patchNumber: 76
+        patchName: 76 - Bottle Chiff
+      - patchNumber: 77
+        patchName: 77 - Shakuhachi
+      - patchNumber: 78
+        patchName: 78 - Whistle
+      - patchNumber: 79
+        patchName: 79 - Ocarina
+      - patchNumber: 80
+        patchName: 80 - Square Wave
+      - patchNumber: 81
+        patchName: 81 - Saw Wave
+      - patchNumber: 82
+        patchName: 82 - Synth Calliope
+      - patchNumber: 83
+        patchName: 83 - Chiffer Lead
+      - patchNumber: 84
+        patchName: 84 - Charang
+      - patchNumber: 85
+        patchName: 85 - Solo Vox
+      - patchNumber: 86
+        patchName: 86 - 5th Saw Wave
+      - patchNumber: 87
+        patchName: 87 - Bass & Lead
+      - patchNumber: 88
+        patchName: 88 - Fantasia
+      - patchNumber: 89
+        patchName: 89 - Warm Pad
+      - patchNumber: 90
+        patchName: 90 - Poly Synth
+      - patchNumber: 91
+        patchName: 91 - Space Voice
+      - patchNumber: 92
+        patchName: 92 - Bowed Glass
+      - patchNumber: 93
+        patchName: 93 - Metal Pad
+      - patchNumber: 94
+        patchName: 94 - Halo Pad
+      - patchNumber: 95
+        patchName: 95 - Sweep Pad
+      - patchNumber: 96
+        patchName: 96 - Ice Rain
+      - patchNumber: 97
+        patchName: 97 - Soundtrack
+      - patchNumber: 98
+        patchName: 98 - Crystal
+      - patchNumber: 99
+        patchName: 99 - Atmosphere
+      - patchNumber: 100
+        patchName: 100 - Brightness
+      - patchNumber: 101
+        patchName: 101 - Goblin
+      - patchNumber: 102
+        patchName: 102 - Echo Drops
+      - patchNumber: 103
+        patchName: 103 - Star Theme
+      - patchNumber: 104
+        patchName: 104 - Sitar
+      - patchNumber: 105
+        patchName: 105 - Banjo
+      - patchNumber: 106
+        patchName: 106 - Shamisen
+      - patchNumber: 107
+        patchName: 107 - Koto
+      - patchNumber: 108
+        patchName: 108 - Kalimba
+      - patchNumber: 109
+        patchName: 109 - Bagpipe
+      - patchNumber: 110
+        patchName: 110 - Fiddle
+      - patchNumber: 111
+        patchName: 111 - Shenai
+      - patchNumber: 112
+        patchName: 112 - Tinker Bell
+      - patchNumber: 113
+        patchName: 113 - Agogo
+      - patchNumber: 114
+        patchName: 114 - Steel Drum
+      - patchNumber: 115
+        patchName: 115 - Wood Block
+      - patchNumber: 116
+        patchName: 116 - Taiko Drum
+      - patchNumber: 117
+        patchName: 117 - Melodic Tom
+      - patchNumber: 118
+        patchName: 118 - Synth Drum
+      - patchNumber: 119
+        patchName: 119 - Reverse Cymbal
+      - patchNumber: 120
+        patchName: 120 - Fret Noise
+      - patchNumber: 121
+        patchName: 121 - Breath Noise
+      - patchNumber: 122
+        patchName: 122 - Seashore
+      - patchNumber: 123
+        patchName: 123 - Bird
+      - patchNumber: 124
+        patchName: 124 - Telephone
+      - patchNumber: 125
+        patchName: 125 - Helicopter
+      - patchNumber: 126
+        patchName: 126 - Applause
+      - patchNumber: 127
+        patchName: 127 - Gun Shot
+    - bankNumber: 128
+      patches:
+      - patchNumber: 0
+        patchName: 0 - Standard
+      - patchNumber: 8
+        patchName: 8 - Room
+      - patchNumber: 16
+        patchName: 16 - Power
+      - patchNumber: 24
+        patchName: 24 - Electronic
+      - patchNumber: 25
+        patchName: 25 - TR 808
+      - patchNumber: 32
+        patchName: 32 - Jazz
+      - patchNumber: 40
+        patchName: 40 - Brush
+      - patchNumber: 48
+        patchName: 48 - Orchestra
+      - patchNumber: 56
+        patchName: 56 - SFX
+  - name: ALWTTT
+    banks:
+    - bankNumber: 0
+      patches:
+      - patchNumber: 0
+        patchName: 0 - Piano 1
+      - patchNumber: 1
+        patchName: 1 - Piano 2
+      - patchNumber: 2
+        patchName: 2 - Piano 3
+      - patchNumber: 3
+        patchName: 3 - Honky-tonk
+      - patchNumber: 4
+        patchName: 4 - E.Piano 1
+      - patchNumber: 5
+        patchName: 5 - E.Piano 2
+      - patchNumber: 6
+        patchName: 6 - Harpsichord
+      - patchNumber: 7
+        patchName: 7 - Clavinet
+      - patchNumber: 8
+        patchName: 8 - Celesta
+      - patchNumber: 9
+        patchName: 9 - Glockenspiel
+      - patchNumber: 10
+        patchName: 10 - Music Box
+      - patchNumber: 11
+        patchName: 11 - Vibraphone
+      - patchNumber: 12
+        patchName: 12 - Marimba
+      - patchNumber: 13
+        patchName: 13 - Xylophone
+      - patchNumber: 14
+        patchName: 14 - Tubular Bells
+      - patchNumber: 15
+        patchName: 15 - Dulcimer
+      - patchNumber: 16
+        patchName: 16 - Organ 1
+      - patchNumber: 17
+        patchName: 17 - Organ 2
+      - patchNumber: 18
+        patchName: 18 - Organ 3
+      - patchNumber: 19
+        patchName: 19 - Church Organ
+      - patchNumber: 20
+        patchName: 20 - Reed Organ
+      - patchNumber: 21
+        patchName: 21 - Accordion
+      - patchNumber: 22
+        patchName: 22 - Harmonica
+      - patchNumber: 23
+        patchName: 23 - Bandoneon
+      - patchNumber: 24
+        patchName: 24 - Nylon Guitar
+      - patchNumber: 25
+        patchName: 25 - Steel Guitar
+      - patchNumber: 26
+        patchName: 26 - Jazz Guitar
+      - patchNumber: 27
+        patchName: 27 - Clean Guitar
+      - patchNumber: 28
+        patchName: 28 - Guitar Mutes
+      - patchNumber: 29
+        patchName: 29 - Overdrive Guitar
+      - patchNumber: 30
+        patchName: 30 - DistortionGuitar
+      - patchNumber: 31
+        patchName: 31 - Guitar Harmonics
+      - patchNumber: 32
+        patchName: 32 - Acoustic Bass
+      - patchNumber: 33
+        patchName: 33 - Fingered Bass
+      - patchNumber: 34
+        patchName: 34 - Picked Bass
+      - patchNumber: 35
+        patchName: 35 - Fretless Bass
+      - patchNumber: 36
+        patchName: 36 - Slap Bass 1
+      - patchNumber: 37
+        patchName: 37 - Slap Bass 2
+      - patchNumber: 38
+        patchName: 38 - Synth Bass 1
+      - patchNumber: 39
+        patchName: 39 - Synth Bass 2
+      - patchNumber: 40
+        patchName: 40 - Violin
+      - patchNumber: 41
+        patchName: 41 - Viola
+      - patchNumber: 42
+        patchName: 42 - Cello
+      - patchNumber: 43
+        patchName: 43 - Contra Bass
+      - patchNumber: 44
+        patchName: 44 - Tremolo Strings
+      - patchNumber: 45
+        patchName: 45 - Pizzicato
+      - patchNumber: 46
+        patchName: 46 - Harp
+      - patchNumber: 47
+        patchName: 47 - Timpani
+      - patchNumber: 48
+        patchName: 48 - Strings
+      - patchNumber: 49
+        patchName: 49 - Slow Strings
+      - patchNumber: 50
+        patchName: 50 - Synth Strings 1
+      - patchNumber: 51
+        patchName: 51 - Synth Strings 2
+      - patchNumber: 52
+        patchName: 52 - Choir Aahs
+      - patchNumber: 53
+        patchName: 53 - Voice Oohs
+      - patchNumber: 54
+        patchName: 54 - Synth Vox
+      - patchNumber: 55
+        patchName: 55 - Orchestra Hit
+      - patchNumber: 56
+        patchName: 56 - Trumpet
+      - patchNumber: 57
+        patchName: 57 - Trombone
+      - patchNumber: 58
+        patchName: 58 - Tuba
+      - patchNumber: 59
+        patchName: 59 - Mute Trumpet
+      - patchNumber: 60
+        patchName: 60 - French Horns
+      - patchNumber: 61
+        patchName: 61 - Brass
+      - patchNumber: 62
+        patchName: 62 - Synth Brass 1
+      - patchNumber: 63
+        patchName: 63 - Synth Brass 2
+      - patchNumber: 64
+        patchName: 64 - Soprano Sax
+      - patchNumber: 65
+        patchName: 65 - Alto Sax
+      - patchNumber: 66
+        patchName: 66 - Tenor Sax
+      - patchNumber: 67
+        patchName: 67 - Baritone Sax
+      - patchNumber: 68
+        patchName: 68 - Oboe
+      - patchNumber: 69
+        patchName: 69 - English Horn
+      - patchNumber: 70
+        patchName: 70 - Bassoon
+      - patchNumber: 71
+        patchName: 71 - Clarinet
+      - patchNumber: 72
+        patchName: 72 - Piccolo
+      - patchNumber: 73
+        patchName: 73 - Flute
+      - patchNumber: 74
+        patchName: 74 - Recorder
+      - patchNumber: 75
+        patchName: 75 - Pan Flute
+      - patchNumber: 76
+        patchName: 76 - Bottle Chiff
+      - patchNumber: 77
+        patchName: 77 - Shakuhachi
+      - patchNumber: 78
+        patchName: 78 - Whistle
+      - patchNumber: 79
+        patchName: 79 - Ocarina
+      - patchNumber: 80
+        patchName: 80 - Square Wave
+      - patchNumber: 81
+        patchName: 81 - Saw Wave
+      - patchNumber: 82
+        patchName: 82 - Synth Calliope
+      - patchNumber: 83
+        patchName: 83 - Chiffer Lead
+      - patchNumber: 84
+        patchName: 84 - Charang
+      - patchNumber: 85
+        patchName: 85 - Solo Vox
+      - patchNumber: 86
+        patchName: 86 - 5th Saw Wave
+      - patchNumber: 87
+        patchName: 87 - Bass & Lead
+      - patchNumber: 88
+        patchName: 88 - Fantasia
+      - patchNumber: 89
+        patchName: 89 - Warm Pad
+      - patchNumber: 90
+        patchName: 90 - Poly Synth
+      - patchNumber: 91
+        patchName: 91 - Space Voice
+      - patchNumber: 92
+        patchName: 92 - Bowed Glass
+      - patchNumber: 93
+        patchName: 93 - Metal Pad
+      - patchNumber: 94
+        patchName: 94 - Halo Pad
+      - patchNumber: 95
+        patchName: 95 - Sweep Pad
+      - patchNumber: 96
+        patchName: 96 - Ice Rain
+      - patchNumber: 97
+        patchName: 97 - Soundtrack
+      - patchNumber: 98
+        patchName: 98 - Crystal
+      - patchNumber: 99
+        patchName: 99 - Atmosphere
+      - patchNumber: 100
+        patchName: 100 - Brightness
+      - patchNumber: 101
+        patchName: 101 - Goblin
+      - patchNumber: 102
+        patchName: 102 - Echo Drops
+      - patchNumber: 103
+        patchName: 103 - Star Theme
+      - patchNumber: 104
+        patchName: 104 - Sitar
+      - patchNumber: 105
+        patchName: 105 - Banjo
+      - patchNumber: 106
+        patchName: 106 - Shamisen
+      - patchNumber: 107
+        patchName: 107 - Koto
+      - patchNumber: 108
+        patchName: 108 - Kalimba
+      - patchNumber: 109
+        patchName: 109 - Bagpipe
+      - patchNumber: 110
+        patchName: 110 - Fiddle
+      - patchNumber: 111
+        patchName: 111 - Shenai
+      - patchNumber: 112
+        patchName: 112 - Tinker Bell
+      - patchNumber: 113
+        patchName: 113 - Agogo
+      - patchNumber: 114
+        patchName: 114 - Steel Drum
+      - patchNumber: 115
+        patchName: 115 - Wood Block
+      - patchNumber: 116
+        patchName: 116 - Taiko Drum
+      - patchNumber: 117
+        patchName: 117 - Melodic Tom
+      - patchNumber: 118
+        patchName: 118 - Synth Drum
+      - patchNumber: 119
+        patchName: 119 - Reverse Cymbal
+      - patchNumber: 120
+        patchName: 120 - Fret Noise
+      - patchNumber: 121
+        patchName: 121 - Breath Noise
+      - patchNumber: 122
+        patchName: 122 - Seashore
+      - patchNumber: 123
+        patchName: 123 - Bird
+      - patchNumber: 124
+        patchName: 124 - Telephone
+      - patchNumber: 125
+        patchName: 125 - Helicopter
+      - patchNumber: 126
+        patchName: 126 - Applause
+      - patchNumber: 127
+        patchName: 127 - Gun Shot
+    - bankNumber: 1
+      patches:
+      - patchNumber: 0
+        patchName: 0 - Standard-1
+      - patchNumber: 1
+        patchName: 1 - Room-1
+      - patchNumber: 2
+        patchName: 2 - Power-1
+      - patchNumber: 3
+        patchName: 3 - Electronic-1
+      - patchNumber: 4
+        patchName: 4 - TR 808-1
+      - patchNumber: 5
+        patchName: 5 - Jazz-1
+      - patchNumber: 6
+        patchName: 6 - Brush-1
+      - patchNumber: 7
+        patchName: 7 - Orchestra-1
+      - patchNumber: 8
+        patchName: 8 - SFX-1
+    - bankNumber: 128
+      patches:
+      - patchNumber: 0
+        patchName: 0 - Standard
+      - patchNumber: 8
+        patchName: 8 - Room
+      - patchNumber: 16
+        patchName: 16 - Power
+      - patchNumber: 24
+        patchName: 24 - Electronic
+      - patchNumber: 25
+        patchName: 25 - TR 808
+      - patchNumber: 32
+        patchName: 32 - Jazz
+      - patchNumber: 40
+        patchName: 40 - Brush
+      - patchNumber: 48
+        patchName: 48 - Orchestra
+      - patchNumber: 56
+        patchName: 56 - SFX

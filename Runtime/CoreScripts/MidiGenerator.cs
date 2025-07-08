@@ -337,6 +337,10 @@ namespace MidiGenPlay
                 int msb = (bankNumber >> 7) & 0x7F; // Most significant byte
                 int lsb = bankNumber & 0x7F;        // Least significant byte
 
+                // MPTK v2.13+ Assign bank number to lsb directly
+                msb = bankNumber;
+                lsb = 0;
+
                 // Add the bank select MSB
                 trackChunk.Events.Insert(
                     0, new ControlChangeEvent((SevenBitNumber)0, (SevenBitNumber)msb
@@ -364,6 +368,12 @@ namespace MidiGenPlay
                     Channel = (FourBitNumber)channel,
                     DeltaTime = 1
                 });
+
+                Debug.Log($"SetBankAndPatchEvents → " +
+                    $"CH:{channel} " +
+                    $"BANK: {bankNumber} (MSB:{msb}, LSB:{lsb}) " +
+                    $"PATCH:{presetNumber}"
+                );
             }
         }
 

@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Banjo
   InstrumentType: 0
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 105 - Banjo
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
   PatchIndex: 105
   octaveMin: 1
   octaveMax: 9

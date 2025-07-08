@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Clean Guitar
   InstrumentType: 0
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 27 - Clean Guitar
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
   PatchIndex: 27
   octaveMin: 1
   octaveMax: 9

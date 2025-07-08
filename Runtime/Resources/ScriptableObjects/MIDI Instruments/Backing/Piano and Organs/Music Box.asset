@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Music Box
   InstrumentType: 4
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 0 - Piano 1
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
+  PatchName: 10 - Music Box
   PatchIndex: 10
   octaveMin: 1
   octaveMax: 9

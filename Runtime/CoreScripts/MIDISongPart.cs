@@ -176,16 +176,16 @@ namespace MidiGenPlay
             return (60f / BPM) * totalBeats;
         }
 
-        public static TrackRole GetTrackRole(List<MIDITrack> currentTracks, MIDIInstrumentSO midiInstrument)
-        {
+        public static TrackRole GetTrackRole(
+            List<MIDITrack> currentTracks, MIDIInstrumentSO midiInstrument
+        ) {
             // Determine if each role has been assigned at least once
             bool hasRhythm = currentTracks.Exists(track => track.Role == TrackRole.Rhythm);
             bool hasBacking = currentTracks.Exists(track => track.Role == TrackRole.Backing);
             bool hasLead = currentTracks.Exists(track => track.Role == TrackRole.Lead);
 
             // Prioritize assigning roles based on remaining required roles
-            if (!hasRhythm &&
-                (midiInstrument.InstrumentType == InstrumentType.Drums|| midiInstrument.IsPercussion))
+            if (!hasRhythm && (midiInstrument.InstrumentType == InstrumentType.Drums))
             {
                 return TrackRole.Rhythm;
             }

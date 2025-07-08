@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Jazz Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 32 - Jazz
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 5 - Jazz-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 32
+  PatchIndex: 5
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

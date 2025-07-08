@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+﻿using Melanchall.DryWetMidi.MusicTheory;
 using UnityEngine;
 
 namespace MidiGenPlay
@@ -18,22 +18,13 @@ namespace MidiGenPlay
     [CreateAssetMenu(fileName = "NewMIDIInstrument", menuName = "MIDI/MIDI Instrument")]
     public class MIDIInstrumentSO : ScriptableObject
     {
+        [Header("⚠️ WARNING: DON'T SELECT MULTIPLE INSTRUMENTS ⚠️")]
+        [Space]
         public string InstrumentName;
         public InstrumentType InstrumentType;
         [SoundFontDropdown] public string SelectedSoundFont;
         [BankDropdown] public string BankName; // Store bank name for clarity
         [PatchDropdown] public string PatchName;
-        public bool IsPercussion;
-
-        // TODO: Only show the following fields if isPercussion is true
-        [System.Serializable]
-        public class PercussionData
-        {
-            public int kickNote;
-            public int snareNote;
-            public int hiHatClosedNote;
-        }
-        public PercussionData percussionData;
 
         public int PatchIndex;
 

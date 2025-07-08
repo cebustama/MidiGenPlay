@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Power Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 16 - Power
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 2 - Power-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 16
+  PatchIndex: 2
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

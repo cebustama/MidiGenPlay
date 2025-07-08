@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Cello
   InstrumentType: 6
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 40 - Violin
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
+  PatchName: 42 - Cello
   PatchIndex: 42
   octaveMin: 1
   octaveMax: 9

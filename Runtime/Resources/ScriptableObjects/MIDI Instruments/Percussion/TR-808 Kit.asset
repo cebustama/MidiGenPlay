@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: TR-808 Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 25 - TR 808
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 4 - TR 808-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 25
+  PatchIndex: 4
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

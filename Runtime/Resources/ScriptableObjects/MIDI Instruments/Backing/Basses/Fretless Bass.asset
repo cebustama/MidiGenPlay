@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Fretless Bass
   InstrumentType: 1
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 36 - Slap Bass 1
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 36
+  PatchName: 35 - Fretless Bass
+  PatchIndex: 35
   octaveMin: 2
   octaveMax: 4

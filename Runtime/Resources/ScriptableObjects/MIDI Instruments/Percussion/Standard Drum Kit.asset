@@ -14,14 +14,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Standard Drum Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 0 - Standard
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 0 - Standard-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
   PatchIndex: 0
   octaveMin: 1
   octaveMax: 9

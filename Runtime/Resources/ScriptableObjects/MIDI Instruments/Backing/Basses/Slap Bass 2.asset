@@ -14,14 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Slap Bass 2
   InstrumentType: 1
-  SelectedSoundFont: 8MBGMSFX
+  SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 36 - Slap Bass 1
-  IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 36
+  PatchName: 37 - Slap Bass 2
+  PatchIndex: 37
   octaveMin: 2
-  octaveMax: 4
+  octaveMax: 3

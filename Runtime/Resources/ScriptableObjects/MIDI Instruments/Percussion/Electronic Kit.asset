@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Electronic Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 24 - Electronic
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 3 - Electronic-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 24
+  PatchIndex: 3
   octaveMin: 1
   octaveMax: 9
   percussionMappings:

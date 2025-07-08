@@ -14,15 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   InstrumentName: Room Kit
   InstrumentType: 2
-  SelectedSoundFont: 8MBGMSFX
-  BankName: 128
-  PatchName: 8 - Room
+  SelectedSoundFont: ALWTTT
+  BankName: 001
+  PatchName: 1 - Room-1
   IsPercussion: 0
-  percussionData:
-    kickNote: 0
-    snareNote: 0
-    hiHatClosedNote: 0
-  PatchIndex: 8
+  PatchIndex: 1
   octaveMin: 1
   octaveMax: 9
   percussionMappings:
