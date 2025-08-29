@@ -136,15 +136,23 @@ namespace MidiGenPlay
         public static List<Note> GetNotesFromScale(
             Scale scale, NoteName startingNoteName, int startingOctave, int numberOfNotes)
         {
+            UnityEngine.Debug.Log($"Starting Note Name {startingNoteName} +" +
+                $"Starting Octave {startingOctave}");
+
+            if (startingOctave == 9) startingOctave = 8; // TEMP FOR SAFETY
             Note startingNote = Note.Get(startingNoteName, startingOctave);
             List<Note> ascendingNotes = ScaleUtilities.GetAscendingNotes(scale, startingNote).ToList();
 
             int numberOfIntervals = scale.Intervals.Count();
 
+            UnityEngine.Debug.Log($"Scale Notes #{ascendingNotes.Count}, " +
+                $"Note #{numberOfNotes}, Interval #{numberOfIntervals}");
+
             List<Note> notes = new List<Note>();
             for (int i = 0; i < numberOfNotes; i++)
             {
                 int noteIndex = i % numberOfIntervals; // Wrap around the scale if needed
+                if (noteIndex >= ascendingNotes.Count) noteIndex %= ascendingNotes.Count;
                 Note currentNote = ascendingNotes[noteIndex];
 
                 // Adjust the octave if we are wrapping to a higher octave

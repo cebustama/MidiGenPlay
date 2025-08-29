@@ -1,6 +1,9 @@
 ﻿using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
+using MidiGenPlay.Interfaces;
+using MidiGenPlay.Services;
+using MidiGenPlay.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -72,9 +75,6 @@ namespace MidiGenPlay
         private List<MIDIPercussionInstrumentSO> percInstruments;
         private List<SongConfigSO> availableConfigs = new List<SongConfigSO>();
 
-        private List<DrumPatternData> allDrumPatterns;
-        private List<ChordProgressionData> allChordProgressions;
-        private List<MelodyPatternData> allMelodyPatterns;
         private List<DrumPatternData> drumPatterns;
         private List<ChordProgressionData> chordProgressions;
         private List<MelodyPatternData> melodyPatterns;
@@ -82,15 +82,37 @@ namespace MidiGenPlay
         private IPlayMidi midiPlayer => midiPlayerAdapter as IPlayMidi;
         private MidiGenerator midiGenerator;
 
+        // Services
+        private IInstrumentRepository instrumentRepo;
+        private IPatternRepository patternRepo;
+        private ISequenceSerializer sequenceSerializer;
+        private IMidiPlayback midiPlayback;
+
+        private Dictionary<TrackRole, ITrackRoleUIController> roleControllers;
+
         private void Awake()
         {
             if (midiPlayer == null)
+            {
                 Debug.LogError($"{nameof(midiPlayerAdapter)} must implement IPlayMidi");
+                return;
+            }
+            else
+            {
+                midiPlayback = new MidiPlayback(midiPlayer);
+            }
 
             songConfig = new SongConfig();
             songConfig.Parts = new List<SongConfig.PartConfig>();
 
+            instrumentRepo = new InstrumentRepositoryResources();
+            patternRepo = new PatternRepositoryResources();
+            sequenceSerializer = new SequenceSerializer();
+
             PopulateAllDropdowns();
+
+            BuildUIControllers();
+
             SubscribeUIChanges();
 
             newPartButton.onClick.AddListener(AddNewPart);
@@ -99,9 +121,9 @@ namespace MidiGenPlay
             midiGenerator = new MidiGenerator();
 
             generateButton.onClick.AddListener(OnGenerateAndPlay);
-
+#if UNITY_EDITOR
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
-
+#endif
             AddNewPart();
         }
 
@@ -127,46 +149,72 @@ namespace MidiGenPlay
             // Track Roles
             PopulateDropdownFromEnum<TrackRole>(trackRoleDropdown);
 
-            // Patterns
-            allDrumPatterns = Resources
-                .LoadAll<DrumPatternData>("ScriptableObjects/Patterns/Drums")
-                .ToList();
-            allChordProgressions = Resources
-                .LoadAll<ChordProgressionData>("ScriptableObjects/Patterns/Chords")
-                .ToList();
-            allMelodyPatterns = Resources
-                .LoadAll<MelodyPatternData>("ScriptableObjects/Patterns/Melodies")
-                .ToList();
+            patternRepo.Refresh();
+        }
+
+        private void BuildUIControllers()
+        {
+            // Build role controllers
+            roleControllers = new Dictionary<TrackRole, ITrackRoleUIController>
+            {
+                {
+                    TrackRole.Rhythm,
+                    new RhythmRoleUIController(
+                        drumSettingsPanel,
+                        drumPatternDropdown,
+                        percInstrumentDropdown,
+                        percInstrumentDropdown.transform.parent, // group to toggle
+                        percInstruments,
+                        patternRepo
+                    )
+                },
+                {
+                    TrackRole.Backing,
+                    new BackingRoleUIController(
+                        chordSettingsPanel,
+                        chordProgressionDropdown,
+                        melodicInstrumentDropdown,
+                        melodicInstrumentDropdown.transform.parent, // group to toggle
+                        pianoKeysPanel,
+                        melodicInstruments,
+                        patternRepo
+                    )
+                },
+                {
+                    TrackRole.Lead,
+                    new LeadRoleUIController(
+                        melodySettingsPanel,
+                        melodyPatternDropdown,
+                        melodicInstrumentDropdown,
+                        melodicInstrumentDropdown.transform.parent, // group to toggle
+                        pianoKeysPanel,
+                        melodicInstruments,
+                        patternRepo
+                    )
+                }
+            };
+
+            // Initial pattern lists per role based on current TS
+            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
 
             FilterAndRefreshPatternLists((MusicTheory.TimeSignature)timeSignatureDropdown.value);
         }
 
         private void PopulateInstruments()
         {
-            // load everything under your “MIDI Instruments” Resources folder
-            var all = Resources
-                .LoadAll<MIDIInstrumentSO>("ScriptableObjects/MIDI Instruments")
-                .ToList();
+            instrumentRepo.Refresh();
 
-            // pick out the percussion subclass…
-            percInstruments = all
-                .OfType<MIDIPercussionInstrumentSO>()
-                .ToList();
-
-            // …and everything else is “melodic”
-            melodicInstruments = all
-                .Where(i => !(i is MIDIPercussionInstrumentSO))
-                .ToList();
+            melodicInstruments = instrumentRepo.GetMelodicInstruments().ToList();
+            percInstruments = instrumentRepo.GetPercussionInstruments().ToList();
 
             melodicInstrumentDropdown.ClearOptions();
             melodicInstrumentDropdown.AddOptions(
-                melodicInstruments.Select(i => i.InstrumentName).ToList()
-            );
+                melodicInstruments.Select(i => i.InstrumentName).ToList());
 
             percInstrumentDropdown.ClearOptions();
             percInstrumentDropdown.AddOptions(
-                percInstruments.Select(i => i.InstrumentName).ToList()
-            );
+                percInstruments.Select(i => i.InstrumentName).ToList());
         }
 
         private void PopulateLoadConfigDropdown()
@@ -267,7 +315,9 @@ namespace MidiGenPlay
                 .ToList();
 
             // 2) repopulate the sequence input
-            sequenceInputField.SetTextWithoutNotify(SerializeStructure());
+            sequenceInputField.SetTextWithoutNotify(
+                sequenceSerializer.Serialize(songConfig.Structure)
+            );
 
             // 3) rebuild the Part tabs
             ClearAllPartTabs();
@@ -579,23 +629,7 @@ namespace MidiGenPlay
             var cfg = tracks[index];
             cfg.Role = (TrackRole)trackRoleDropdown.value;
 
-            switch (cfg.Role)
-            {
-                case TrackRole.Rhythm:
-                    cfg.Parameters.Pattern = drumPatterns[drumPatternDropdown.value];
-                    cfg.PercussionInstrument = percInstruments[percInstrumentDropdown.value];
-                    break;
-                case TrackRole.Backing:
-                    cfg.Parameters.Pattern =
-                        chordProgressions[chordProgressionDropdown.value];
-                    cfg.Instrument = melodicInstruments[melodicInstrumentDropdown.value];
-                    break;
-                case TrackRole.Lead:
-                    cfg.Parameters.Pattern =
-                        melodyPatterns[melodyPatternDropdown.value];
-                    cfg.Instrument = melodicInstruments[melodicInstrumentDropdown.value];
-                    break;
-            }
+            roleControllers[cfg.Role].SaveFromUI(cfg);
         }
 
         private void LoadTrack(int index)
@@ -604,123 +638,51 @@ namespace MidiGenPlay
             var cfg = tracks[index];
             trackRoleDropdown.SetValueWithoutNotify((int)cfg.Role);
 
-            switch (cfg.Role)
-            {
-                case TrackRole.Rhythm:
-                    percInstrumentDropdown.SetValueWithoutNotify(
-                        percInstruments.IndexOf(cfg.PercussionInstrument)
-                    );
-                    percInstrumentDropdown.RefreshShownValue();
+            roleControllers[TrackRole.Rhythm].Deactivate();
+            roleControllers[TrackRole.Backing].Deactivate();
+            roleControllers[TrackRole.Lead].Deactivate();
 
-                    //Debug.Log(((DrumTrackParameters)cfg.Parameters).SelectedPattern.patternName);
-                    drumPatternDropdown.SetValueWithoutNotify(
-                        drumPatterns.IndexOf((DrumPatternData)cfg.Parameters.Pattern)
-                    );
-                    drumPatternDropdown.RefreshShownValue();
+            // Ensure pattern dropdowns reflect current TS (if user changed TS before selecting track)
+            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            roleControllers[cfg.Role].RefreshPatterns(ts);
 
-                    percInstrumentDropdown.transform.parent.gameObject.SetActive(true);
-                    melodicInstrumentDropdown.transform.parent.gameObject.SetActive(false);
-                    break;
-                case TrackRole.Backing:
-                    melodicInstrumentDropdown.SetValueWithoutNotify(
-                        melodicInstruments.IndexOf(cfg.Instrument)
-                    );
-                    chordProgressionDropdown.SetValueWithoutNotify(
-                        chordProgressions.IndexOf(
-                            (ChordProgressionData)cfg.Parameters.Pattern
-                    ));
+            // Push cfg → UI
+            roleControllers[cfg.Role].LoadIntoUI(cfg);
 
-                    percInstrumentDropdown.transform.parent.gameObject.SetActive(false);
-                    melodicInstrumentDropdown.transform.parent.gameObject.SetActive(true);
-                    break;
-                case TrackRole.Lead:
-                    melodicInstrumentDropdown.SetValueWithoutNotify(
-                        melodicInstruments.IndexOf(cfg.Instrument)
-                    );
-                    melodyPatternDropdown.SetValueWithoutNotify(
-                        melodyPatterns.IndexOf(
-                            (MelodyPatternData)cfg.Parameters.Pattern
-                    ));
-
-                    percInstrumentDropdown.transform.parent.gameObject.SetActive(false);
-                    melodicInstrumentDropdown.transform.parent.gameObject.SetActive(true);
-                    break;
-            }
+            // Show the right panel + instrument group and set piano range if melodic
+            roleControllers[cfg.Role].Activate(cfg);
         }
         #endregion
 
         private void OnRoleChanged()
         {
-            // persist current UI
-            //SaveTrack(activeTrack);
-
             var role = (TrackRole)trackRoleDropdown.value;
-            // show only the matching panel
-            drumSettingsPanel.SetActive(role == TrackRole.Rhythm);
-            chordSettingsPanel.SetActive(role == TrackRole.Backing);
-            melodySettingsPanel.SetActive(role == TrackRole.Lead);
-            pianoKeysPanel.gameObject.SetActive(role != TrackRole.Rhythm);
 
-            // activate the corresponding dropdown
-            percInstrumentDropdown.transform.parent.gameObject.SetActive(role == TrackRole.Rhythm);
-            melodicInstrumentDropdown.transform.parent.gameObject.SetActive(role != TrackRole.Rhythm);
+            roleControllers[TrackRole.Rhythm].Deactivate();
+            roleControllers[TrackRole.Backing].Deactivate();
+            roleControllers[TrackRole.Lead].Deactivate();
 
-            // load the correct instrument for this track
-            var cfg = tracks[activeTrack];
-            if (role == TrackRole.Rhythm)
+            if (activeTrack >= 0 && activeTrack < tracks.Count)
             {
-                // find existing percussion kit index, default to 0
-                int idx = percInstruments.IndexOf(cfg.PercussionInstrument);
-                idx = Mathf.Clamp(idx, 0, percInstruments.Count - 1);
-                percInstrumentDropdown.SetValueWithoutNotify(idx);
-                percInstrumentDropdown.RefreshShownValue();
-            }
-            else
-            {
-                int idx = melodicInstruments.IndexOf(cfg.Instrument);
-                idx = Mathf.Clamp(idx, 0, melodicInstruments.Count - 1);
-                melodicInstrumentDropdown.SetValueWithoutNotify(idx);
-                melodicInstrumentDropdown.RefreshShownValue();
+                var cfg = tracks[activeTrack];
+                cfg.Role = role;
+                pianoKeysPanel.gameObject.SetActive(role != TrackRole.Rhythm);
 
-                var instrument = melodicInstruments[melodicInstrumentDropdown.value];
-                pianoKeysPanel.SetInteractableRange(instrument.octaveMin, instrument.octaveMax);
-            }
+                // Show panel + correct instrument group; set piano range for melodic
+                roleControllers[role].Activate(cfg);
 
-            // save the newly‐selected (first) instrument
-            SaveTrack(activeTrack);
+                // Optional: ensure UI matches cfg (esp. first-time selection)
+                roleControllers[role].LoadIntoUI(cfg);
+
+                // Persist immediately so subsequent actions operate on consistent state
+                roleControllers[role].SaveFromUI(cfg);
+            }
         }
 
         private void FilterAndRefreshPatternLists(MusicTheory.TimeSignature ts)
         {
-            // 1) pick only the patterns that match this TS…
-            drumPatterns = allDrumPatterns
-                .Where(p => p.timeSignature == ts)
-                .ToList();
-            chordProgressions = allChordProgressions
-                .Where(p => p.timeSignature == ts)
-                .ToList();
-            melodyPatterns = allMelodyPatterns
-                .Where(p => p.timeSignature == ts)
-                .ToList();
-
-            // 2) re-populate each dropdown
-            drumPatternDropdown.ClearOptions();
-            drumPatternDropdown.AddOptions(drumPatterns
-                .Select(p => p.displayName)
-                .ToList());
-            chordProgressionDropdown.ClearOptions();
-            chordProgressionDropdown.AddOptions(chordProgressions
-                .Select(p => p.displayName)
-                .ToList());
-            melodyPatternDropdown.ClearOptions();
-            melodyPatternDropdown.AddOptions(melodyPatterns
-                .Select(p => p.displayName)
-                .ToList());
-
-            // 3) reset to the first element if there is one
-            if (drumPatterns.Count > 0) drumPatternDropdown.value = 0;
-            if (chordProgressions.Count > 0) chordProgressionDropdown.value = 0;
-            if (melodyPatterns.Count > 0) melodyPatternDropdown.value = 0;
+            foreach (var c in roleControllers.Values)
+                c.RefreshPatterns(ts);
         }
 
         private void OnGenerateAndPlay()
@@ -730,86 +692,36 @@ namespace MidiGenPlay
 
             var fullSong = new MidiFile();
 
-            ParseSequence();
+            UpdateStructureFromInput();
 
             fullSong = midiGenerator.GenerateSong(songConfig);
             foreach (var chunk in fullSong.GetTrackChunks())
                 Debug.Log($"Chunk has {chunk.Events.Count} events; last event at " +
                     $"{chunk.GetTimedEvents().Max(e => e.Time)} ticks");
 
-            Play(fullSong);
+            midiPlayback.Play(fullSong);
         }
 
-        private void ParseSequence()
+        private void UpdateStructureFromInput()
         {
-            // start fresh
-            songConfig.Structure = new List<SongConfig.PartSequenceEntry>();
-
-            string raw = sequenceInputField.text;
-            if (string.IsNullOrWhiteSpace(raw))
+            if (sequenceSerializer.TryParse(sequenceInputField.text,
+                                            songConfig.Parts?.Count ?? 0,
+                                            out var parsed,
+                                            out var warnings))
             {
-                Debug.LogWarning("Sequence input is empty. Nothing to parse.");
-                return;
+                songConfig.Structure = parsed;
+            }
+            else
+            {
+                // empty or invalid → clear structure
+                songConfig.Structure = new List<SongConfig.PartSequenceEntry>();
             }
 
-            // split on commas
-            var tokens = raw.Split(',');
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                string t = tokens[i].Trim();
-                if (!int.TryParse(t, out int partNumber))
-                {
-                    Debug.LogWarning($"Invalid sequence entry '{t}' at position {i}. Skipping.");
-                    continue;
-                }
-
-                // convert 1-based to 0-based index
-                int idx = partNumber - 1;
-
-                // clamp if out of range
-                if (idx < 0 || idx >= songConfig.Parts.Count)
-                {
-                    int clampedNumber = Mathf.Clamp(partNumber, 1, songConfig.Parts.Count);
-                    Debug.LogWarning(
-                        $"Part number {partNumber} is out of range. " +
-                        $"Using part {clampedNumber} instead."
-                    );
-                    idx = clampedNumber - 1;
-                }
-
-                // add to structure (always 1 repeat)
-                songConfig.Structure.Add(new SongConfig.PartSequenceEntry
-                {
-                    PartIndex = idx,
-                    RepeatCount = 1
-                });
-            }
+            // surface warnings
+            foreach (var w in warnings)
+                Debug.LogWarning(w);
         }
 
-        /// <summary>
-        /// e.g. if Structure = [ {PartIndex=0}, {PartIndex=2}, {PartIndex=0} ],
-        /// returns "1,3,1"
-        /// </summary>
-        private string SerializeStructure()
-        {
-            return string.Join(",",
-                songConfig.Structure
-                          .Select(e => (e.PartIndex + 1).ToString()));
-        }
-
-        private void Play(MidiFile midi)
-        {
-            // Convert MidiFile → byte[] 
-            byte[] data;
-            using (var ms = new System.IO.MemoryStream())
-            {
-                midi.Write(ms);
-                data = ms.ToArray();
-            }
-
-            midiPlayer.Stop();      // stop any existing playback
-            midiPlayer.Play(data);  // start the new song
-        }
 
 #if UNITY_EDITOR
         private void OnSaveConfigClicked()
@@ -844,7 +756,7 @@ namespace MidiGenPlay
 
             so.Config.Structure = new List<SongConfig.PartSequenceEntry>();
 
-            ParseSequence();
+            UpdateStructureFromInput();
 
             so.Config.Structure = songConfig.Structure
                 .Select(e => new SongConfig.PartSequenceEntry

@@ -15,6 +15,8 @@ namespace MidiGenPlay
 {
     public class MidiGenerator
     {
+        private const string DebugTag = "<color=green>[MidiGenerator]</color>";
+
         // TODO: Separar generación de creación de midi file
         public MidiFile GenerateChordProgressionMidiTrackFile(
             MIDIInstrumentSO instrument,
@@ -216,8 +218,12 @@ namespace MidiGenPlay
             int measures = 4,
             int channel = 0)
         {
+            if (melodyPattern == null) Debug.LogError("EMPTY MELODY PATTERN");
+            if (instrument == null) Debug.LogError("EMPTY INSTRUMENT");
+
             Debug.Log($"<color=green>Generating Melody Track: " +
-                $"{melodyPattern.displayName} for {instrument.InstrumentName}</color>");
+                $"{melodyPattern.displayName} for {instrument.InstrumentName}</color> " +
+                $"Tonality: {tonality.ToString()}");
 
             // 1️⃣ Retrieve scale and time signature details
             var scale = MusicTheory.GetScaleFromTonality(tonality, rootNote);
@@ -390,6 +396,8 @@ namespace MidiGenPlay
 
         public MidiFile GenerateSong(SongConfig song)
         {
+            Debug.Log($"{DebugTag} Generating Midi for song");
+
             var fullSong = new MidiFile();
             long currentTicks = 0;  // where the next part begins
 
