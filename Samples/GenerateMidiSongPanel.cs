@@ -87,6 +87,7 @@ namespace MidiGenPlay
         private IPatternRepository patternRepo;
         private ISequenceSerializer sequenceSerializer;
         private IMidiPlayback midiPlayback;
+        private ISongConfigStore configStore;
 
         private Dictionary<TrackRole, ITrackRoleUIController> roleControllers;
 
@@ -104,15 +105,14 @@ namespace MidiGenPlay
 
             songConfig = new SongConfig();
             songConfig.Parts = new List<SongConfig.PartConfig>();
+            configStore = new SongConfigStoreResources();
 
             instrumentRepo = new InstrumentRepositoryResources();
             patternRepo = new PatternRepositoryResources();
             sequenceSerializer = new SequenceSerializer();
 
             PopulateAllDropdowns();
-
             BuildUIControllers();
-
             SubscribeUIChanges();
 
             newPartButton.onClick.AddListener(AddNewPart);
@@ -219,25 +219,21 @@ namespace MidiGenPlay
 
         private void PopulateLoadConfigDropdown()
         {
-            // 1) clear old options
             loadConfigDropdown.ClearOptions();
 
-            // 2) load all SongConfigSO assets in Resources/ScriptableObjects/Song Configs
-            availableConfigs = Resources
-                .LoadAll<SongConfigSO>("ScriptableObjects/Song Configs")
-                .ToList();
+            configStore.Refresh();
+            availableConfigs = configStore.GetAll().ToList();
 
-            // 3) build a list of display names, starting with "-"    
             var optionNames = new List<string> { "-" };
             optionNames.AddRange(availableConfigs.Select(so => so.name));
 
-            // 4) add them to the dropdown
             loadConfigDropdown.AddOptions(optionNames
                 .Select(n => new TMP_Dropdown.OptionData(n))
                 .ToList());
             loadConfigDropdown.RefreshShownValue();
 
-            // 5) hook the change callback
+            // Make sure we don't double-subscribe if this gets called again
+            loadConfigDropdown.onValueChanged.RemoveAllListeners();
             loadConfigDropdown.onValueChanged.AddListener(OnLoadConfigDropdownChanged);
         }
 
@@ -281,38 +277,8 @@ namespace MidiGenPlay
 
         private void LoadSongConfigSO(SongConfigSO so)
         {
-            // 1) copy the SO’s data into our runtime config
-            songConfig.Parts = so.Config.Parts
-                .Select(p => new SongConfig.PartConfig
-                {
-                    Name = p.Name,
-                    Tonality = p.Tonality,
-                    RootNote = p.RootNote,
-                    TempoRange = p.TempoRange,
-                    TimeSignature = p.TimeSignature,
-                    Measures = p.Measures,
-                    Tracks = p.Tracks
-                        .Select(t => new SongConfig.PartConfig.TrackConfig
-                        {
-                            Instrument = t.Instrument,
-                            PercussionInstrument = t.PercussionInstrument,
-                            Role = t.Role,
-                            Parameters = new TrackParameters
-                            {
-                                Pattern = t.Parameters.Pattern
-                            }
-                        })
-                        .ToList()
-                })
-                .ToList();
-
-            songConfig.Structure = so.Config.Structure
-                .Select(e => new SongConfig.PartSequenceEntry
-                {
-                    PartIndex = e.PartIndex,
-                    RepeatCount = e.RepeatCount
-                })
-                .ToList();
+            // Use the store to produce a deep runtime clone from the asset
+            songConfig = configStore.CloneFromAsset(so);
 
             // 2) repopulate the sequence input
             sequenceInputField.SetTextWithoutNotify(
@@ -329,17 +295,14 @@ namespace MidiGenPlay
                 tab.gameObject.SetActive(true);
                 tab.Initialize(i, this, pd.Name);
 
-                // Set first as active
                 if (i == 0) tab.SetActiveVisual(true);
             }
 
-            // make sure your “+” button is still last
             newPartButton.transform.SetAsLastSibling();
 
             // 4) finally load the very first part into the UI
             SelectPart(0);
         }
-
 
         private void SubscribeUIChanges()
         {
@@ -722,54 +685,17 @@ namespace MidiGenPlay
                 Debug.LogWarning(w);
         }
 
-
 #if UNITY_EDITOR
         private void OnSaveConfigClicked()
         {
-            // Prompt for asset path & name
-            string path = UnityEditor.EditorUtility
-                .SaveFilePanelInProject(
-                    "Save SongConfig",
-                    "NewSongConfig",
-                    "asset",
-                    "Choose a location in your project"
-                );
-            if (string.IsNullOrEmpty(path)) return;
+            // Ensure Structure is in sync with the input field
+            UpdateStructureFromInput();  // (uses your SequenceSerializer)
 
-            // Create and populate a new SO
-            var so = ScriptableObject.CreateInstance<SongConfigSO>();
-            so.Config = new SongConfig();
-            so.Config.Parts = new List<SongConfig.PartConfig>();
+            // Delegate the asset save (dialog + AssetDatabase) to the store
+            configStore.SaveNewAsset(songConfig);
 
-            so.Config.Parts = songConfig.Parts
-                .Select(p => new SongConfig.PartConfig
-                {
-                    Name = p.Name,
-                    Tonality = p.Tonality,
-                    RootNote = p.RootNote,
-                    TempoRange = p.TempoRange,
-                    TimeSignature = p.TimeSignature,
-                    Measures = p.Measures,
-                    Tracks = p.Tracks.Select(t => t).ToList()
-                })
-                .ToList();
-
-            so.Config.Structure = new List<SongConfig.PartSequenceEntry>();
-
-            UpdateStructureFromInput();
-
-            so.Config.Structure = songConfig.Structure
-                .Select(e => new SongConfig.PartSequenceEntry
-                {
-                    PartIndex = e.PartIndex,
-                    RepeatCount = e.RepeatCount
-                })
-                .ToList();
-
-            // Save it into your project
-            UnityEditor.AssetDatabase.CreateAsset(so, path);
-            UnityEditor.AssetDatabase.SaveAssets();
-            UnityEditor.AssetDatabase.Refresh();
+            // Refresh the dropdown so the new asset appears immediately
+            PopulateLoadConfigDropdown();
         }
 #endif
     }
