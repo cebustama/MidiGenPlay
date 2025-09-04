@@ -43,6 +43,7 @@ namespace MidiGenPlay.UI
         private readonly List<List<PatternGridCell>> grid = new();
 
         public event Action<int, int, bool> OnCellToggled;
+        public event Action<int, int> OnCellClicked;
 
         public void Build(int rows, int measures, int beatsPerMeasure, int subdivisions = 1,
                           Func<int, int, bool> initialState = null)
@@ -73,6 +74,7 @@ namespace MidiGenPlay.UI
                     else if (isBeat) accent = beatAccent;
 
                     cell.Initialize(r, s, startOn, accent);
+                    cell.Clicked += _ => OnCellClicked?.Invoke(cell.Row, cell.Step);
                     cell.Toggled += HandleToggled;
                     row.Add(cell);
                 }

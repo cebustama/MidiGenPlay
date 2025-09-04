@@ -74,6 +74,7 @@ GameObject:
   - component: {fileID: 2764524596071462087}
   - component: {fileID: 2218929784869404140}
   - component: {fileID: 38985988062667527}
+  - component: {fileID: 8486211524363376582}
   m_Layer: 5
   m_Name: PatternGrid
   m_TagString: Untagged
@@ -126,6 +127,12 @@ MonoBehaviour:
   cellPrefab: {fileID: 2258829342361727699, guid: 17dc9063e8a0aba47855efde3795f6df, type: 3}
   barAccent: {r: 1, g: 1, b: 1, a: 0.04}
   beatAccent: {r: 1, g: 1, b: 1, a: 0.08}
+  fitToContentWidth: 1
+  fitToContentHeight: 1
+  minCellWidth: 12
+  maxCellWidth: 0
+  minCellHeight: 16
+  maxCellHeight: 0
 --- !u!114 &2218929784869404140
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -186,6 +193,21 @@ MonoBehaviour:
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &8486211524363376582
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7847047081286904155}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97fef33c0fecf904a9608787601f2be7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  grid: {fileID: 2764524596071462087}
+  popup: {fileID: 0}
+  progression: {fileID: 0}
 --- !u!1001 &8364405565406922472
 PrefabInstance:
   m_ObjectHideFlags: 0

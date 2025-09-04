@@ -15,11 +15,26 @@ MonoBehaviour:
   displayName: DefaultFourFour
   timeSignature: 0
   measures: 4
-  tonalities: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d00000013000000
+  tonalities: 03000000
   subdivisions: 1
   events:
   - startStep: 0
     lengthSteps: 4
+    degree: 1
+    quality: 1
+    velocity: 100
+  - startStep: 4
+    lengthSteps: 4
+    degree: 3
+    quality: 0
+    velocity: 100
+  - startStep: 8
+    lengthSteps: 4
+    degree: 1
+    quality: 0
+    velocity: 100
+  - startStep: 12
+    lengthSteps: 4
     degree: 0
     quality: 0
-    velocity: 0
+    velocity: 100

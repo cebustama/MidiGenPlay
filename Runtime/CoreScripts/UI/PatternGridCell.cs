@@ -1,11 +1,12 @@
 using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace MidiGenPlay.UI
 {
     /// <summary>A single interactive cell in the PatternGrid.</summary>
-    public class PatternGridCell : MonoBehaviour
+    public class PatternGridCell : MonoBehaviour, IPointerClickHandler
     {
         [SerializeField] private Toggle toggle; // optional, can be null for label-only cells
         [SerializeField] private Image bg;  // to draw accents/highlights
@@ -13,6 +14,7 @@ namespace MidiGenPlay.UI
         public int Row { get; private set; }
         public int Step { get; private set; }   // 0..(totalSteps-1)
         public event Action<PatternGridCell, bool> Toggled;
+        public event Action<PatternGridCell> Clicked;
 
         public void Initialize(int row, int step, bool initial, Color? accent = null)
         {
@@ -37,6 +39,11 @@ namespace MidiGenPlay.UI
         }
 
         public bool IsActive => toggle != null && toggle.isOn;
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            Clicked?.Invoke(this);
+        }
     }
 
 }
