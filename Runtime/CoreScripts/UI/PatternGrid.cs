@@ -45,6 +45,14 @@ namespace MidiGenPlay.UI
         public event Action<int, int, bool> OnCellToggled;
         public event Action<int, int> OnCellClicked;
 
+        public event Action OnRebuilt;   // raised after Build() and RecomputeCellSize()
+
+        public float CellWidth => layout != null ? layout.cellSize.x : 0f;
+        public float CellHeight => layout != null ? layout.cellSize.y : 0f;
+        public Vector2 Spacing => layout != null ? layout.spacing : Vector2.zero;
+        public RectOffset Padding => layout != null ? layout.padding : new RectOffset();
+        public RectTransform ContentRect => content;
+
         public void Build(int rows, int measures, int beatsPerMeasure, int subdivisions = 1,
                           Func<int, int, bool> initialState = null)
         {
@@ -202,6 +210,14 @@ namespace MidiGenPlay.UI
                 sr.horizontal = horizScrollNeeded;
                 sr.vertical = vertScrollNeeded;
             }
+
+            OnRebuilt?.Invoke();
+        }
+
+        public float StepToLocalX(int step)
+        {
+            // left padding + (cellW + spacingX) * step
+            return Padding.left + (CellWidth + Spacing.x) * step;
         }
     }
 }

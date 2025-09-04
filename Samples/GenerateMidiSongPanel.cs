@@ -341,7 +341,12 @@ namespace MidiGenPlay
 
             // Patterns
             drumPatternDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
-            chordProgressionDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
+
+            chordProgressionDropdown.onValueChanged.AddListener(_ =>
+            {
+                SaveTrack(activeTrack);
+            });
+
             melodyPatternDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
         }
 

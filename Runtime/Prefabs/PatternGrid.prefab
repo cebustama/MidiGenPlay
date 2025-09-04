@@ -72,9 +72,9 @@ GameObject:
   - component: {fileID: 677184043227806636}
   - component: {fileID: 7413592060188672293}
   - component: {fileID: 2764524596071462087}
+  - component: {fileID: 8486211524363376582}
   - component: {fileID: 2218929784869404140}
   - component: {fileID: 38985988062667527}
-  - component: {fileID: 8486211524363376582}
   m_Layer: 5
   m_Name: PatternGrid
   m_TagString: Untagged
@@ -94,6 +94,7 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 3613515097411085852}
   - {fileID: 2682836306686227161}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -133,6 +134,22 @@ MonoBehaviour:
   maxCellWidth: 0
   minCellHeight: 16
   maxCellHeight: 0
+--- !u!114 &8486211524363376582
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7847047081286904155}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97fef33c0fecf904a9608787601f2be7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  grid: {fileID: 2764524596071462087}
+  labels: {fileID: 626866851051452391}
+  popup: {fileID: 0}
+  progression: {fileID: 0}
 --- !u!114 &2218929784869404140
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -193,21 +210,57 @@ MonoBehaviour:
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
---- !u!114 &8486211524363376582
+--- !u!1 &8551723855116314265
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3613515097411085852}
+  - component: {fileID: 626866851051452391}
+  m_Layer: 5
+  m_Name: Overlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &3613515097411085852
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8551723855116314265}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 677184043227806636}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &626866851051452391
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7847047081286904155}
+  m_GameObject: {fileID: 8551723855116314265}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 97fef33c0fecf904a9608787601f2be7, type: 3}
+  m_Script: {fileID: 11500000, guid: 77bc81d5acf10e045885f4202f136b83, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   grid: {fileID: 2764524596071462087}
-  popup: {fileID: 0}
-  progression: {fileID: 0}
+  overlayContainer: {fileID: 3613515097411085852}
+  labelPrefab: {fileID: 4789541827631911192, guid: 84bcf3238113a1443af6946ae458427f, type: 3}
 --- !u!1001 &8364405565406922472
 PrefabInstance:
   m_ObjectHideFlags: 0

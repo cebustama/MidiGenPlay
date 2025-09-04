@@ -1,5 +1,6 @@
 using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
+using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 
 // WIP
@@ -10,6 +11,7 @@ namespace MidiGenPlay.UI
     {
         [Header("Refs")]
         [SerializeField] private PatternGrid grid;
+        [SerializeField] private ChordLabelOverlay labels;
         [SerializeField] private ChordEventPanel popup;
 
         [Header("Data")]
@@ -41,6 +43,7 @@ namespace MidiGenPlay.UI
 
             // paint anchors according to current events
             PaintAnchorsFromEvents();
+            labels?.Refresh(progression.events);
         }
 
         private void PaintAnchorsFromEvents()
@@ -54,6 +57,8 @@ namespace MidiGenPlay.UI
                 if (e.startStep >= 0 && e.startStep < grid.Steps)
                     grid.SetCell(0, e.startStep, true);
             }
+
+            labels?.Refresh(events);
         }
 
         private void HandleCellToggled(int row, int step, bool value)
@@ -107,6 +112,8 @@ namespace MidiGenPlay.UI
 
         private void HandlePopupConfirmed(int start, int length, ScaleDegree deg, ChordQuality qual, int vel)
         {
+            Debug.Log("<color=cyan>CHORD EVENT CONFIRMED</color>");
+
             // Enforce bounds
             start = Mathf.Clamp(start, 0, grid.Steps - 1);
             length = Mathf.Max(1, Mathf.Min(length, grid.Steps - start));
@@ -197,11 +204,16 @@ namespace MidiGenPlay.UI
 
         private void ApplyEventsToAsset()
         {
+            // Always redraw UI from the working list
+            labels?.Refresh(events);
+
             if (progression == null) return;
+
             progression.events.Clear();
             progression.events.AddRange(events);
             progression.subdivisions = grid.Subdivisions;
             progression.measures = grid.Measures;
         }
+
     }
 }
