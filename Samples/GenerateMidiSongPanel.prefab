@@ -4354,11 +4354,12 @@ MonoBehaviour:
   trackRoleDropdown: {fileID: 1973107158519700761}
   drumSettingsPanel: {fileID: 2026252742293097521}
   drumPatternDropdown: {fileID: 2541058139623777811}
-  pianoKeysPanel: {fileID: 2137518206436640311}
   chordSettingsPanel: {fileID: 8849838096094036968}
   chordProgressionDropdown: {fileID: 2421173616183945862}
+  chordPatternGrid: {fileID: 8967516608736004008}
   melodySettingsPanel: {fileID: 8449342118758339943}
   melodyPatternDropdown: {fileID: 9020018746166265687}
+  pianoKeysPanel: {fileID: 2137518206436640311}
   newPartButton: {fileID: 7887615041469666900}
   newTrackButton: {fileID: 4911206394186447408}
   generateButton: {fileID: 2911255151182798109}
@@ -44917,3 +44918,14 @@ RectTransform:
   m_CorrespondingSourceObject: {fileID: 677184043227806636, guid: 53317c5766528994a87d892ada895ca2, type: 3}
   m_PrefabInstance: {fileID: 6498294791221769071}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &8967516608736004008 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 2764524596071462087, guid: 53317c5766528994a87d892ada895ca2, type: 3}
+  m_PrefabInstance: {fileID: 6498294791221769071}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac1ce56aa15628f4ca5548bee7d09b42, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 

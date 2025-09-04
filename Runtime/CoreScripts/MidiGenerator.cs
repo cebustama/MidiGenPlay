@@ -17,6 +17,7 @@ namespace MidiGenPlay
     {
         private const string DebugTag = "<color=green>[MidiGenerator]</color>";
 
+        /*
         // TODO: Separar generación de creación de midi file
         public MidiFile GenerateChordProgressionMidiTrackFile(
             MIDIInstrumentSO instrument,
@@ -50,7 +51,7 @@ namespace MidiGenPlay
 
                 for (int repeat = 0; repeat < numRepeats; repeat++)
                 {
-                    foreach (var chordData in progressionData.chords)
+                    foreach (var chordData in progressionData.events)
                     {
                         // Select a chord based on the possible degrees
                         MusicTheoryChord selectedChord =
@@ -94,6 +95,84 @@ namespace MidiGenPlay
             MidiFile midiFile = pattern.ToFile(tempoMap);
 
             // Set instrument bank and patch
+            SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
+            SetChannel(midiFile, channel);
+
+            return midiFile;
+        }*/
+
+        public MidiFile GenerateChordProgressionMidiTrackFile(
+            MIDIInstrumentSO instrument,
+            TrackRole role,
+            MusicTheory.Tonality tonality,
+            NoteName rootNote,
+            int bpm,
+            MusicTheory.TimeSignature timeSignature,
+            int measures,
+            int channel = 0,
+            ChordProgressionData progressionData = null)
+        {
+            Debug.Log($"<color=blue>Generating Chord Progression: " +
+                $"{progressionData?.displayName ?? "(none)"} with {instrument.InstrumentName}</color>");
+
+            // Tonality → chords by degree (uses your helper)
+            var chords = MusicTheory.GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
+            var chordsByDegree = MusicTheory.GetChordsDegreeDictionary(chords);
+
+            var tsInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            var patternBuilder = new PatternBuilder();
+
+            if (progressionData != null && progressionData.events != null && progressionData.events.Count > 0)
+            {
+                // Steps/measure for the PART (not the asset): part uses asset.subdivisions to snap chords
+                int stepsPerBeat = Mathf.Max(1, progressionData.subdivisions);
+                int stepsPerMeasure = beatsPerBar * stepsPerBeat;
+
+                // How many steps the part spans & how many steps the pattern spans
+                int partTotalSteps = Mathf.Max(1, measures) * stepsPerMeasure;
+                int patternMeasures = Mathf.Max(1, progressionData.measures);
+                int patternTotalSteps = patternMeasures * stepsPerMeasure;
+
+                int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
+
+                for (int repeat = 0; repeat < numRepeats; repeat++)
+                {
+                    int repeatStepOffset = repeat * patternTotalSteps;
+
+                    foreach (var e in progressionData.events)
+                    {
+                        // Degree → chord in this key
+                        if (!chordsByDegree.TryGetValue(e.degree, out var chordForDegree) || chordForDegree == null)
+                        {
+                            Debug.LogWarning($"No chord for degree {e.degree}; skipping.");
+                            continue;
+                        }
+
+                        var playable = GetPlayableChordNotes(chordForDegree, instrument);
+
+                        // Convert step offsets to beats:
+                        // 1 step = 1/stepsPerBeat beats; 1 beat = MusicalTimeSpan.Quarter
+                        int startStepAbs = repeatStepOffset + Mathf.Max(0, e.startStep);
+                        double startBeats = (double)startStepAbs / stepsPerBeat;
+                        double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
+
+                        var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
+                        var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
+
+                        patternBuilder.MoveToTime(startTime);
+                        patternBuilder.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
+                    }
+                }
+            }
+
+            // Build MIDI
+            var pattern = patternBuilder.Build();
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var midiFile = pattern.ToFile(tempoMap);
+
+            // Patch/bank/channel
             SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
             SetChannel(midiFile, channel);
 

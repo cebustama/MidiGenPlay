@@ -16,24 +16,10 @@ MonoBehaviour:
   timeSignature: 0
   measures: 4
   tonalities: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d00000013000000
-  chords:
-  - possibleDegrees: 00000000
-    startMeasure: 0
-    startBeat: 0
-    durationBeats: 4
-    velocity: 80
-  - possibleDegrees: 00000000010000000200000003000000040000000500000006000000
-    startMeasure: 1
-    startBeat: 0
-    durationBeats: 4
-    velocity: 80
-  - possibleDegrees: 00000000010000000200000003000000040000000500000006000000
-    startMeasure: 2
-    startBeat: 0
-    durationBeats: 4
-    velocity: 80
-  - possibleDegrees: 0300000004000000
-    startMeasure: 3
-    startBeat: 0
-    durationBeats: 4
-    velocity: 80
+  subdivisions: 1
+  events:
+  - startStep: 0
+    lengthSteps: 4
+    degree: 0
+    quality: 0
+    velocity: 0

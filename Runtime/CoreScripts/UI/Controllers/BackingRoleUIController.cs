@@ -21,6 +21,13 @@ namespace MidiGenPlay.UI
 
         private List<ChordProgressionData> patterns = new();
 
+        private readonly PatternGrid grid;
+        private readonly IChordGridAdapter adapter = new ChordGridAdapter();
+
+        private ChordProgressionData currentSO;
+        private int beatsPerMeasure;
+        private int measures;
+
         public BackingRoleUIController(
             GameObject chordPanel,
             TMP_Dropdown chordDropdown,
@@ -28,7 +35,8 @@ namespace MidiGenPlay.UI
             Transform melodicInstrumentGroup,
             PianoKeysPanel piano,
             IList<MIDIInstrumentSO> melodicInstruments,
-            IPatternRepository patternRepo)
+            IPatternRepository patternRepo,
+            PatternGrid chordPatternGrid)
         {
             this.chordPanel = chordPanel;
             this.chordDropdown = chordDropdown;
@@ -37,6 +45,7 @@ namespace MidiGenPlay.UI
             this.piano = piano;
             this.melodicInstruments = melodicInstruments;
             this.patternRepo = patternRepo;
+            grid = chordPatternGrid;
         }
 
         public void RefreshPatterns(TimeSignature ts)

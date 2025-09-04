@@ -80,7 +80,7 @@ namespace MidiGenPlay
             return timeSignatureArray[randomIndex];
         }
 
-        public static (int BeatsPerMeasure, double BeatUnitDuration) GetTimeSignatureDetails(TimeSignature timeSignature, int bpm)
+        public static (int BeatsPerMeasure, double BeatUnitDuration) GetTimeSignatureDetails(TimeSignature timeSignature, int bpm = 100)
         {
             if (!TimeSignatureProperties.TryGetValue(timeSignature, out var properties))
                 throw new ArgumentException($"Invalid TimeSignature: {timeSignature}");

@@ -41,13 +41,18 @@ namespace MidiGenPlay
         [SerializeField] private TMP_Dropdown trackRoleDropdown;
 
         [Header("Per-Role Panels")]
+        // Percussion
         [SerializeField] private GameObject drumSettingsPanel;
         [SerializeField] private TMP_Dropdown drumPatternDropdown;
-        [SerializeField] private PianoKeysPanel pianoKeysPanel;
+        // Chords
         [SerializeField] private GameObject chordSettingsPanel;
         [SerializeField] private TMP_Dropdown chordProgressionDropdown;
+        [SerializeField] private PatternGrid chordPatternGrid;
+        // Melodies
         [SerializeField] private GameObject melodySettingsPanel;
         [SerializeField] private TMP_Dropdown melodyPatternDropdown;
+        // Piano Keys
+        [SerializeField] private PianoKeysPanel pianoKeysPanel;
 
         [Header("Controls")]
         [SerializeField] private Button newPartButton;
@@ -74,10 +79,6 @@ namespace MidiGenPlay
         private List<MIDIInstrumentSO> melodicInstruments;
         private List<MIDIPercussionInstrumentSO> percInstruments;
         private List<SongConfigSO> availableConfigs = new List<SongConfigSO>();
-
-        private List<DrumPatternData> drumPatterns;
-        private List<ChordProgressionData> chordProgressions;
-        private List<MelodyPatternData> melodyPatterns;
 
         private IPlayMidi midiPlayer => midiPlayerAdapter as IPlayMidi;
         private MidiGenerator midiGenerator;
@@ -177,7 +178,8 @@ namespace MidiGenPlay
                         melodicInstrumentDropdown.transform.parent, // group to toggle
                         pianoKeysPanel,
                         melodicInstruments,
-                        patternRepo
+                        patternRepo,
+                        chordPatternGrid
                     )
                 },
                 {
@@ -331,7 +333,11 @@ namespace MidiGenPlay
             {
                 var newTs = (MusicTheory.TimeSignature)idx;
                 FilterAndRefreshPatternLists(newTs);
+                RebuildChordGridForCurrentPart();
             });
+
+            // TODO: All grids
+            measuresDropdown.onValueChanged.AddListener(_ => RebuildChordGridForCurrentPart());
 
             // Patterns
             drumPatternDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
@@ -389,6 +395,8 @@ namespace MidiGenPlay
             }
             //activeTrack = -1;
             AddNewTrack();
+
+            RebuildChordGridForCurrentPart();
         }
 
         private void SavePart(int idx)
@@ -460,6 +468,7 @@ namespace MidiGenPlay
             if (tracks.Count > 0)
                 SelectTrack(0);
 
+            RebuildChordGridForCurrentPart();
         }
 
         public void SelectPart(int index)
@@ -479,6 +488,8 @@ namespace MidiGenPlay
                     .GetComponent<PartTabButton>()
                     .SetActiveVisual((i - 1) == index);
             }
+
+            RebuildChordGridForCurrentPart();
         }
 
         private void ResetTracks()
@@ -683,6 +694,28 @@ namespace MidiGenPlay
             // surface warnings
             foreach (var w in warnings)
                 Debug.LogWarning(w);
+        }
+
+        private void RebuildChordGridForCurrentPart()
+        {
+            if (chordPatternGrid == null) return;
+
+            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            int beats = MusicTheory.GetTimeSignatureDetails(ts).BeatsPerMeasure;
+
+            // Measures from dropdown
+            int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
+
+            Debug.Log($"<color=white>Rebuilding PatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
+
+            // For now, subdivisions=1, rows=1 (chords)
+            chordPatternGrid.Build(
+                rows: 1,
+                measures: measures,
+                beatsPerMeasure: beats,
+                subdivisions: 1,
+                initialState: null // all off
+            );
         }
 
 #if UNITY_EDITOR
