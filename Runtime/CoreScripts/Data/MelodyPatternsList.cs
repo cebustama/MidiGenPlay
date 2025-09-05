@@ -2,6 +2,7 @@ using MidiGenPlay;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 [CreateAssetMenu(menuName = "MidiGenPlay/_Melody Pattern List")]
 public class MelodyPatternsList : ScriptableObject
@@ -13,7 +14,7 @@ public class MelodyPatternsList : ScriptableObject
     /// If multiple patterns exist, one is randomly chosen.
     /// </summary>
     public MelodyPatternData GetRandomPatternByTimeSignature(
-        MusicTheory.TimeSignature timeSignature)
+        TimeSignature timeSignature)
     {
         // Filter melody patterns that match the time signature
         var matchingPatterns = melodyPatternList

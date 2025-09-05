@@ -2,7 +2,7 @@ using MidiGenPlay.Interfaces;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using static MidiGenPlay.MusicTheory;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay.Services
 {

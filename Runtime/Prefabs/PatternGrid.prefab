@@ -94,8 +94,8 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 3613515097411085852}
   - {fileID: 2682836306686227161}
+  - {fileID: 3613515097411085852}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -260,7 +260,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   grid: {fileID: 2764524596071462087}
   overlayContainer: {fileID: 3613515097411085852}
-  labelPrefab: {fileID: 4789541827631911192, guid: 84bcf3238113a1443af6946ae458427f, type: 3}
+  labelPrefab: {fileID: 2449903790508409963, guid: 84bcf3238113a1443af6946ae458427f, type: 3}
+  defaultBg: {r: 1, g: 1, b: 1, a: 1}
+  degreeBgColors:
+  - {r: 1, g: 0.81960785, b: 0.4, a: 1}
+  - {r: 0.60784316, g: 0.3647059, b: 0.8980392, a: 1}
+  - {r: 0.94509804, g: 0.35686275, b: 0.70980394, a: 1}
+  - {r: 0, g: 0.73333335, b: 0.4862745, a: 1}
+  - {r: 0.22745098, g: 0.5254902, b: 1, a: 1}
+  - {r: 1, g: 0.52156866, b: 0, a: 1}
+  - {r: 0.5568628, g: 0.77254903, b: 0.9882353, a: 1}
 --- !u!1001 &8364405565406922472
 PrefabInstance:
   m_ObjectHideFlags: 0

@@ -1,13 +1,14 @@
-using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
 using UnityEngine;
+
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay
 {
     [CreateAssetMenu(menuName = "MidiGenPlay/Chord Progression")]
     public class ChordProgressionData : PatternDataSO
     {
-        public List<MusicTheory.Tonality> tonalities;
+        public List<Tonality> tonalities;
 
         [Range(1, 8)]
         // steps per beat (1=quarters, 2=eighths, 4=sixteenths, ...)

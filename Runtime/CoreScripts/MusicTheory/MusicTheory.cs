@@ -1,12 +1,9 @@
 using Melanchall.DryWetMidi.MusicTheory;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using UnityEngine;
-using static MidiGenPlay.MusicTheory;
 
-namespace MidiGenPlay
+namespace MidiGenPlay.MusicTheory
 {
     public static partial class MusicTheory
     {
@@ -263,7 +260,8 @@ namespace MidiGenPlay
             return ch;
         }
 
-        public static Chord GetChordFromQuality(NoteName rootNote, ChordQuality quality)
+        public static Chord GetChordFromQuality(NoteName rootNote, 
+            Melanchall.DryWetMidi.MusicTheory.ChordQuality quality)
         {
             return Chord.GetByTriad(rootNote, quality);
         }

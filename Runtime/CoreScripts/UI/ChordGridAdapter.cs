@@ -1,10 +1,8 @@
 ﻿// Assets/MidiGenPlay/UI/ChordGridAdapterDefault.cs
-using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Interfaces;
-using MidiGenPlay.UI;
 using System.Collections.Generic;
 using UnityEngine;
-using static MidiGenPlay.MusicTheory;   // for ScaleDegree, etc.
+using static MidiGenPlay.MusicTheory.MusicTheory;   // for ScaleDegree, etc.
 
 namespace MidiGenPlay.UI
 {

@@ -2,6 +2,7 @@ using MidiGenPlay;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 [CreateAssetMenu(menuName = "MidiGenPlay/_Chord Progression List")]
 public class ChordProgressionsList : ScriptableObject
@@ -14,7 +15,7 @@ public class ChordProgressionsList : ScriptableObject
     /// If no match is found, a completely random progression is returned.
     /// </summary>
     public ChordProgressionData GetRandomProgressionByTimeSignature(
-        MusicTheory.TimeSignature timeSignature)
+        TimeSignature timeSignature)
     {
         var matchingProgressions = chordProgressionDatas
             .Where(progression => progression.timeSignature == timeSignature)
@@ -34,7 +35,7 @@ public class ChordProgressionsList : ScriptableObject
     /// If multiple progressions exist, one is randomly chosen.
     /// If no match is found, a completely random progression is returned.
     /// </summary>
-    public ChordProgressionData GetRandomProgressionByTonality(MusicTheory.Tonality tonality)
+    public ChordProgressionData GetRandomProgressionByTonality(Tonality tonality)
     {
         var matchingProgressions = chordProgressionDatas
             .Where(progression => progression.tonalities.Contains(tonality))
@@ -56,7 +57,7 @@ public class ChordProgressionsList : ScriptableObject
     /// If still no match, it picks a completely random progression.
     /// </summary>
     public ChordProgressionData GetRandomProgressionByTimeSignatureAndTonality(
-        MusicTheory.TimeSignature timeSignature, MusicTheory.Tonality tonality)
+        TimeSignature timeSignature, Tonality tonality)
     {
         var matchingProgressions = chordProgressionDatas
             .Where(progression => progression.timeSignature == timeSignature &&

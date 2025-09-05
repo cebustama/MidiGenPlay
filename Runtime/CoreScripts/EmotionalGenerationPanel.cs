@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
@@ -12,6 +11,8 @@ using MidiFile = Melanchall.DryWetMidi.Core.MidiFile;
 using Melanchall.DryWetMidi.Core;
 using MidiPlayerTK;
 using System.IO;
+
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 public class EmotionalGenerationPanel : MonoBehaviour
 {
@@ -86,10 +87,10 @@ public class EmotionalGenerationPanel : MonoBehaviour
         var tonality = selectedEmotionData.possibleTonalities[
             UnityEngine.Random.Range(0, selectedEmotionData.possibleTonalities.Count)];
 
-        var bpm = MusicTheory.GetBPMFromRange(
+        var bpm = GetBPMFromRange(
             selectedEmotionData.possibleTempoRanges[
                 UnityEngine.Random.Range(0, selectedEmotionData.possibleTempoRanges.Count)],
-            MusicTheory.TempoRule.MultiplesOfTen);
+            TempoRule.MultiplesOfTen);
 
         var timeSignature = selectedEmotionData.possibleTimeSignatures[
             UnityEngine.Random.Range(0, selectedEmotionData.possibleTimeSignatures.Count)];

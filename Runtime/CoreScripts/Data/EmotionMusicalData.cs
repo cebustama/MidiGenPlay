@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using MidiGenPlay; // Ensure access to MusicTheory namespace
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 [CreateAssetMenu(menuName = "MidiGenPlay/Emotion Musical Data")]
 public class EmotionMusicalData : ScriptableObject
@@ -32,11 +33,11 @@ public class EmotionMusicalData : ScriptableObject
     public List<MIDIInstrumentSO> possibleLeadInstruments;
 
     [Header("Tonality & Scale")]
-    public List<MusicTheory.Tonality> possibleTonalities; // Possible tonalities (Major, Minor, Modes)
+    public List<Tonality> possibleTonalities; // Possible tonalities (Major, Minor, Modes)
 
     [Header("Rhythm & Tempo")]
-    public List<MusicTheory.TempoRange> possibleTempoRanges; // Possible tempo ranges
-    public List<MusicTheory.TimeSignature> possibleTimeSignatures; // Possible time signatures
+    public List<TempoRange> possibleTempoRanges; // Possible tempo ranges
+    public List<TimeSignature> possibleTimeSignatures; // Possible time signatures
 
     [Header("Harmonic & Rhythmic Structure")]
     public ChordProgressionsList chordProgressionsList;

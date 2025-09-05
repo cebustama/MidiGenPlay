@@ -4,12 +4,14 @@ using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using Melanchall.DryWetMidi.Standards;
+
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using static MidiGenPlay.MusicTheory;
-using MusicTheoryChord = Melanchall.DryWetMidi.MusicTheory.Chord;
-using MusicTheoryNote = Melanchall.DryWetMidi.MusicTheory.Note;
+
+using static MidiGenPlay.MusicTheory.MusicTheory;
+using DryWetMidiChord = Melanchall.DryWetMidi.MusicTheory.Chord;
+using DryWetMidiNote = Melanchall.DryWetMidi.MusicTheory.Note;
 
 namespace MidiGenPlay
 {
@@ -104,10 +106,10 @@ namespace MidiGenPlay
         public MidiFile GenerateChordProgressionMidiTrackFile(
             MIDIInstrumentSO instrument,
             TrackRole role,
-            MusicTheory.Tonality tonality,
+            Tonality tonality,
             NoteName rootNote,
             int bpm,
-            MusicTheory.TimeSignature timeSignature,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
             int measures,
             int channel = 0,
             ChordProgressionData progressionData = null)
@@ -116,10 +118,10 @@ namespace MidiGenPlay
                 $"{progressionData?.displayName ?? "(none)"} with {instrument.InstrumentName}</color>");
 
             // Tonality → chords by degree (uses your helper)
-            var chords = MusicTheory.GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
-            var chordsByDegree = MusicTheory.GetChordsDegreeDictionary(chords);
+            var chords = GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
+            var chordsByDegree = GetChordsDegreeDictionary(chords);
 
-            var tsInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
+            var tsInfo = GetTimeSignatureDetails(timeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
 
             var patternBuilder = new PatternBuilder();
@@ -184,7 +186,7 @@ namespace MidiGenPlay
             MIDIPercussionInstrumentSO percussionInstrument,
             DrumPatternData patternData,
             int bpm,
-            MusicTheory.TimeSignature timeSignature,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
             int measures,
             int channel = 9)
         {
@@ -192,7 +194,7 @@ namespace MidiGenPlay
                 $"{patternData.displayName} with {percussionInstrument.InstrumentName}</color>");
 
             // Extract time signature details
-            var timeSignatureInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
+            var timeSignatureInfo = GetTimeSignatureDetails(timeSignature, bpm);
             int beatsPerBar = timeSignatureInfo.BeatsPerMeasure;
 
             // Extract the lines of the PianoRoll pattern
@@ -246,7 +248,7 @@ namespace MidiGenPlay
                 }
 
                 // Get the mapped MIDI note
-                if (!percussionInstrument.TryGetMappedNote(percussionType, out MusicTheoryNote mappedNote))
+                if (!percussionInstrument.TryGetMappedNote(percussionType, out DryWetMidiNote mappedNote))
                 {
                     Debug.LogWarning($"No mapped MIDI note found for {percussionType}");
                     continue;
@@ -290,10 +292,10 @@ namespace MidiGenPlay
         public MidiFile GenerateMelodyTrackWithPattern(
             MIDIInstrumentSO instrument,
             MelodyPatternData melodyPattern,
-            MusicTheory.Tonality tonality,
+            Tonality tonality,
             NoteName rootNote,
             int bpm,
-            MusicTheory.TimeSignature timeSignature,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
             int measures = 4,
             int channel = 0)
         {
@@ -305,8 +307,8 @@ namespace MidiGenPlay
                 $"Tonality: {tonality.ToString()}");
 
             // 1️⃣ Retrieve scale and time signature details
-            var scale = MusicTheory.GetScaleFromTonality(tonality, rootNote);
-            var timeSignatureInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
+            var scale = GetScaleFromTonality(tonality, rootNote);
+            var timeSignatureInfo = GetTimeSignatureDetails(timeSignature, bpm);
             int beatsPerBar = timeSignatureInfo.BeatsPerMeasure;
 
             // Determine the number of times to repeat the melody pattern
@@ -329,14 +331,14 @@ namespace MidiGenPlay
                 foreach (var noteData in melodyPattern.melodyNotes)
                 {
                     // Choose a scale degree from possible options
-                    ScaleDegree selectedDegree =
+                    MusicTheory.MusicTheory.ScaleDegree selectedDegree =
                         noteData.possibleDegrees[Random.Range(0, noteData.possibleDegrees.Count)];
 
                     int octave = Random.Range(minOct, maxOct + 1);
 
                     // Convert scale degree to actual note
-                    if (!MusicTheory.GetNoteFromScale(
-                        scale, selectedDegree, rootNote, octave, out MusicTheoryNote note))
+                    if (!GetNoteFromScale(
+                        scale, selectedDegree, rootNote, octave, out DryWetMidiNote note))
                     {
                         Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.displayName}");
                         continue;
@@ -370,11 +372,11 @@ namespace MidiGenPlay
 
 
         public MidiFile GenerateMetronomeTrackFile(
-            MusicTheory.TimeSignature timeSignature,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
             int bpm,
             int measures)
         {
-            var timeSignatureInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
+            var timeSignatureInfo = GetTimeSignatureDetails(timeSignature, bpm);
 
             var metronomeTic = Notes.D5;
             var metronomeTac = Notes.DSharp5;
@@ -599,8 +601,8 @@ namespace MidiGenPlay
                 target.Chunks.Add(chunk.Clone());
         }
 
-        private MusicTheoryNote[] GetPlayableChordNotes(
-            MusicTheoryChord chord,
+        private DryWetMidiNote[] GetPlayableChordNotes(
+            DryWetMidiChord chord,
             MIDIInstrumentSO instrument)
         {
             int minOct = instrument.octaveMin - 1;
@@ -614,7 +616,7 @@ namespace MidiGenPlay
                 Debug.Log($"note {note}");
 
             return rawNotes
-                .Select(n => MusicTheoryNote.Get(
+                .Select(n => DryWetMidiNote.Get(
                     n.NoteName,
                     Mathf.Clamp(n.Octave, minOct, maxOct)))
                 .ToArray();

@@ -1,8 +1,8 @@
 using MidiGenPlay;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 [CreateAssetMenu(menuName = "MidiGenPlay/_Drum Pattern List")]
 public class DrumPatternsList : ScriptableObject
@@ -14,7 +14,7 @@ public class DrumPatternsList : ScriptableObject
     /// If multiple patterns exist, one is randomly chosen.
     /// </summary>
     public DrumPatternData GetRandomPatternByTimeSignature(
-        MusicTheory.TimeSignature timeSignature)
+        TimeSignature timeSignature)
     {
         // Filter drum patterns that match the time signature
         var matchingPatterns = drumPatternDatas

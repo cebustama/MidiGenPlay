@@ -1,7 +1,6 @@
-using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
-using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 // WIP
 
@@ -16,6 +15,12 @@ namespace MidiGenPlay.UI
 
         [Header("Data")]
         [SerializeField] private ChordProgressionData progression;
+        [SerializeField] private Tonality tonality = Tonality.Ionian;
+        public void SetTonality(Tonality t) 
+        {
+            tonality = t;
+            labels.SetTonality(t);
+        } 
 
         // Working cache — mirrors progression.events for quick queries
         private readonly List<ChordProgressionData.ChordEvent> events = new();
@@ -63,25 +68,19 @@ namespace MidiGenPlay.UI
 
         private void HandleCellToggled(int row, int step, bool value)
         {
-            // Optional: if a user toggles anchors directly without popup.
             if (row != 0) return;
 
             if (value)
             {
-                // Add a 1-step default event at this position if no event covers it
                 if (FindEventCovering(step) < 0)
                 {
-                    InsertEvent(step, 1, ScaleDegree.Tonic, ChordQuality.Major, 64);
-                    popup?.Show(step, 1, ScaleDegree.Tonic, ChordQuality.Major, 64, grid.Steps);
-                }
-                else
-                {
-                    // clicking an existing anchor will be handled via cell click to edit
+                    int len = DefaultLenOneMeasureFrom(step);
+                    InsertEvent(step, len, ScaleDegree.Tonic, ChordQuality.Major, 64);
+                    popup?.Show(step, len, ScaleDegree.Tonic, ChordQuality.Major, 64, grid.Steps, tonality);
                 }
             }
             else
             {
-                // If they turn off an anchor, remove that event (and extend previous if needed? Keep simple: just remove.)
                 int idx = FindEventStarting(step);
                 if (idx >= 0)
                 {
@@ -100,14 +99,27 @@ namespace MidiGenPlay.UI
             if (idx >= 0)
             {
                 var e = events[idx];
-                popup.Show(e.startStep, e.lengthSteps, e.degree, e.quality, e.velocity, grid.Steps);
+                popup.Show(e.startStep, e.lengthSteps, e.degree, e.quality, e.velocity, grid.Steps, tonality);
             }
             else
             {
-                // Create a new default event from here to the next anchor or bar end
-                int defaultLen = NextFreeRun(step);
-                popup.Show(step, defaultLen, ScaleDegree.Tonic, ChordQuality.Major, 64, grid.Steps);
+                int defaultLen = DefaultLenOneMeasureFrom(step);
+                var defaultDegree = ScaleDegree.Tonic;
+                var defaultQuality = GetSuggestedQuality(tonality, defaultDegree, preferSeventh: false);
+
+                popup.Show(step, defaultLen, defaultDegree, defaultQuality, 64, grid.Steps, tonality);
             }
+        }
+
+        // Helper: remainder of current measure, at least 1, at most full measure.
+        // If you want “always exactly one bar”, return stepsPerMeasure instead.
+        private int DefaultLenOneMeasureFrom(int step)
+        {
+            int stepsPerMeasure = grid.BeatsPerMeasure * grid.Subdivisions;
+            int currentBarStart = (step / stepsPerMeasure) * stepsPerMeasure;
+            int currentBarEnd = currentBarStart + stepsPerMeasure;
+            int remaining = Mathf.Clamp(currentBarEnd - step, 1, stepsPerMeasure);
+            return remaining;
         }
 
         private void HandlePopupConfirmed(int start, int length, ScaleDegree deg, ChordQuality qual, int vel)

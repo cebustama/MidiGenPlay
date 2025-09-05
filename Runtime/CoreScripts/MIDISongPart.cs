@@ -1,11 +1,13 @@
 using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.MusicTheory;
-using MidiPlayerTK;
+
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEngine;
+
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay
 {
@@ -14,7 +16,7 @@ namespace MidiGenPlay
     {
         public string PartName; // e.g., Verse, Chorus
         public int BPM;
-        public MusicTheory.Tonality Tonality;
+        public Tonality Tonality;
         public NoteName RootNote;
         public List<MIDITrack> Tracks;
 
@@ -24,7 +26,7 @@ namespace MidiGenPlay
         public MIDISongPart(
             string partName,
             int bpm,
-            MusicTheory.Tonality scaleType,
+            Tonality scaleType,
             NoteName rootNote)
         {
             PartName = partName;
@@ -47,7 +49,7 @@ namespace MidiGenPlay
         public void GenerateTracks(MIDIGeneratorManager midiGenerator)
         {
             // TODO: Refactor this part
-            List<Chord> diatonicChords = MusicTheory.GetChordsFromTonality(Tonality, RootNote, 4);
+            List<Chord> diatonicChords = GetChordsFromTonality(Tonality, RootNote, 4);
             // Note: chords are defined by NoteNames with no octave information
 
             int channel = 0;

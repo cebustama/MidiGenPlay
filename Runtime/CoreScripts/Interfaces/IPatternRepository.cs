@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using static MidiGenPlay.MusicTheory;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay.Interfaces
 {

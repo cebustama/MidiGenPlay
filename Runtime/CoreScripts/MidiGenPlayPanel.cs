@@ -11,7 +11,8 @@ using System.IO;
 
 using MidiFile = Melanchall.DryWetMidi.Core.MidiFile;
 using Melanchall.DryWetMidi.Core;
-using Melanchall.DryWetMidi.Common;
+
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay
 {
@@ -55,10 +56,10 @@ namespace MidiGenPlay
         {
             PopulateInstrumentDropdown();
             PopulateDropdownWithEnum<TrackRole>(roleDropdown);
-            PopulateDropdownWithEnum<MusicTheory.Tonality>(tonalityDropdown);
+            PopulateDropdownWithEnum<Tonality>(tonalityDropdown);
             PopulateDropdownWithEnum<NoteName>(rootNoteDropdown);
-            PopulateDropdownWithEnum<MusicTheory.TempoRange>(tempoDropdown);
-            PopulateDropdownWithEnum<MusicTheory.TimeSignature>(timeSignatureDropdown);
+            PopulateDropdownWithEnum<TempoRange>(tempoDropdown);
+            PopulateDropdownWithEnum<TimeSignature>(timeSignatureDropdown);
         }
 
         private void PopulateDropdownWithEnum<T>(TMP_Dropdown dropdown) where T : Enum
@@ -85,11 +86,11 @@ namespace MidiGenPlay
             // Retrieve values or choose random if "Any" is selected
             var instrument = GetDropdownValueOrRandom(instrumentDropdown, LoadInstruments());
             var role = GetDropdownValueOrRandomEnum<TrackRole>(roleDropdown);
-            var tonality = GetDropdownValueOrRandomEnum<MusicTheory.Tonality>(tonalityDropdown);
-            tonality = MusicTheory.GetRandomTonalityByWeight();
+            var tonality = GetDropdownValueOrRandomEnum<Tonality>(tonalityDropdown);
+            tonality = GetRandomTonalityByWeight();
             var rootNote = GetDropdownValueOrRandomEnum<NoteName>(rootNoteDropdown);
-            var tempoRange = GetDropdownValueOrRandomEnum<MusicTheory.TempoRange>(tempoDropdown);
-            var timeSignature = GetDropdownValueOrRandomEnum<MusicTheory.TimeSignature>(timeSignatureDropdown);
+            var tempoRange = GetDropdownValueOrRandomEnum<TempoRange>(tempoDropdown);
+            var timeSignature = GetDropdownValueOrRandomEnum<TimeSignature>(timeSignatureDropdown);
             bool metronome = metronomeToggle.isOn;
 
             Debug.Log($"Instrument: {instrument?.name ?? "Random"}");
@@ -100,7 +101,7 @@ namespace MidiGenPlay
             Debug.Log($"Time Signature: {timeSignature}");
             Debug.Log($"Metronome: {metronome}");
 
-            int bpm = MusicTheory.GetBPMFromRange(tempoRange, MusicTheory.TempoRule.MultiplesOfTen);
+            int bpm = GetBPMFromRange(tempoRange, TempoRule.MultiplesOfTen);
 
             midiGenerator = new MidiGenerator();
             int measures = 4;

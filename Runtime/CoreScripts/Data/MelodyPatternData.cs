@@ -1,6 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
-using Melanchall.DryWetMidi.MusicTheory;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay
 {

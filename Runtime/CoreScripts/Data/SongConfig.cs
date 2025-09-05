@@ -1,7 +1,7 @@
 using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
 using UnityEngine;
-using static MidiGenPlay.MusicTheory;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay
 {

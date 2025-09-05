@@ -10,7 +10,8 @@ using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using static MidiGenPlay.MusicTheory;
+using static MidiGenPlay.MusicTheory.MusicTheory;
+using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 namespace MidiGenPlay
 {
@@ -47,6 +48,7 @@ namespace MidiGenPlay
         // Chords
         [SerializeField] private GameObject chordSettingsPanel;
         [SerializeField] private TMP_Dropdown chordProgressionDropdown;
+        [SerializeField] private ChordProgressionPanelController chordProgressionPanel;
         [SerializeField] private PatternGrid chordPatternGrid;
         // Melodies
         [SerializeField] private GameObject melodySettingsPanel;
@@ -133,11 +135,17 @@ namespace MidiGenPlay
             PopulateLoadConfigDropdown();
 
             PopulateDropdownFromEnum<Tonality>(tonalityDropdown);
+            tonalityDropdown.onValueChanged.AddListener(v =>
+            {
+                chordProgressionPanel.SetTonality((Tonality)v);
+            });
+            tonalityDropdown.value = (int)Tonality.Ionian;
+
             PopulateDropdownFromEnum<NoteName>(rootNoteDropdown);
             PopulateDropdownFromEnum<TempoRange>(tempoRangeDropdown);
             tempoRangeDropdown.value = (int)TempoRange.Fast;
             tempoRangeDropdown.RefreshShownValue();
-            PopulateDropdownFromEnum<MusicTheory.TimeSignature>(timeSignatureDropdown);
+            PopulateDropdownFromEnum<TimeSignature>(timeSignatureDropdown);
 
             var measuresOptions = new List<string> { "1", "2", "4", "8" };
             measuresDropdown.ClearOptions();
@@ -197,10 +205,10 @@ namespace MidiGenPlay
             };
 
             // Initial pattern lists per role based on current TS
-            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            var ts = (TimeSignature)timeSignatureDropdown.value;
             foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
 
-            FilterAndRefreshPatternLists((MusicTheory.TimeSignature)timeSignatureDropdown.value);
+            FilterAndRefreshPatternLists((TimeSignature)timeSignatureDropdown.value);
         }
 
         private void PopulateInstruments()
@@ -331,7 +339,7 @@ namespace MidiGenPlay
 
             timeSignatureDropdown.onValueChanged.AddListener(idx =>
             {
-                var newTs = (MusicTheory.TimeSignature)idx;
+                var newTs = (TimeSignature)idx;
                 FilterAndRefreshPatternLists(newTs);
                 RebuildChordGridForCurrentPart();
             });
@@ -413,7 +421,7 @@ namespace MidiGenPlay
             part.Tonality = (Tonality)tonalityDropdown.value;
             part.RootNote = (NoteName)rootNoteDropdown.value;
             part.TempoRange = (TempoRange)tempoRangeDropdown.value;
-            part.TimeSignature = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            part.TimeSignature = (TimeSignature)timeSignatureDropdown.value;
 
             if (int.TryParse(measuresDropdown.options[measuresDropdown.value].text, out int m))
                 part.Measures = m;
@@ -622,7 +630,7 @@ namespace MidiGenPlay
             roleControllers[TrackRole.Lead].Deactivate();
 
             // Ensure pattern dropdowns reflect current TS (if user changed TS before selecting track)
-            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            var ts = (TimeSignature)timeSignatureDropdown.value;
             roleControllers[cfg.Role].RefreshPatterns(ts);
 
             // Push cfg → UI
@@ -658,7 +666,7 @@ namespace MidiGenPlay
             }
         }
 
-        private void FilterAndRefreshPatternLists(MusicTheory.TimeSignature ts)
+        private void FilterAndRefreshPatternLists(TimeSignature ts)
         {
             foreach (var c in roleControllers.Values)
                 c.RefreshPatterns(ts);
@@ -705,8 +713,8 @@ namespace MidiGenPlay
         {
             if (chordPatternGrid == null) return;
 
-            var ts = (MusicTheory.TimeSignature)timeSignatureDropdown.value;
-            int beats = MusicTheory.GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            var ts = (TimeSignature)timeSignatureDropdown.value;
+            int beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
 
             // Measures from dropdown
             int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
