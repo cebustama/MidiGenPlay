@@ -19,90 +19,6 @@ namespace MidiGenPlay
     {
         private const string DebugTag = "<color=green>[MidiGenerator]</color>";
 
-        /*
-        // TODO: Separar generación de creación de midi file
-        public MidiFile GenerateChordProgressionMidiTrackFile(
-            MIDIInstrumentSO instrument,
-            TrackRole role,
-            MusicTheory.Tonality tonality,
-            NoteName rootNote,
-            int bpm,
-            MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel = 0,
-            ChordProgressionData progressionData = null)
-        {
-            Debug.Log($"<color=blue>Generating Chord Progression: " +
-                $"{progressionData.displayName} with {instrument.InstrumentName}</color>");
-
-            // Get chords and degrees from tonality
-            var chords = MusicTheory.GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
-            var chordsByDegree = MusicTheory.GetChordsDegreeDictionary(chords);
-            var timeSignatureInfo = MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = timeSignatureInfo.BeatsPerMeasure;
-
-            // **Determine pattern repetitions**
-            int patternLength = progressionData?.measures ?? 4; // Default to 4 measures
-            int numRepeats = Mathf.CeilToInt((float)measures / patternLength); // Rounds up
-
-            PatternBuilder patternBuilder = new PatternBuilder();
-
-            if (progressionData != null)
-            {
-                Debug.Log($"Using ChordProgressionData: {progressionData.displayName}");
-
-                for (int repeat = 0; repeat < numRepeats; repeat++)
-                {
-                    foreach (var chordData in progressionData.events)
-                    {
-                        // Select a chord based on the possible degrees
-                        MusicTheoryChord selectedChord =
-                            chordsByDegree[chordData.possibleDegrees[
-                                Random.Range(0, chordData.possibleDegrees.Count)]
-                            ];
-
-                        if (selectedChord == null)
-                        {
-                            Debug.LogWarning("No matching chord found for the specified degrees. Skipping chord.");
-                            continue;
-                        }
-
-                        // Calculate start time (shifted by repetition offset)
-                        var startTime = MusicalTimeSpan.Quarter * 
-                            ((chordData.startMeasure + (repeat * patternLength)) * beatsPerBar)
-                            + MusicalTimeSpan.Quarter * chordData.startBeat;
-
-                        var playable = GetPlayableChordNotes(selectedChord, instrument);
-
-                        Debug.Log("Playable chord notes:");
-                        foreach (var n in playable)
-                        {
-                            Debug.Log(n);
-                        }
-
-                        // Move to time and add chord
-                        patternBuilder.MoveToTime(startTime);
-                        patternBuilder.Chord(
-                            playable,
-                            MusicalTimeSpan.Quarter * chordData.durationBeats,
-                            (SevenBitNumber)chordData.velocity
-                        );
-                    }
-                }
-            }
-
-            // Build the MIDI pattern
-            Pattern pattern = patternBuilder.Build();
-            TempoMap tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            MidiFile midiFile = pattern.ToFile(tempoMap);
-
-            // Set instrument bank and patch
-            SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
-            SetChannel(midiFile, channel);
-
-            return midiFile;
-        }*/
-
         public MidiFile GenerateChordProgressionMidiTrackFile(
             MIDIInstrumentSO instrument,
             TrackRole role,
@@ -479,13 +395,22 @@ namespace MidiGenPlay
         {
             Debug.Log($"{DebugTag} Generating Midi for song");
 
+            var channelMap = BuildChannelMap(song.ChannelRoles);
+
             var fullSong = new MidiFile();
+
+            // meta track to host SetTempo/TimeSignature changes
+            var metaChunk = new TrackChunk();
+            fullSong.Chunks.Add(metaChunk);
+            var metaMgr = metaChunk.ManageTimedEvents(); // absolute-time editor
+
             long currentTicks = 0;  // where the next part begins
 
             foreach (var entry in song.Structure)
             {
                 var part = song.Parts[entry.PartIndex];
                 int bpm = GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+
                 var partTempo = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
 
                 Debug.Log($"{part.Name}");
@@ -494,13 +419,30 @@ namespace MidiGenPlay
                 {
                     Debug.Log($"Repetition #{rep + 1}");
 
+                    // stamp TS & Tempo at the start of this repetition
+                    int tsNum = TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure;
+                    int tsDen = TimeSignatureProperties[part.TimeSignature].BeatUnit;
+
+                    metaMgr.Objects.Add(new TimedEvent(
+                        new TimeSignatureEvent((byte)tsNum, (byte)tsDen, 24, 8), currentTicks));
+
+                    int usPerQuarter = Mathf.RoundToInt(60000000f / Mathf.Max(1, bpm));
+                    metaMgr.Objects.Add(new TimedEvent(
+                        new SetTempoEvent(usPerQuarter), currentTicks));
+
+                    Debug.Log($"Stamp TS {tsNum}/{tsDen} & Tempo {bpm} at ticks {currentTicks}");
+
+
                     // generate every track in this part
                     for (int t = 0; t < part.Tracks.Count; t++)
                     {
                         var cfg = part.Tracks[t];
-                        int channel = t;                // “track slot” → MIDI channel 0-15
+                        // stable mapping (all Rhythm on 9, others unique non-9)
+                        int channel = channelMap[t];
 
                         MidiFile trackFile = GenerateTrack(cfg, part, channel, bpm);
+
+                        TagTrackWithMusician(trackFile, cfg.MusicianId);
 
                         // shift everything by the offset of this part
                         ShiftFile(trackFile, currentTicks);
@@ -529,6 +471,7 @@ namespace MidiGenPlay
                 }
             }
 
+            metaMgr.Dispose();
             return fullSong;
         }
 
@@ -620,6 +563,38 @@ namespace MidiGenPlay
                     n.NoteName,
                     Mathf.Clamp(n.Octave, minOct, maxOct)))
                 .ToArray();
+        }
+
+        private List<int> BuildChannelMap(List<TrackRole> roles)
+        {
+            var map = Enumerable.Repeat(-1, roles?.Count ?? 0).ToList();
+            var used = new HashSet<int>();
+
+            // 1) All rhythm (drums) -> channel 9
+            for (int i = 0; i < map.Count; i++)
+                if (roles[i] == TrackRole.Rhythm) { map[i] = 9; used.Add(9); }
+
+            // 2) Others -> 0..15 skipping 9
+            int Next()
+            {
+                for (int ch = 0; ch < 16; ch++) 
+                    if (ch != 9 && !used.Contains(ch)) { used.Add(ch); return ch; }
+
+                return 0; // fallback if too many
+            }
+
+            for (int i = 0; i < map.Count; i++) if (map[i] == -1) map[i] = Next();
+            return map;
+        }
+
+        // Write a text meta event "mus:<id>" at the head of this track file
+        private void TagTrackWithMusician(MidiFile trackFile, string musicianId)
+        {
+            var chunk = trackFile.GetTrackChunks().FirstOrDefault();
+            if (chunk == null || string.IsNullOrEmpty(musicianId)) return;
+
+            // Insert at the very beginning
+            chunk.Events.Insert(0, new TextEvent($"mus:{musicianId}"));
         }
     }
 }

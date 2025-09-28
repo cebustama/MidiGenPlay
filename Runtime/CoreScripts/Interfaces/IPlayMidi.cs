@@ -1,3 +1,5 @@
+using MidiPlayerTK;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -15,5 +17,12 @@ namespace MidiGenPlay
 
         /// <summary>Play a new MIDI song from raw bytes.</summary>
         void Play(byte[] midiData);
+        bool IsPlaying { get; }
+
+        event Action<List<MPTKEvent>> OnMidiEvents;
+        event Action OnSongStarted;
+        event Action OnSongEnded;
+
+        IEnumerator WaitForEnd();
     }
 }

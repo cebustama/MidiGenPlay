@@ -11,6 +11,9 @@ namespace MidiGenPlay
         public List<PartConfig> Parts;
         public List<PartSequenceEntry> Structure;
 
+        public List<string> ChannelMusicianOrder = new(); // channel index -> musicianId
+        public List<TrackRole> ChannelRoles = new(); // channel index -> role (Rhythm/Lead/Backing)
+
         [System.Serializable]
         public class PartConfig
         {
@@ -33,6 +36,8 @@ namespace MidiGenPlay
                 public MIDIPercussionInstrumentSO PercussionInstrument;
                 public TrackRole Role;
                 public TrackParameters Parameters;
+
+                public string MusicianId;
             }
         }
 

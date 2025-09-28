@@ -21,6 +21,10 @@ namespace MidiGenPlay.MusicTheory
 
         private static readonly Dictionary<Tonality, Interval[]> TonalityIntervals = new()
         {
+            { Tonality.Ionian, new[]
+            { Interval.Two, Interval.Two, Interval.One, 
+                Interval.Two, Interval.Two, Interval.Two, Interval.One } },
+
             { Tonality.Dorian, new[] 
             { Interval.Two, Interval.One, Interval.Two, Interval.Two, 
                 Interval.Two, Interval.One, Interval.Two } },
