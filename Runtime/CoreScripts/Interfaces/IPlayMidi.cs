@@ -19,6 +19,8 @@ namespace MidiGenPlay
         void Play(byte[] midiData);
         bool IsPlaying { get; }
 
+        void SetChannelVolume(int channel, int volume01_127);
+
         event Action<List<MPTKEvent>> OnMidiEvents;
         event Action OnSongStarted;
         event Action OnSongEnded;

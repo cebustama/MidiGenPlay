@@ -60,6 +60,10 @@ namespace MidiGenPlay
         [SerializeField] private Button newPartButton;
         [SerializeField] private Button newTrackButton;
         [SerializeField] private Button generateButton;
+        [SerializeField] private Toggle useMetronomeToggle;
+
+        [Header("Defaults")]
+        [SerializeField] private TrackRole defaultTrackRole = TrackRole.Backing;
 
         [Header("Config I/O")]
         [SerializeField] private Button saveConfigButton;
@@ -542,7 +546,7 @@ namespace MidiGenPlay
             {
                 Instrument = melodicInstruments[0],
                 PercussionInstrument = percInstruments[0],
-                Role = TrackRole.Rhythm,
+                Role = defaultTrackRole,
                 Parameters = new TrackParameters()
             };
 
@@ -676,12 +680,15 @@ namespace MidiGenPlay
         {
             SaveTrack(activeTrack);
             SavePart(activePart);
-
-            var fullSong = new MidiFile();
-
             UpdateStructureFromInput();
 
-            fullSong = midiGenerator.GenerateSong(songConfig);
+            var fullSong = midiGenerator.GenerateSong(songConfig);
+
+            MidiGenerator.ApplyChannelVolume(
+                fullSong,
+                MidiGenerator.MetronomeChannel,
+                useMetronomeToggle != null && useMetronomeToggle.isOn ? 110 : 0);
+
             foreach (var chunk in fullSong.GetTrackChunks())
                 Debug.Log($"Chunk has {chunk.Events.Count} events; last event at " +
                     $"{chunk.GetTimedEvents().Max(e => e.Time)} ticks");

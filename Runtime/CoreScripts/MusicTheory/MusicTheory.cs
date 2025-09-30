@@ -133,17 +133,18 @@ namespace MidiGenPlay.MusicTheory
         public static List<Note> GetNotesFromScale(
             Scale scale, NoteName startingNoteName, int startingOctave, int numberOfNotes)
         {
-            UnityEngine.Debug.Log($"Starting Note Name {startingNoteName} +" +
-                $"Starting Octave {startingOctave}");
+            /*UnityEngine.Debug.Log($"Starting Note Name {startingNoteName} +" +
+                $"Starting Octave {startingOctave}");*/
 
             if (startingOctave == 9) startingOctave = 8; // TEMP FOR SAFETY
             Note startingNote = Note.Get(startingNoteName, startingOctave);
-            List<Note> ascendingNotes = ScaleUtilities.GetAscendingNotes(scale, startingNote).ToList();
+            List<Note> ascendingNotes =
+                ScaleUtilities.GetAscendingNotes(scale, startingNote).ToList();
 
             int numberOfIntervals = scale.Intervals.Count();
 
-            UnityEngine.Debug.Log($"Scale Notes #{ascendingNotes.Count}, " +
-                $"Note #{numberOfNotes}, Interval #{numberOfIntervals}");
+            /*UnityEngine.Debug.Log($"Scale Notes #{ascendingNotes.Count}, " +
+                $"Note #{numberOfNotes}, Interval #{numberOfIntervals}");*/
 
             List<Note> notes = new List<Note>();
             for (int i = 0; i < numberOfNotes; i++)
