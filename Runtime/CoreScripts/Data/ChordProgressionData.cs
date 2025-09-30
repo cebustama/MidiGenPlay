@@ -21,7 +21,6 @@ namespace MidiGenPlay
             public int startStep;    // 0..(measures*beatsPerMeasure*subdivisions-1)
             public int lengthSteps;  // >= 1
             public ScaleDegree degree;
-            // TODO define a MidiGenPlay enum
             public ChordQuality quality;    
             public int velocity;    // 0..127
         }

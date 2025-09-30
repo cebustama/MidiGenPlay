@@ -150,6 +150,53 @@ namespace MidiGenPlay.MusicTheory
             };
         }
 
-        
+        public static int[] GetIntervalsForQuality(ChordQuality q)
+        {
+            // Root position, ascending; enharmonics expressed with sharps.
+            switch (q)
+            {
+                // Triads
+                case ChordQuality.Major: return new[] { 0, 4, 7 };   // R  M3  P5
+                case ChordQuality.Minor: return new[] { 0, 3, 7 };   // R  m3  P5
+                case ChordQuality.Diminished: return new[] { 0, 3, 6 };   // R  m3  d5
+                case ChordQuality.Augmented: return new[] { 0, 4, 8 };   // R  M3  A5
+
+                // Sevenths
+                case ChordQuality.Major7: return new[] { 0, 4, 7, 11 }; // R  M3  P5  M7
+                case ChordQuality.Minor7: return new[] { 0, 3, 7, 10 }; // R  m3  P5  m7
+                case ChordQuality.Dominant7: return new[] { 0, 4, 7, 10 }; // R  M3  P5  m7
+                case ChordQuality.HalfDiminished7: return new[] { 0, 3, 6, 10 }; // R  m3  d5  m7
+                case ChordQuality.Diminished7: return new[] { 0, 3, 6, 9 }; // R  m3  d5  d7
+
+                // Suspended
+                case ChordQuality.Sus2: return new[] { 0, 2, 7 };    // R  M2  P5
+                case ChordQuality.Sus4: return new[] { 0, 5, 7 };    // R  P4  P5
+
+                default: return new[] { 0, 4, 7 };    // sensible fallback
+            }
+        }
+
+        // A compact symbol (C, Cm7, C7, Cmaj7, Cø7, C°7, Caug, Csus2…)
+        public static string GetChordSymbol(Melanchall.DryWetMidi.MusicTheory.NoteName root, ChordQuality q)
+        {
+            string r = root.ToString();
+            return q switch
+            {
+                ChordQuality.Major => r,
+                ChordQuality.Minor => r + "m",
+                ChordQuality.Diminished => r + "dim",
+                ChordQuality.Augmented => r + "aug",
+
+                ChordQuality.Major7 => r + "maj7",
+                ChordQuality.Minor7 => r + "m7",
+                ChordQuality.Dominant7 => r + "7",
+                ChordQuality.HalfDiminished7 => r + "ø7",   // m7♭5
+                ChordQuality.Diminished7 => r + "°7",
+
+                ChordQuality.Sus2 => r + "sus2",
+                ChordQuality.Sus4 => r + "sus4",
+                _ => r
+            };
+        }
     }
 }

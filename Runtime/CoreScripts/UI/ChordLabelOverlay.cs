@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -76,6 +77,29 @@ namespace MidiGenPlay.UI
 
         public void Refresh(IReadOnlyList<ChordProgressionData.ChordEvent> events)
         {
+            if (CanvasUpdateRegistry.IsRebuildingGraphics() ||
+                CanvasUpdateRegistry.IsRebuildingLayout())
+            {
+                StartCoroutine(Co_RefreshEndOfFrame(events));
+                return;
+            }
+
+            DoRefresh(events);
+        }
+
+        private Color PickBg(ScaleDegree deg)
+        {
+            int idx = (int)deg;
+            if (degreeBgColors != null && idx >= 0 && idx < degreeBgColors.Length)
+            {
+                var c = degreeBgColors[idx];
+                if (c.a > 0f) return c;
+            }
+            return defaultBg;
+        }
+
+        private void DoRefresh(IReadOnlyList<ChordProgressionData.ChordEvent> events)
+        {
             lastEvents = events;
 
             // disable all existing
@@ -148,15 +172,10 @@ namespace MidiGenPlay.UI
             }
         }
 
-        private Color PickBg(ScaleDegree deg)
+        IEnumerator Co_RefreshEndOfFrame(IReadOnlyList<ChordProgressionData.ChordEvent> evs)
         {
-            int idx = (int)deg;
-            if (degreeBgColors != null && idx >= 0 && idx < degreeBgColors.Length)
-            {
-                var c = degreeBgColors[idx];
-                if (c.a > 0f) return c;
-            }
-            return defaultBg;
+            yield return null; // end of frame
+            DoRefresh(evs);
         }
     }
 }

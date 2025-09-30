@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
+using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.UI;
 using static MidiGenPlay.MusicTheory.MusicTheory;
@@ -61,6 +62,9 @@ namespace MidiGenPlay
         [SerializeField] private Button newTrackButton;
         [SerializeField] private Button generateButton;
         [SerializeField] private Toggle useMetronomeToggle;
+        // TODO: Move to ChordProgression-specific component
+        [SerializeField] private Button saveChordButton;
+        [SerializeField] private Button newChordButton;
 
         [Header("Defaults")]
         [SerializeField] private TrackRole defaultTrackRole = TrackRole.Backing;
@@ -128,6 +132,60 @@ namespace MidiGenPlay
             midiGenerator = new MidiGenerator();
 
             generateButton.onClick.AddListener(OnGenerateAndPlay);
+
+            if (saveChordButton != null)
+            {
+                saveChordButton.onClick.AddListener(() =>
+                {
+#if UNITY_EDITOR
+                    ChordProgressionData createdOrOverwritten = null;
+
+                    if (chordProgressionPanel.GetOriginalAsset() == null)
+                    {
+                        createdOrOverwritten = chordProgressionPanel.SaveRuntimeAsNewAsset(); // NEW: returns asset
+                    }
+                    else
+                    {
+                        chordProgressionPanel.SaveRuntimeIntoAsset();
+                        createdOrOverwritten = chordProgressionPanel.GetOriginalAsset();
+                    }
+
+                    // Refresh repositories & pattern lists so the new/updated asset shows up
+                    patternRepo.Refresh();
+                    var ts = (TimeSignature)timeSignatureDropdown.value;
+                    FilterAndRefreshPatternLists(ts);
+
+                    // Select the asset in the dropdown and rebind runtime to config
+                    if (createdOrOverwritten != null)
+                        SelectChordDropdownForAsset(createdOrOverwritten);
+#endif
+                    Debug.Log("<b>[UI]</b> Progression saved.");
+                });
+            }
+
+            if (newChordButton != null)
+            {
+                newChordButton.onClick.AddListener(() =>
+                {
+                    var t = (Tonality)tonalityDropdown.value;
+                    var ts = (TimeSignature)timeSignatureDropdown.value;
+                    int measures = 
+                    int.Parse(measuresDropdown.options[measuresDropdown.value].text);
+
+                    chordProgressionPanel.CreateNewRuntime(t, ts, measures, subdivisions: 1);
+
+                    // Point the active backing track to the runtime object so
+                    // "Generate" uses it
+                    if (activeTrack >= 0 && tracks[activeTrack].Role == TrackRole.Backing)
+                    {
+                        var cfg = tracks[activeTrack];
+                        cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                        Debug.Log("[UI] New runtime progression created and assigned to the " +
+                            "Backing track.");
+                    }
+                });
+            }
+
 #if UNITY_EDITOR
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
 #endif
@@ -357,6 +415,17 @@ namespace MidiGenPlay
             chordProgressionDropdown.onValueChanged.AddListener(_ =>
             {
                 SaveTrack(activeTrack);
+
+                // Bind panel to the asset currently on the config, then put runtime back into config
+                var cfg = tracks[activeTrack];
+                var asset = cfg?.Parameters?.Pattern as ChordProgressionData;
+                if (asset != null)
+                {
+                    chordProgressionPanel.Bind(asset);
+                    cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                    Debug.Log($"[UI] Bound panel to asset '{asset.displayName}' (id {asset.GetInstanceID()}); " +
+                              $"config now points to runtime clone.");
+                }
             });
 
             melodyPatternDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
@@ -614,13 +683,41 @@ namespace MidiGenPlay
         private void SaveTrack(int index)
         {
             Debug.Log($"<color=yellow>Saving track {index}</color>");
-            Debug.Log(part);
-            Debug.Log(tracks);
 
             var cfg = tracks[index];
             cfg.Role = (TrackRole)trackRoleDropdown.value;
 
             roleControllers[cfg.Role].SaveFromUI(cfg);
+
+            if (cfg.Role == TrackRole.Backing)
+            {
+                var pat = cfg.Parameters?.Pattern as ChordProgressionData;
+                if (pat == null)
+                {
+                    Debug.LogWarning("[UI->Config] Backing track has NULL ChordProgressionData.");
+                }
+                else
+                {
+                    // Re-bind if needed (first time, or if user swapped asset)
+                    if (chordProgressionPanel.GetOriginalAsset() != pat)
+                        chordProgressionPanel.Bind(pat);
+
+                    cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime(); // ensure runtime goes to generator
+
+                    // Debug
+                    Debug.Log($"[UI->Config] Backing pattern: {pat.displayName} " +
+                              $"(id {pat.GetInstanceID()}) | events={pat.events?.Count ?? 0} " +
+                              $"| measures={pat.measures} | subdivisions={pat.subdivisions}");
+
+                    // Print the raw grid the generator will consume
+                    for (int i = 0; i < (pat.events?.Count ?? 0); i++)
+                    {
+                        var e = pat.events[i];
+                        Debug.Log($"[UI->Config] e#{i}: start={e.startStep}, len={e.lengthSteps}, " +
+                                  $"deg={e.degree}, qual={e.quality}, vel={e.velocity}");
+                    }
+                }
+            }
         }
 
         private void LoadTrack(int index)
@@ -639,6 +736,22 @@ namespace MidiGenPlay
 
             // Push cfg → UI
             roleControllers[cfg.Role].LoadIntoUI(cfg);
+
+            // Ensure current dropdown selection becomes the config pattern,
+            // and bind the panel to it immediately on first load
+            if (cfg.Role == TrackRole.Backing)
+            {
+                // Pull the dropdown's current choice into cfg.Parameters.Pattern
+                roleControllers[cfg.Role].SaveFromUI(cfg);
+
+                var asset = cfg.Parameters?.Pattern as ChordProgressionData;
+                if (asset != null)
+                {
+                    chordProgressionPanel.Bind(asset);
+                    cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                    Debug.Log($"[UI] (Initial bind) '{asset.displayName}' → runtime clone bound to panel.");
+                }
+            }
 
             // Show the right panel + instrument group and set piano range if melodic
             roleControllers[cfg.Role].Activate(cfg);
@@ -681,6 +794,13 @@ namespace MidiGenPlay
             SaveTrack(activeTrack);
             SavePart(activePart);
             UpdateStructureFromInput();
+
+            var backing = songConfig.Parts.SelectMany(p => p.Tracks)
+                  .FirstOrDefault(t => t.Role == TrackRole.Backing);
+            var patObj = backing?.Parameters?.Pattern;
+            Debug.Log($"[Generate] Backing Pattern object type={patObj?.GetType().Name} " +
+                      $"name={(patObj as ChordProgressionData)?.displayName} " +
+                      $"id={((patObj as ChordProgressionData)?.GetInstanceID().ToString() ?? "-")}");
 
             var fullSong = midiGenerator.GenerateSong(songConfig);
 
@@ -751,5 +871,40 @@ namespace MidiGenPlay
             PopulateLoadConfigDropdown();
         }
 #endif
+
+        private void SelectChordDropdownForAsset(ChordProgressionData asset)
+        {
+            if (asset == null) return;
+
+            // Try to match by displayName, then by asset.name
+            var disp = string.IsNullOrEmpty(asset.displayName) ? asset.name : asset.displayName;
+
+            int idx = -1;
+            for (int i = 0; i < chordProgressionDropdown.options.Count; i++)
+            {
+                var txt = chordProgressionDropdown.options[i].text;
+                if (txt == disp || txt == asset.name) { idx = i; break; }
+            }
+
+            if (idx >= 0)
+            {
+                chordProgressionDropdown.value = idx;
+                chordProgressionDropdown.RefreshShownValue();
+
+                // Ensure the Backing track uses the panel's runtime clone of this asset
+                if (activeTrack >= 0 && tracks[activeTrack].Role == TrackRole.Backing)
+                {
+                    // Bind to the asset (creates a fresh runtime clone)
+                    chordProgressionPanel.Bind(asset);
+                    tracks[activeTrack].Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                }
+                Debug.Log($"[UI] Selected chord pattern '{disp}' in dropdown.");
+            }
+            else
+            {
+                Debug.LogWarning($"[UI] Could not find '{disp}' in chord pattern dropdown after refresh.");
+            }
+        }
+
     }
 }

@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 78f8c0d78658c524fb6baa090014cb46, type: 3}
-  m_Name: ChordProgression-DefaultFourFour
+  m_Name: ChordProgression-DefaultFourFour 3
   m_EditorClassIdentifier: 
   displayName: DefaultFourFour
   timeSignature: 0
@@ -20,26 +20,21 @@ MonoBehaviour:
   events:
   - startStep: 0
     lengthSteps: 4
-    degree: 5
-    quality: 1
+    degree: 0
+    quality: 0
     velocity: 100
   - startStep: 4
     lengthSteps: 4
-    degree: 4
-    quality: 0
-    velocity: 64
-  - startStep: 8
-    lengthSteps: 4
     degree: 3
     quality: 0
-    velocity: 64
-  - startStep: 12
-    lengthSteps: 2
+    velocity: 100
+  - startStep: 8
+    lengthSteps: 4
     degree: 1
     quality: 1
     velocity: 100
-  - startStep: 14
-    lengthSteps: 2
+  - startStep: 12
+    lengthSteps: 4
     degree: 0
     quality: 0
-    velocity: 64
+    velocity: 100

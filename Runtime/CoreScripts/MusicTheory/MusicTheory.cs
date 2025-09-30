@@ -285,5 +285,26 @@ namespace MidiGenPlay.MusicTheory
 
             return chordsByDegree;
         }
+
+        public static NoteName AddSemitones(NoteName root, int semitones)
+        {
+            int v = (((int)root) + semitones) % 12; if (v < 0) v += 12;
+            return (NoteName)v; // DryWetMIDI NoteName uses 12-TET with sharps
+        }
+
+        public static NoteName[] GetChordNoteNames(NoteName root, ChordQuality q)
+        {
+            var ivs = GetIntervalsForQuality(q);
+            var names = new NoteName[ivs.Length];
+            for (int i = 0; i < ivs.Length; i++) names[i] = AddSemitones(root, ivs[i]);
+            return names;
+        }
+
+        public static string DescribeScale(Tonality mode, NoteName root)
+        {
+            var scale = GetScaleFromTonality(mode, root);
+            var names = GetNotesFromScale(scale, root, 4, 7).Select(n => n.NoteName.ToString());
+            return $"{mode} ({root}): " + string.Join(" ", names);
+        }
     }
 }

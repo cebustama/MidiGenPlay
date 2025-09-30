@@ -33,15 +33,20 @@ namespace MidiGenPlay
             int channel = 0,
             ChordProgressionData progressionData = null)
         {
-            Debug.Log($"<color=blue>Generating Chord Progression: " +
-                $"{progressionData?.displayName ?? "(none)"} with {instrument.InstrumentName}</color>");
+            Debug.Log($"{DebugTag} Using progression: {progressionData?.displayName ?? "(null)"} " +
+          $"(id {progressionData?.GetInstanceID()}) | events={progressionData?.events?.Count ?? 0}");
 
-            // Tonality → chords by degree (uses your helper)
-            var chords = GetTonalityChords(tonality, rootNote, new List<int> { 3, 5 });
-            var chordsByDegree = GetChordsDegreeDictionary(chords);
+            Debug.Log($"{DebugTag} {DescribeScale(tonality, rootNote)}");
 
             var tsInfo = GetTimeSignatureDetails(timeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            // degree + quality → chord notes
+            var scale = GetScaleFromTonality(tonality, rootNote);
+            var scalePreview = GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName.ToString());
+            Debug.Log($"{DebugTag} Part Tonality={tonality} Root={rootNote} | Scale= [{string.Join(" ", scalePreview)}]");
+            var scaleNames = GetNotesFromScale(scale, rootNote, 4, 7)  // any octave; just for names
+                             .Select(n => n.NoteName).ToArray();
 
             var patternBuilder = new PatternBuilder();
 
@@ -64,14 +69,20 @@ namespace MidiGenPlay
 
                     foreach (var e in progressionData.events)
                     {
-                        // Degree → chord in this key
-                        if (!chordsByDegree.TryGetValue(e.degree, out var chordForDegree) || chordForDegree == null)
-                        {
-                            Debug.LogWarning($"No chord for degree {e.degree}; skipping.");
-                            continue;
-                        }
+                        // resolve the chord ROOT from the current scale degree in this tonality
+                        NoteName degreeRoot = scaleNames[(int)e.degree];
+                        // get pitch classes for this quality
+                        var chordNames = GetChordNoteNames(degreeRoot, e.quality);
+                        // realize into playable notes within instrument range
+                        var playable = RealizeChordForInstrument(chordNames, instrument);
 
-                        var playable = GetPlayableChordNotes(chordForDegree, instrument);
+                        // Debug
+                        var rn = ToRomanRich(e.degree, e.quality);
+                        var sym = GetChordSymbol(degreeRoot, e.quality);
+                        var notesStr = string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"));
+
+                        Debug.Log($"{DebugTag} step={e.startStep}, len={e.lengthSteps} | {rn} ({sym}) " +
+                                  $"| root={degreeRoot} | notes=[{notesStr}]");
 
                         // Convert step offsets to beats:
                         // 1 step = 1/stepsPerBeat beats; 1 beat = MusicalTimeSpan.Quarter
@@ -677,6 +688,22 @@ namespace MidiGenPlay
             }
         }
 
+        private DryWetMidiNote[] RealizeChordForInstrument(
+            NoteName[] chordNames, MIDIInstrumentSO instrument)
+        {
+            int minOct = instrument.octaveMin - 1;
+            int maxOct = instrument.octaveMax - 1;
+
+            int startOct = Random.Range(minOct, maxOct + 1);
+
+            // Build once near startOct
+            var notes = chordNames
+                .Select(nn => DryWetMidiNote.Get(nn, startOct))
+                .Select(n => DryWetMidiNote.Get(n.NoteName, Mathf.Clamp(n.Octave, minOct, maxOct)))
+                .ToArray();
+
+            return notes;
+        }
         #endregion
     }
 }

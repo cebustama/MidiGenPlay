@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -52,6 +53,8 @@ namespace MidiGenPlay.UI
         public Vector2 Spacing => layout != null ? layout.spacing : Vector2.zero;
         public RectOffset Padding => layout != null ? layout.padding : new RectOffset();
         public RectTransform ContentRect => content;
+
+        bool _pendingRebuild;
 
         public void Build(int rows, int measures, int beatsPerMeasure, int subdivisions = 1,
                           Func<int, int, bool> initialState = null)
@@ -144,9 +147,17 @@ namespace MidiGenPlay.UI
 
         // --- Responsive sizing ---
 
-        private void OnRectTransformDimensionsChange()
+        void OnRectTransformDimensionsChange()
         {
-            // When parent/viewport resizes, recompute
+            if (!isActiveAndEnabled || _pendingRebuild) return;
+            _pendingRebuild = true;
+            StartCoroutine(Co_RebuildNextFrame());
+        }
+
+        IEnumerator Co_RebuildNextFrame()
+        {
+            yield return null; // wait one frame
+            _pendingRebuild = false;
             RecomputeCellSize();
         }
 
