@@ -22,6 +22,9 @@ namespace MidiGenPlay
         [Tooltip("Any component on this GameObject that implements IPlayMidi")]
         [SerializeField] private MonoBehaviour midiPlayerAdapter = null;
 
+        [Header("MidiGenPlay Settings")]
+        [SerializeField] private MidiGenPlayConfig settings;
+
         [Header("Part Tabs")]
         [SerializeField] private Transform partTabContainer;
         [SerializeField] private PartTabButton partTabButtonPrefab;
@@ -114,12 +117,17 @@ namespace MidiGenPlay
                 midiPlayback = new MidiPlayback(midiPlayer);
             }
 
+            // Load MGP system settings
+            if (settings == null) 
+                settings = MidiGenPlayConfig.FindInResources() ?? 
+                    ScriptableObject.CreateInstance<MidiGenPlayConfig>();
+
             songConfig = new SongConfig();
             songConfig.Parts = new List<SongConfig.PartConfig>();
             configStore = new SongConfigStoreResources();
 
             instrumentRepo = new InstrumentRepositoryResources();
-            patternRepo = new PatternRepositoryResources();
+            patternRepo = new PatternRepositoryResources(settings);
             sequenceSerializer = new SequenceSerializer();
 
             PopulateAllDropdowns();
@@ -142,7 +150,9 @@ namespace MidiGenPlay
 
                     if (chordProgressionPanel.GetOriginalAsset() == null)
                     {
-                        createdOrOverwritten = chordProgressionPanel.SaveRuntimeAsNewAsset(); // NEW: returns asset
+                        var targetFolder = settings.GetChordWriteFolder();
+                        createdOrOverwritten = 
+                            chordProgressionPanel.SaveRuntimeAsNewAsset(targetFolder);
                     }
                     else
                     {
@@ -150,12 +160,10 @@ namespace MidiGenPlay
                         createdOrOverwritten = chordProgressionPanel.GetOriginalAsset();
                     }
 
-                    // Refresh repositories & pattern lists so the new/updated asset shows up
                     patternRepo.Refresh();
                     var ts = (TimeSignature)timeSignatureDropdown.value;
                     FilterAndRefreshPatternLists(ts);
 
-                    // Select the asset in the dropdown and rebind runtime to config
                     if (createdOrOverwritten != null)
                         SelectChordDropdownForAsset(createdOrOverwritten);
 #endif
@@ -190,6 +198,9 @@ namespace MidiGenPlay
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
 #endif
             AddNewPart();
+
+            if (settings.defaultSeed != 0)
+                UnityEngine.Random.InitState(settings.defaultSeed);
         }
 
         private void PopulateAllDropdowns()
@@ -804,10 +815,12 @@ namespace MidiGenPlay
 
             var fullSong = midiGenerator.GenerateSong(songConfig);
 
+            var metroVol = (useMetronomeToggle != null && useMetronomeToggle.isOn)
+                ? Mathf.Clamp(settings.metronomeChannelVolume, 0, 127)
+                : 0;
+
             MidiGenerator.ApplyChannelVolume(
-                fullSong,
-                MidiGenerator.MetronomeChannel,
-                useMetronomeToggle != null && useMetronomeToggle.isOn ? 110 : 0);
+                fullSong, MidiGenerator.MetronomeChannel, metroVol);
 
             foreach (var chunk in fullSong.GetTrackChunks())
                 Debug.Log($"Chunk has {chunk.Events.Count} events; last event at " +

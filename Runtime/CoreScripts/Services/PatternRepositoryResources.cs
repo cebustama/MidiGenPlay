@@ -8,33 +8,83 @@ namespace MidiGenPlay.Services
 {
     public class PatternRepositoryResources : IPatternRepository
     {
-        private const string DRUMS_PATH = "ScriptableObjects/Patterns/Drums";
-        private const string CHORDS_PATH = "ScriptableObjects/Patterns/Chords";
-        private const string MELODIES_PATH = "ScriptableObjects/Patterns/Melodies";
+        // Package paths (resource-relative)
+        private const string PKG_DRUMS = "ScriptableObjects/Patterns/Drums";
+        private const string PKG_CHORDS = "ScriptableObjects/Patterns/Chords";
+        private const string PKG_MELODIES = "ScriptableObjects/Patterns/Melodies";
 
-        private List<DrumPatternData> allDrums = new();
-        private List<ChordProgressionData> allChords = new();
-        private List<MelodyPatternData> allMelodies = new();
+        private readonly MidiGenPlayConfig cfg;
+
+        private List<DrumPatternData> drums = new();
+        private List<ChordProgressionData> chords = new();
+        private List<MelodyPatternData> melodies = new();
+
+        public PatternRepositoryResources(MidiGenPlayConfig settings = null)
+        {
+            cfg = settings ?? MidiGenPlayConfig.FindInResources()
+                          ?? ScriptableObject.CreateInstance<MidiGenPlayConfig>();
+            Refresh();
+        }
 
         public void Refresh()
         {
-            allDrums = Resources.LoadAll<DrumPatternData>(DRUMS_PATH).ToList();
-            allChords = Resources.LoadAll<ChordProgressionData>(CHORDS_PATH).ToList();
-            allMelodies = Resources.LoadAll<MelodyPatternData>(MELODIES_PATH).ToList();
+            // --- DRUMS ---
+            int pkgC, locC;
+            drums = LoadBoth<DrumPatternData>(
+                PKG_DRUMS, cfg.ResourcesDrumsPath, out pkgC, out locC);
+            // --- CHORDS ---
+            int pkgC2, locC2;
+            chords = LoadBoth<ChordProgressionData>(
+                PKG_CHORDS, cfg.ResourcesChordsPath, out pkgC2, out locC2);
+            // --- MELODIES ---
+            int pkgC3, locC3;
+            melodies = LoadBoth<MelodyPatternData>(
+                PKG_MELODIES, cfg.ResourcesMelodiesPath, out pkgC3, out locC3);
+
+            if (cfg.logRepository)
+                Debug.Log($"[PatternRepo] Loaded " +
+                          $"Drums: pkg={pkgC}, local={locC}, total={drums.Count} | " +
+                          $"Chords: pkg={pkgC2}, local={locC2}, total={chords.Count} | " +
+                          $"Melodies: pkg={pkgC3}, local={locC3}, total={melodies.Count}");
         }
 
-        public IReadOnlyList<DrumPatternData> GetAllDrumPatterns() => allDrums;
-        public IReadOnlyList<ChordProgressionData> GetAllChordProgressions() => allChords;
-        public IReadOnlyList<MelodyPatternData> GetAllMelodyPatterns() => allMelodies;
+        private static List<T> LoadBoth<T>(
+            string pkgPath, string localPath, out int pkgCount, out int localCount)
+            where T : UnityEngine.Object
+        {
+            var result = new List<T>();
+            var seen = new HashSet<T>();
 
-        public IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts)
-            => allDrums.Where(p => p.timeSignature == ts).ToList();
+            // Package
+            var pkg = Resources.LoadAll<T>(pkgPath) ?? System.Array.Empty<T>();
+            foreach (var x in pkg) if (x && seen.Add(x)) result.Add(x);
+            pkgCount = pkg.Length;
 
-        public IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts)
-            => allChords.Where(p => p.timeSignature == ts).ToList();
+            // Local (skip if same path to avoid double load)
+            localCount = 0;
+            if (!string.Equals(pkgPath, localPath, System.StringComparison.Ordinal))
+            {
+                var loc = Resources.LoadAll<T>(localPath) ?? System.Array.Empty<T>();
+                foreach (var x in loc) { if (x && seen.Add(x)) result.Add(x); }
+                localCount = loc.Length;
+            }
 
-        public IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts)
-            => allMelodies.Where(p => p.timeSignature == ts).ToList();
+            return result;
+        }
+
+        public IReadOnlyList<DrumPatternData> GetAllDrumPatterns() => drums;
+        public IReadOnlyList<ChordProgressionData> GetAllChordProgressions() => chords;
+        public IReadOnlyList<MelodyPatternData> GetAllMelodyPatterns() => melodies;
+
+        public IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts) 
+            => drums.Where(p => p.timeSignature == ts).ToList();
+        public IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts) 
+            => chords.Where(p => p.timeSignature == ts).ToList();
+        public IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts) 
+            => melodies.Where(p => p.timeSignature == ts).ToList();
+
+        // Always return LOCAL write folder (Assets/Resources/…)
+        public string GetChordWriteFolder() => cfg.GetChordWriteFolder();
     }
 
 }

@@ -17,5 +17,7 @@ namespace MidiGenPlay.Interfaces
         IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts);
         IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts);
         IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts);
+
+        string GetChordWriteFolder();
     }
 }

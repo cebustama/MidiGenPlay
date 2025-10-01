@@ -118,70 +118,49 @@ namespace MidiGenPlay.UI
         }
 
         // Save runtime as a brand-new asset (Editor only).
-        // Returns the created asset (or null on failure).
+        // Always saves to a LOCAL folder. Returns the created asset (or null on failure).
         public ChordProgressionData SaveRuntimeAsNewAsset(string folderPath = null)
         {
 #if UNITY_EDITOR
             if (runtime == null) return null;
 
-            // 1) Resolve preferred folder (package first, then Assets),
-            // allowing caller override.
-            var candidates = new List<string>();
-            if (!string.IsNullOrWhiteSpace(folderPath)) candidates.Add(folderPath);
-            candidates.Add(DefaultPackageFolder);
-            candidates.Add(DefaultAssetsFolder);
+            // 1) Decide target folder (LOCAL). If none provided, use a safe default under Assets/Resources.
+            string folder = string.IsNullOrWhiteSpace(folderPath)
+                ? "Assets/Resources/ScriptableObjects/Patterns/Chords"
+                : folderPath;
 
-            // 2) Prepare the name
-            string name = string.IsNullOrWhiteSpace(runtime.displayName) ? 
-                BuildKeyName() : runtime.displayName;
-            name = SanitizeFileName(name);
+            // Ensure the folder exists on disk
+            System.IO.Directory.CreateDirectory(folder);
+            UnityEditor.AssetDatabase.Refresh();
 
-            // 3) Try to create the asset in the first folder that works
-            foreach (var folder in candidates)
-            {
-                if (string.IsNullOrWhiteSpace(folder)) continue;
+            // 2) Build a sanitized file name
+            string baseName = BuildKeyName();
+            string name = SanitizeFileName(baseName);
 
-                // Ensure folder exists on disk if it's under Assets/
-                if (folder.StartsWith("Assets/"))
-                    System.IO.Directory.CreateDirectory(folder);
+            // 3) Compute a unique asset path
+            string candidate = $"{folder}/{name}.asset";
+            string path = UnityEditor.AssetDatabase.GenerateUniqueAssetPath(candidate);
+            if (string.IsNullOrEmpty(path)) path = candidate;
 
-                UnityEditor.AssetDatabase.Refresh();
+            // 4) Create a fresh ScriptableObject (deep copy of runtime)
+            var asset = ScriptableObject.CreateInstance<ChordProgressionData>();
+            asset.displayName = name;
+            asset.timeSignature = runtime.timeSignature;
+            asset.measures = runtime.measures;
+            asset.subdivisions = runtime.subdivisions;
+            asset.tonalities = new List<Tonality>(runtime.tonalities ?? new());
+            asset.events = new List<ChordProgressionData.ChordEvent>(runtime.events ?? new());
 
-                string candidate = $"{folder}/{name}.asset";
-                string path = UnityEditor.AssetDatabase.GenerateUniqueAssetPath(candidate);
-                if (string.IsNullOrEmpty(path)) path = candidate;
+            // 5) Save the asset
+            UnityEditor.AssetDatabase.CreateAsset(asset, path);
+            UnityEditor.AssetDatabase.SaveAssets();
+            UnityEditor.EditorUtility.SetDirty(asset);
 
-                try
-                {
-                    // Build a fresh ScriptableObject to own on disk
-                    var asset = ScriptableObject.CreateInstance<ChordProgressionData>();
-                    asset.displayName = runtime.displayName;
-                    asset.timeSignature = runtime.timeSignature;
-                    asset.measures = runtime.measures;
-                    asset.subdivisions = runtime.subdivisions;
-                    asset.tonalities = new List<Tonality>(runtime.tonalities ?? new());
-                    asset.events = 
-                        new List<ChordProgressionData.ChordEvent>(runtime.events ?? new());
+            // 6) Rebind so the panel keeps editing a runtime clone of the new asset
+            Bind(asset);
 
-                    UnityEditor.AssetDatabase.CreateAsset(asset, path);
-                    UnityEditor.AssetDatabase.SaveAssets();
-                    UnityEditor.EditorUtility.SetDirty(asset);
-
-                    // Rebind so the panel keeps editing a runtime clone of the new asset
-                    Bind(asset);
-                    Debug.Log($"[ChordPanel] Created new ChordProgression asset at {path}");
-                    return asset;
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[ChordPanel] Could not create asset at '{path}'. " +
-                        $"Will try next folder. ({ex.Message})");
-                }
-            }
-
-            Debug.LogError("[ChordPanel] Failed to create ChordProgression asset " +
-                "in all candidate folders.");
-            return null;
+            Debug.Log($"[ChordPanel] Created new ChordProgression asset at {path}");
+            return asset;
 #else
     return null;
 #endif
