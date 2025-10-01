@@ -136,7 +136,8 @@ public class EmotionalGenerationPanel : MonoBehaviour
         Debug.Log($"Melody Pattern: {melodyPattern?.displayName ?? "None"}");
 
         // Initialize MIDI Generator
-        MidiGenerator midiGenerator = new MidiGenerator();
+        // TODO: Settings SO
+        MidiGenerator midiGenerator = new MidiGenerator(null);
         int measures = this.measures;
         NoteName rootNote = NoteName.C;
         var finalMidiFile = new MidiFile();

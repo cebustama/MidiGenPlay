@@ -65,6 +65,7 @@ namespace MidiGenPlay
         [SerializeField] private Button newTrackButton;
         [SerializeField] private Button generateButton;
         [SerializeField] private Toggle useMetronomeToggle;
+        [SerializeField] private Toggle loopToggle;
         // TODO: Move to ChordProgression-specific component
         [SerializeField] private Button saveChordButton;
         [SerializeField] private Button newChordButton;
@@ -95,10 +96,12 @@ namespace MidiGenPlay
 
         private IPlayMidi midiPlayer => midiPlayerAdapter as IPlayMidi;
         private MidiGenerator midiGenerator;
+        private MidiFile lastSong;
 
         // Services
         private IInstrumentRepository instrumentRepo;
         private IPatternRepository patternRepo;
+
         private ISequenceSerializer sequenceSerializer;
         private IMidiPlayback midiPlayback;
         private ISongConfigStore configStore;
@@ -112,10 +115,9 @@ namespace MidiGenPlay
                 Debug.LogError($"{nameof(midiPlayerAdapter)} must implement IPlayMidi");
                 return;
             }
-            else
-            {
-                midiPlayback = new MidiPlayback(midiPlayer);
-            }
+
+            midiPlayback = new MidiPlayback(midiPlayer);
+            midiPlayer.OnSongEnded += HandleSongEnded;
 
             // Load MGP system settings
             if (settings == null) 
@@ -126,7 +128,7 @@ namespace MidiGenPlay
             songConfig.Parts = new List<SongConfig.PartConfig>();
             configStore = new SongConfigStoreResources();
 
-            instrumentRepo = new InstrumentRepositoryResources();
+            instrumentRepo = new InstrumentRepositoryResources(settings);
             patternRepo = new PatternRepositoryResources(settings);
             sequenceSerializer = new SequenceSerializer();
 
@@ -137,7 +139,7 @@ namespace MidiGenPlay
             newPartButton.onClick.AddListener(AddNewPart);
             newTrackButton.onClick.AddListener(AddNewTrack);
 
-            midiGenerator = new MidiGenerator();
+            midiGenerator = new MidiGenerator(settings);
 
             generateButton.onClick.AddListener(OnGenerateAndPlay);
 
@@ -201,6 +203,11 @@ namespace MidiGenPlay
 
             if (settings.defaultSeed != 0)
                 UnityEngine.Random.InitState(settings.defaultSeed);
+        }
+
+        private void OnDestroy()
+        {
+            if (midiPlayer != null) midiPlayer.OnSongEnded -= HandleSongEnded;
         }
 
         private void PopulateAllDropdowns()
@@ -716,17 +723,17 @@ namespace MidiGenPlay
                     cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime(); // ensure runtime goes to generator
 
                     // Debug
-                    Debug.Log($"[UI->Config] Backing pattern: {pat.displayName} " +
-                              $"(id {pat.GetInstanceID()}) | events={pat.events?.Count ?? 0} " +
-                              $"| measures={pat.measures} | subdivisions={pat.subdivisions}");
+                    //Debug.Log($"[UI->Config] Backing pattern: {pat.displayName} " +
+                    //          $"(id {pat.GetInstanceID()}) | events={pat.events?.Count ?? 0} " +
+                    //          $"| measures={pat.measures} | subdivisions={pat.subdivisions}");
 
                     // Print the raw grid the generator will consume
-                    for (int i = 0; i < (pat.events?.Count ?? 0); i++)
+                    /*for (int i = 0; i < (pat.events?.Count ?? 0); i++)
                     {
                         var e = pat.events[i];
                         Debug.Log($"[UI->Config] e#{i}: start={e.startStep}, len={e.lengthSteps}, " +
                                   $"deg={e.degree}, qual={e.quality}, vel={e.velocity}");
-                    }
+                    }*/
                 }
             }
         }
@@ -760,7 +767,7 @@ namespace MidiGenPlay
                 {
                     chordProgressionPanel.Bind(asset);
                     cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
-                    Debug.Log($"[UI] (Initial bind) '{asset.displayName}' → runtime clone bound to panel.");
+                    //Debug.Log($"[UI] (Initial bind) '{asset.displayName}' → runtime clone bound to panel.");
                 }
             }
 
@@ -814,6 +821,7 @@ namespace MidiGenPlay
                       $"id={((patObj as ChordProgressionData)?.GetInstanceID().ToString() ?? "-")}");
 
             var fullSong = midiGenerator.GenerateSong(songConfig);
+            lastSong = fullSong;
 
             var metroVol = (useMetronomeToggle != null && useMetronomeToggle.isOn)
                 ? Mathf.Clamp(settings.metronomeChannelVolume, 0, 127)
@@ -822,9 +830,9 @@ namespace MidiGenPlay
             MidiGenerator.ApplyChannelVolume(
                 fullSong, MidiGenerator.MetronomeChannel, metroVol);
 
-            foreach (var chunk in fullSong.GetTrackChunks())
+            /*foreach (var chunk in fullSong.GetTrackChunks())
                 Debug.Log($"Chunk has {chunk.Events.Count} events; last event at " +
-                    $"{chunk.GetTimedEvents().Max(e => e.Time)} ticks");
+                    $"{chunk.GetTimedEvents().Max(e => e.Time)} ticks");*/
 
             midiPlayback.Play(fullSong);
         }
@@ -916,6 +924,17 @@ namespace MidiGenPlay
             else
             {
                 Debug.LogWarning($"[UI] Could not find '{disp}' in chord pattern dropdown after refresh.");
+            }
+        }
+
+        private void HandleSongEnded()
+        {
+            if (loopToggle != null && loopToggle.isOn && lastSong != null)
+            {
+                if (settings != null && settings.logUI)
+                    Debug.Log("[Loop] Song ended → restarting from beginning.");
+
+                midiPlayback.Play(lastSong);
             }
         }
 

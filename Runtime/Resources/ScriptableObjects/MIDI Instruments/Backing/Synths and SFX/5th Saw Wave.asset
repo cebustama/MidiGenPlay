@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 86 - 5th Saw Wave
   PatchIndex: 86
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 2
+  octaveMax: 8

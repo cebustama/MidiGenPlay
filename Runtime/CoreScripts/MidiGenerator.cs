@@ -4,7 +4,7 @@ using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using Melanchall.DryWetMidi.Standards;
-
+using MidiGenPlay.Composition;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -21,6 +21,13 @@ namespace MidiGenPlay
 
         public const int MetronomeChannel = 15;
 
+        private MidiGenPlayConfig settings;
+
+        public MidiGenerator(MidiGenPlayConfig config)
+        {
+            settings = config;
+        }
+
         #region Generation Methods
         public MidiFile GenerateChordProgressionMidiTrackFile(
             MIDIInstrumentSO instrument,
@@ -33,10 +40,16 @@ namespace MidiGenPlay
             int channel = 0,
             ChordProgressionData progressionData = null)
         {
-            Debug.Log($"{DebugTag} Using progression: {progressionData?.displayName ?? "(null)"} " +
-          $"(id {progressionData?.GetInstanceID()}) | events={progressionData?.events?.Count ?? 0}");
+            Debug.Log($"{DebugTag}<color=cyan> Generating Chord Progression " +
+                $"using progression: {progressionData?.displayName ?? "(null)"} " +
+                $"(id {progressionData?.GetInstanceID()}) | " +
+                $"events={progressionData?.events?.Count ?? 0}</color>");
 
             Debug.Log($"{DebugTag} {DescribeScale(tonality, rootNote)}");
+
+            // Voice Leading
+            var voicer = new BasicVoiceLeadingVoicer();
+            IReadOnlyList<DryWetMidiNote> lastVoicing = null;
 
             var tsInfo = GetTimeSignatureDetails(timeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
@@ -73,10 +86,33 @@ namespace MidiGenPlay
                         NoteName degreeRoot = scaleNames[(int)e.degree];
                         // get pitch classes for this quality
                         var chordNames = GetChordNoteNames(degreeRoot, e.quality);
-                        // realize into playable notes within instrument range
-                        var playable = RealizeChordForInstrument(chordNames, instrument);
+
+                        IReadOnlyList<DryWetMidiNote> playable;
+                        var vl = settings?.voiceLeading;
+
+                        if (vl != null && vl.enableVoiceLeading)
+                            playable = voicer.VoiceChord(
+                                chordNames, instrument, lastVoicing, vl);
+                        else
+                            playable = RealizeChordForInstrument(chordNames, instrument);
+
+                        lastVoicing = playable;
 
                         // Debug
+
+                        if (vl != null && settings.logGenerator)
+                        {
+                            int move = 0;
+                            if (lastVoicing != null)
+                                move = Enumerable.Range(0, Mathf.Min(lastVoicing.Count, playable.Count))
+                                    .Sum(i => Mathf.Abs(
+                                        BasicVoiceLeadingVoicer.Semis(lastVoicing[i]) -
+                                        BasicVoiceLeadingVoicer.Semis(playable[i])));
+
+                            Debug.Log($"{DebugTag} VL pick | movement={move} | " +
+                                      $"candNotes=[{string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"))}]");
+                        }
+
                         var rn = ToRomanRich(e.degree, e.quality);
                         var sym = GetChordSymbol(degreeRoot, e.quality);
                         var notesStr = string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"));
@@ -359,6 +395,7 @@ namespace MidiGenPlay
 
             long currentTicks = 0;  // where the next part begins
 
+            // Part loop
             foreach (var entry in song.Structure)
             {
                 var part = song.Parts[entry.PartIndex];
@@ -373,8 +410,18 @@ namespace MidiGenPlay
 
                 var partTempo = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
 
-                Debug.Log($"<color=white>Part {part.Name}</color>");
+                // part:<index>:<name>:<tonality>:<root>
+                var tag = $"part:{entry.PartIndex}:{part.Name}:{part.Tonality}:{part.RootNote}";
 
+                // Part events
+                metaMgr.Objects.Add(new TimedEvent(new TextEvent(tag), currentTicks));
+                // (Human-friendly marker for DAWs)
+                metaMgr.Objects.Add(new TimedEvent(
+                    new MarkerEvent($"PART {entry.PartIndex} - {part.Name}"), currentTicks));
+
+                Debug.Log($"<color=white>Part {part.Name} | Tag {tag}</color>");
+
+                // Each part repetitions
                 for (int rep = 0; rep < entry.RepeatCount; rep++)
                 {
                     Debug.Log($"Repetition #{rep + 1}");
@@ -383,9 +430,11 @@ namespace MidiGenPlay
                     int tsNum = TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure;
                     int tsDen = TimeSignatureProperties[part.TimeSignature].BeatUnit;
 
+                    // Time signature event
                     metaMgr.Objects.Add(new TimedEvent(
                         new TimeSignatureEvent((byte)tsNum, (byte)tsDen, 24, 8), currentTicks));
 
+                    // Tempo change event
                     int usPerQuarter = Mathf.RoundToInt(60000000f / Mathf.Max(1, bpm));
                     metaMgr.Objects.Add(new TimedEvent(
                         new SetTempoEvent(usPerQuarter), currentTicks));
@@ -439,10 +488,10 @@ namespace MidiGenPlay
 
                     long ticksPerMeasure = ticksPerBeat * beatsPerBar;
                     currentTicks += ticksPerMeasure * part.Measures;
-                    Debug.Log(
+                    /*Debug.Log(
                         $"Advanced cursor by {ticksPerMeasure * part.Measures} " +
                         $"ticks → now at {currentTicks}"
-                    );
+                    );*/
                 }
             }
 

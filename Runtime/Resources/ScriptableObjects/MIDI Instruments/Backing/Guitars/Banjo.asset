@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 105 - Banjo
   PatchIndex: 105
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 4
+  octaveMax: 8

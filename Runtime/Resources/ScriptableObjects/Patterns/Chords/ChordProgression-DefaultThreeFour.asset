@@ -15,25 +15,26 @@ MonoBehaviour:
   displayName: DefaultThreeFour
   timeSignature: 1
   measures: 4
-  tonalities: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d00000013000000
-  chords:
-  - possibleDegrees: 00000000
-    startMeasure: 0
-    startBeat: 0
-    durationBeats: 3
-    velocity: 80
-  - possibleDegrees: 00000000010000000200000003000000040000000500000006000000
-    startMeasure: 1
-    startBeat: 0
-    durationBeats: 3
-    velocity: 80
-  - possibleDegrees: 00000000010000000200000003000000040000000500000006000000
-    startMeasure: 2
-    startBeat: 0
-    durationBeats: 3
-    velocity: 80
-  - possibleDegrees: 0300000004000000
-    startMeasure: 3
-    startBeat: 0
-    durationBeats: 3
-    velocity: 80
+  tonalities: 00000000010000000200000003000000040000000500000006000000
+  subdivisions: 1
+  events:
+  - startStep: 0
+    lengthSteps: 3
+    degree: 3
+    quality: 0
+    velocity: 100
+  - startStep: 3
+    lengthSteps: 3
+    degree: 1
+    quality: 1
+    velocity: 100
+  - startStep: 6
+    lengthSteps: 3
+    degree: 4
+    quality: 0
+    velocity: 100
+  - startStep: 9
+    lengthSteps: 3
+    degree: 0
+    quality: 0
+    velocity: 100

@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 49 - Slow Strings
   PatchIndex: 49
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 8

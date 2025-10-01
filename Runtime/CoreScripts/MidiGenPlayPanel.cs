@@ -103,7 +103,8 @@ namespace MidiGenPlay
 
             int bpm = GetBPMFromRange(tempoRange, TempoRule.MultiplesOfTen);
 
-            midiGenerator = new MidiGenerator();
+            // TODO: Settings SO
+            midiGenerator = new MidiGenerator(null);
             int measures = 4;
 
             // Generate Backing Track

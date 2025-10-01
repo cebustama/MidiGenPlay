@@ -41,6 +41,10 @@ public class MidiGenPlayConfig : ScriptableObject
     public int defaultSeed = 0;
     [Range(0, 127)] public int metronomeChannelVolume = 110;
 
+    [Header("Voice Leading")]
+    [Tooltip("Optional rules asset. If null, voice-leading is disabled.")]
+    public VoiceLeadingConfig voiceLeading;
+
     // --------- LOCAL resources helper properties ----------
     public string ResourcesChordsPath => $"{resourcesPatternsRoot}/Chords";
     public string ResourcesDrumsPath => $"{resourcesPatternsRoot}/Drums";

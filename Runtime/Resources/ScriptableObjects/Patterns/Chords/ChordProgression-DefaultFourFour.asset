@@ -27,12 +27,12 @@ MonoBehaviour:
     lengthSteps: 4
     degree: 4
     quality: 0
-    velocity: 64
+    velocity: 100
   - startStep: 8
     lengthSteps: 4
     degree: 3
     quality: 0
-    velocity: 64
+    velocity: 100
   - startStep: 12
     lengthSteps: 2
     degree: 1
@@ -42,4 +42,4 @@ MonoBehaviour:
     lengthSteps: 2
     degree: 0
     quality: 0
-    velocity: 64
+    velocity: 100

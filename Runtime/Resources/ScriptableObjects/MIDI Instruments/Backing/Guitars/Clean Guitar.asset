@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 27 - Clean Guitar
   PatchIndex: 27
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 4
+  octaveMax: 8

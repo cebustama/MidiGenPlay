@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 91 - Space Voice
   PatchIndex: 91
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 8

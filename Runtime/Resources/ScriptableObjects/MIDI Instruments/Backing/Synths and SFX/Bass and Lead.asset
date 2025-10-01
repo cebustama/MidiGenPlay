@@ -17,6 +17,6 @@ MonoBehaviour:
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 87 - Bass & Lead
-  PatchIndex: 86
-  octaveMin: 1
-  octaveMax: 9
+  PatchIndex: 87
+  octaveMin: 3
+  octaveMax: 8

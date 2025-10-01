@@ -19,6 +19,12 @@ namespace MidiGenPlay
         void Play(byte[] midiData);
         bool IsPlaying { get; }
 
+        long CurrentTick { get; }
+        double CurrentTimeSeconds { get; }
+
+        // Handy for conversions/diagnostics
+        int DeltaTicksPerQuarterNote { get; }
+
         void SetChannelVolume(int channel, int volume01_127);
 
         event Action<List<MPTKEvent>> OnMidiEvents;

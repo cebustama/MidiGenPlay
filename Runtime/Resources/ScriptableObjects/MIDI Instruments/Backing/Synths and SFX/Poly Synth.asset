@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 89 - Warm Pad
   PatchIndex: 89
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 8

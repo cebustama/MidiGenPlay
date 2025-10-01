@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 17 - Organ 2
   PatchIndex: 17
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 8
