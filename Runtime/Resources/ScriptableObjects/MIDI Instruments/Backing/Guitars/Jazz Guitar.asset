@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 26 - Jazz Guitar
   PatchIndex: 26
-  octaveMin: 4
-  octaveMax: 8
+  octaveMin: 3
+  octaveMax: 6

@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 29 - Overdrive Guitar
   PatchIndex: 29
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 6

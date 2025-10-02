@@ -29,10 +29,11 @@ public class VoiceLeadingConfig : ScriptableObject
         Uniform01AroundCenter = 4  // normalized 0..1 spread across the range
     }
 
-    [Header("Starting Register (first chord)")]
+    [Header("Starting Register Type")]
     [Tooltip("How the first chord chooses its starting octave before voice-leading takes over.")]
     public StartRegisterMode startRegisterMode = StartRegisterMode.InstrumentCenter;
 
+    [Header("Starting Register Settings")]
     [Tooltip("Used when StartRegisterMode = FixedOctave. Typical range 0..9 depending on instrument data.")]
     public int fixedStartingOctave = 4;
 
@@ -42,7 +43,6 @@ public class VoiceLeadingConfig : ScriptableObject
     [Tooltip("Max random deviation (in semitones) from instrument center when RandomAroundCenter is used.")]
     [Range(0, 24)] public int startRegisterRandomRangeSemitones = 12;
 
-    [Header("Starting Register (first chord)")]
     [Tooltip("If Uniform01AroundCenter: 0 = exactly center, 1 = anywhere in full range.")]
     [Range(0f, 1f)] public float startRegisterSpread01 = 0.35f;
 
@@ -62,4 +62,18 @@ public class VoiceLeadingConfig : ScriptableObject
 
     [Tooltip("Maximum interval between adjacent voices (e.g., 12 ~ octave).")]
     public int maxTopInterval = 12;
+
+    [Header("Register Drift Between Chords")]
+    [Tooltip("Maximum allowed average-octave change per chord (in octaves). 0 = keep same register.")]
+    [Range(0, 3)] public int maxOctaveShiftPerChord = 1;
+
+    [Tooltip("Penalty weight applied per octave beyond the allowed shift.")]
+    [Range(0f, 4f)] public float weightShiftExcess = 1.5f;
+
+    [Tooltip("If true, disqualify candidates whose avg octave shift exceeds the 'Max Octave Shift Per Chord'.")]
+    public bool hardLimitOctaveShift = false;
+
+    [Header("Debug")]
+    [Tooltip("Print a detailed breakdown for every candidate voicing considered.")]
+    public bool debugScoring = false;
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Melanchall.DryWetMidi.MusicTheory; // Note, NoteName
@@ -39,7 +39,24 @@ namespace MidiGenPlay.Composition
             for (int i = 0; i < realizations.Count; i++)
             {
                 var cand = realizations[i];
-                float score = Score(last, cand, cfg);
+                var bd = Score(last, cand, cfg);
+                float score = bd.total;
+                if (cfg.debugScoring)
+                {
+                    string gaps = (bd.gapsSemis == null || bd.gapsSemis.Length == 0)
+                        ? "[]"
+                        : "[" + string.Join(",", bd.gapsSemis) + "]";
+                    string tag = bd.disqualified ? "DISQ" : "OK";
+
+                    string lastStr = 
+                        (last == null || last.Count == 0) ? "(none)" : DescribeVoicing(last);
+                    Debug.Log(
+                        $"[VL] cand#{i} {tag} " +
+                        $"| last={lastStr} -> cand={DescribeVoicing(cand)} | " +
+                        $"move={bd.movementSemis} | common={bd.commonExact} | gaps={gaps} | " +
+                        $"shift={bd.shiftOctaves:0.00}oct | score={score:0.00}");
+                }
+
                 if (score < bestScore) { bestScore = score; bestIdx = i; }
             }
             return realizations[bestIdx];
@@ -164,39 +181,74 @@ namespace MidiGenPlay.Composition
             return (int)(byte)n.NoteNumber;
         }
 
-        static float Score(
-            IReadOnlyList<Note> last, IReadOnlyList<Note> next, VoiceLeadingConfig cfg)
+        struct ScoreBreakdown
         {
+            public int movementSemis;          // sum |Δ| in semitones (paired voices)
+            public int commonExact;            // exact matches (name+octave)
+            public int[] gapsSemis;            // adjacent voice intervals (semitones)
+            public float spacingPenalty;       // penalty from gaps out of band
+            public float shiftOctaves;         // |avg(next) - avg(last)|
+            public float shiftExcessPenalty;   // penalty for excess over cfg.maxOctaveShiftPerChord
+            public float total;                // total score
+            public bool disqualified;         // true when hardLimitOctaveShift
+        }
+
+        static ScoreBreakdown Score(IReadOnlyList<Note> last, IReadOnlyList<Note> next, VoiceLeadingConfig cfg)
+        {
+            var sb = new ScoreBreakdown();
             float s = 0f;
 
-            // 1) Movement (sum of absolute semitone distances)
+            // 1) Movement / Common tones
             if (last != null && last.Count > 0)
             {
                 int pairs = Mathf.Min(last.Count, next.Count);
-                int movement = 0; int common = 0;
                 for (int i = 0; i < pairs; i++)
                 {
                     int a = Semis(last[i]);
                     int b = Semis(next[i]);
-                    movement += Mathf.Abs(a - b);
-                    if (a == b) common++;
+                    sb.movementSemis += Mathf.Abs(a - b);
+                    if (a == b) sb.commonExact++;
                 }
-                s += cfg.weightMovement * movement;
-                s -= cfg.weightCommonTone * common;
+                s += cfg.weightMovement * sb.movementSemis;
+                s -= cfg.weightCommonTone * sb.commonExact;
             }
 
-            // 2) Spacing penalty (keep adjacent voices within [min,max])
+            // 2) Spacing penalties
+            sb.gapsSemis = new int[Mathf.Max(0, next.Count - 1)];
             for (int i = 1; i < next.Count; i++)
             {
                 int gap = Semis(next[i]) - Semis(next[i - 1]);
+                sb.gapsSemis[i - 1] = gap;
                 if (gap < cfg.minTopInterval) s += cfg.weightSpacing * (cfg.minTopInterval - gap);
                 if (gap > cfg.maxTopInterval) s += cfg.weightSpacing * (gap - cfg.maxTopInterval);
             }
+            sb.spacingPenalty = s;
 
-            // 3) Register bias (soft pull toward the instrument center)
-            // optional: could add another weight; we keep it light by nudging realization near target octave.
+            // 3) Register drift (avg octave)
+            if (last != null && last.Count > 0)
+            {
+                float lastAvg = (float)last.Average(n => (double)n.Octave);
+                float nextAvg = (float)next.Average(n => (double)n.Octave);
+                sb.shiftOctaves = Mathf.Abs(nextAvg - lastAvg);
 
-            return s;
+                float excess = Mathf.Max(0f, sb.shiftOctaves - cfg.maxOctaveShiftPerChord);
+                if (cfg.hardLimitOctaveShift && excess > 0f)
+                {
+                    sb.disqualified = true;
+                    sb.total = float.PositiveInfinity;
+                    return sb;
+                }
+
+                if (excess > 0f)
+                    s += cfg.weightShiftExcess * (excess * 12f); // scale like semitones
+                sb.shiftExcessPenalty = s - sb.spacingPenalty - (cfg.weightMovement * sb.movementSemis - cfg.weightCommonTone * sb.commonExact);
+            }
+
+            sb.total = s;
+            return sb;
         }
+
+        static string DescribeVoicing(IReadOnlyList<Note> v)
+            => string.Join("-", v.Select(n => $"{n.NoteName}{n.Octave}"));
     }
 }

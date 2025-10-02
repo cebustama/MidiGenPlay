@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 74 - Recorder
   PatchIndex: 74
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 3
+  octaveMax: 7

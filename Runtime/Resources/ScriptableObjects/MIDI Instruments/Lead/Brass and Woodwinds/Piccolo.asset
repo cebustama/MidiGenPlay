@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 72 - Piccolo
   PatchIndex: 72
-  octaveMin: 1
-  octaveMax: 9
+  octaveMin: 5
+  octaveMax: 8

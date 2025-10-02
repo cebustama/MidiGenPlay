@@ -108,7 +108,6 @@ namespace MidiGenPlay
                         lastVoicing = playable;
 
                         // Debug
-
                         if (vl != null && settings.logGenerator)
                         {
                             int move = 0;
