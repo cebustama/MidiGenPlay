@@ -41,6 +41,10 @@ public class MidiGenPlayConfig : ScriptableObject
     public int defaultSeed = 0;
     [Range(0, 127)] public int metronomeChannelVolume = 110;
 
+    [Header("Chord Labels / Sync")]
+    [Tooltip("Ventana en ticks para empatar etiquetas chd: con NoteOn (±valor).")]
+    public int chordLabelTickTolerance = 2;
+
     [Header("Voice Leading")]
     [Tooltip("Optional rules asset. If null, voice-leading is disabled.")]
     public VoiceLeadingConfig voiceLeading;

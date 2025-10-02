@@ -102,6 +102,32 @@ namespace MidiGenPlay.Composition
                     var biasOct = Mathf.RoundToInt(cfg.registerBiasSemitones / 12f);
                     return Mathf.Clamp(center + biasOct, inst.octaveMin, inst.octaveMax);
 
+                case VoiceLeadingConfig.StartRegisterMode.RandomAroundCenter:
+                {
+                    int maxDev = Mathf.Max(0, cfg.startRegisterRandomRangeSemitones);
+                    int jitterSemis = UnityEngine.Random.Range(-maxDev, maxDev + 1);
+                    int bias = Mathf.RoundToInt(jitterSemis / 12f);
+                    return Mathf.Clamp(center + bias, inst.octaveMin, inst.octaveMax);
+                }
+
+                case VoiceLeadingConfig.StartRegisterMode.Uniform01AroundCenter:
+                {
+                    int min = inst.octaveMin;
+                    int max = inst.octaveMax;
+
+                    // half-range in octaves from center to either edge (integer)
+                    int halfRange = Mathf.Max(0, Mathf.Max(center - min, max - center));
+
+                    // max offset in octaves we allow (normalized by spread01)
+                    int maxOffset = Mathf.RoundToInt(halfRange * Mathf.Clamp01(cfg.startRegisterSpread01));
+
+                    // choose a side (down/up) uniformly, and an integer offset uniformly in [0..maxOffset]
+                    int side = (UnityEngine.Random.value < 0.5f) ? -1 : 1;
+                    int offset = UnityEngine.Random.Range(0, maxOffset + 1);
+
+                    return Mathf.Clamp(center + side * offset, min, max);
+                }
+
                 default: // InstrumentCenter
                     return center;
             }

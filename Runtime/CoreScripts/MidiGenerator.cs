@@ -61,9 +61,15 @@ namespace MidiGenPlay
             var scaleNames = GetNotesFromScale(scale, rootNote, 4, 7)  // any octave; just for names
                              .Select(n => n.NoteName).ToArray();
 
+            // collect meta markers to stamp after pattern is built
+            var chordMarkers = 
+                new List<(MusicalTimeSpan when, 
+                string roman, string symbol, int deg, string quality)>();
+
             var patternBuilder = new PatternBuilder();
 
-            if (progressionData != null && progressionData.events != null && progressionData.events.Count > 0)
+            if (progressionData != null && progressionData.events != null && 
+                progressionData.events.Count > 0)
             {
                 // Steps/measure for the PART (not the asset): part uses asset.subdivisions to snap chords
                 int stepsPerBeat = Mathf.Max(1, progressionData.subdivisions);
@@ -74,10 +80,13 @@ namespace MidiGenPlay
                 int patternMeasures = Mathf.Max(1, progressionData.measures);
                 int patternTotalSteps = patternMeasures * stepsPerMeasure;
 
-                int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
+                int numRepeats = Mathf.Max(1, Mathf.CeilToInt(
+                    (float)partTotalSteps / patternTotalSteps));
 
                 for (int repeat = 0; repeat < numRepeats; repeat++)
                 {
+                    Debug.Log($"{DebugTag} Repeat {repeat + 1}");
+
                     int repeatStepOffset = repeat * patternTotalSteps;
 
                     foreach (var e in progressionData.events)
@@ -104,7 +113,8 @@ namespace MidiGenPlay
                         {
                             int move = 0;
                             if (lastVoicing != null)
-                                move = Enumerable.Range(0, Mathf.Min(lastVoicing.Count, playable.Count))
+                                move = Enumerable.Range(0, Mathf.Min(
+                                    lastVoicing.Count, playable.Count))
                                     .Sum(i => Mathf.Abs(
                                         BasicVoiceLeadingVoicer.Semis(lastVoicing[i]) -
                                         BasicVoiceLeadingVoicer.Semis(playable[i])));
@@ -113,12 +123,17 @@ namespace MidiGenPlay
                                       $"candNotes=[{string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"))}]");
                         }
 
+                        // Chord data
                         var rn = ToRomanRich(e.degree, e.quality);
                         var sym = GetChordSymbol(degreeRoot, e.quality);
-                        var notesStr = string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"));
+                        int degIndex = ((int)e.degree) + 1;  // 1..7
+                        string qName = e.quality.ToString();
 
-                        Debug.Log($"{DebugTag} step={e.startStep}, len={e.lengthSteps} | {rn} ({sym}) " +
-                                  $"| root={degreeRoot} | notes=[{notesStr}]");
+                        var notesStr = 
+                            string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"));
+
+                        Debug.Log($"{DebugTag} step={e.startStep}, len={e.lengthSteps} " +
+                            $"| {rn} ({sym}) | root={degreeRoot} | notes=[{notesStr}]");
 
                         // Convert step offsets to beats:
                         // 1 step = 1/stepsPerBeat beats; 1 beat = MusicalTimeSpan.Quarter
@@ -130,18 +145,48 @@ namespace MidiGenPlay
                         var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
 
                         patternBuilder.MoveToTime(startTime);
-                        patternBuilder.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
+                        patternBuilder.Chord(playable, duration, 
+                            (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
+
+                        chordMarkers.Add((
+                            (MusicalTimeSpan when, string roman, string symbol, int deg, string quality))
+                            (startTime, rn, sym, degIndex, qName));
                     }
                 }
             }
 
-            // Build MIDI
+            // Build MIDI Pattern
             var pattern = patternBuilder.Build();
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            
+            // Convert to Midi File
             var midiFile = pattern.ToFile(tempoMap);
 
+            // --- Stamp chord meta tags at their exact ticks
+            // Format: chd:<channel>:<roman>:<symbol>:<deg>:<quality>
+            if (chordMarkers.Count > 0)
+            {
+                var chunk = midiFile.GetTrackChunks().FirstOrDefault();
+                if (chunk != null)
+                {
+                    using (var mgr = chunk.ManageTimedEvents())
+                    {
+                        foreach (var cm in chordMarkers)
+                        {
+                            long tick = TimeConverter.ConvertFrom(cm.when, tempoMap); // absolute tick
+                            var txt = $"chd:{channel}:{cm.roman}:{cm.symbol}:{cm.deg}:{cm.quality}";
+                            mgr.Objects.Add(new TimedEvent(new TextEvent(txt), tick));
+
+                            if (settings != null && settings.logGenerator)
+                                Debug.Log($"[MidiGenerator] chd tag @tick={tick} '{txt}'");
+                        }
+                    }
+                }
+            }
+
             // Patch/bank/channel
-            SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
+            SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), 
+                instrument.PatchIndex, channel);
             SetChannel(midiFile, channel);
 
             return midiFile;

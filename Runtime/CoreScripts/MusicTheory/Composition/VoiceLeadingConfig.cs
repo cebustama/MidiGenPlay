@@ -24,7 +24,9 @@ public class VoiceLeadingConfig : ScriptableObject
         /// <summary>Start at a fixed octave (clamped to instrument range).</summary>
         FixedOctave = 1,
         /// <summary>Start at instrument center, then bias up/down by semitones.</summary>
-        BiasFromCenter = 2
+        BiasFromCenter = 2,
+        RandomAroundCenter = 3,
+        Uniform01AroundCenter = 4  // normalized 0..1 spread across the range
     }
 
     [Header("Starting Register (first chord)")]
@@ -36,6 +38,13 @@ public class VoiceLeadingConfig : ScriptableObject
 
     [Tooltip("When StartRegisterMode = BiasFromCenter, positive moves upward; negative moves downward.")]
     [Range(-24, 24)] public int registerBiasSemitones = 0;
+
+    [Tooltip("Max random deviation (in semitones) from instrument center when RandomAroundCenter is used.")]
+    [Range(0, 24)] public int startRegisterRandomRangeSemitones = 12;
+
+    [Header("Starting Register (first chord)")]
+    [Tooltip("If Uniform01AroundCenter: 0 = exactly center, 1 = anywhere in full range.")]
+    [Range(0f, 1f)] public float startRegisterSpread01 = 0.35f;
 
     [Header("Scoring (lower is better)")]
     [Tooltip("Weight for total movement (sum of absolute semitone motion between consecutive voices).")]
