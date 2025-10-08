@@ -7,6 +7,6 @@ namespace MidiGenPlay
     {
         public string displayName;
         public TimeSignature timeSignature;
-        public int measures;
+        [Min(1)] public int measures;
     }
 }

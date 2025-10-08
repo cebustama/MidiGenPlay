@@ -40,6 +40,10 @@ namespace MidiGenPlay.UI
                 subdivisions: _subdivisions,
                 initialState: (r, s) => anchors != null && s < anchors.Length && anchors[s]
             );
+
+            grid.SetFitToContent(width: true, height: true);    // fill vertically (1 row)
+            grid.SetToggleReceivesClicks(false);                // don’t toggle on click
+            grid.SetOverlayEnabled(false);                      // no green overlay
         }
 
         public void WriteBack(PatternGrid grid, ChordProgressionData data)

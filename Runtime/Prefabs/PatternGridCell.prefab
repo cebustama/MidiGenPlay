@@ -53,6 +53,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   toggle: {fileID: 2961042138047740823}
   bg: {fileID: 1758192438675370947}
+  activeOverlay: {r: 0, g: 0.6603774, b: 0, a: 0.62352943}
+  inactiveOverlay: {r: 0.5377358, g: 0.012682447, b: 0.012682447, a: 0.7176471}
 --- !u!114 &2961042138047740823
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -93,7 +95,7 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 0}
+  m_TargetGraphic: {fileID: 1758192438675370947}
   toggleTransition: 1
   graphic: {fileID: 0}
   m_Group: {fileID: 0}

@@ -12,6 +12,7 @@ using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.UI;
 using static MidiGenPlay.MusicTheory.MusicTheory;
+using static MidiGenPlay.SongConfig.PartConfig;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 namespace MidiGenPlay
@@ -49,6 +50,7 @@ namespace MidiGenPlay
         // Percussion
         [SerializeField] private GameObject drumSettingsPanel;
         [SerializeField] private TMP_Dropdown drumPatternDropdown;
+        [SerializeField] private RhythmPatternPanelController rhythmPatternPanel;
         // Chords
         [SerializeField] private GameObject chordSettingsPanel;
         [SerializeField] private TMP_Dropdown chordProgressionDropdown;
@@ -69,6 +71,9 @@ namespace MidiGenPlay
         // TODO: Move to ChordProgression-specific component
         [SerializeField] private Button saveChordButton;
         [SerializeField] private Button newChordButton;
+        // TODO: Rhythm specific component
+        [SerializeField] private Button saveRhythmButton;
+        [SerializeField] private Button newRhythmButton;
 
         [Header("Defaults")]
         [SerializeField] private TrackRole defaultTrackRole = TrackRole.Backing;
@@ -136,13 +141,14 @@ namespace MidiGenPlay
             BuildUIControllers();
             SubscribeUIChanges();
 
+            // TODO: Wire buttons method
             newPartButton.onClick.AddListener(AddNewPart);
             newTrackButton.onClick.AddListener(AddNewTrack);
 
             midiGenerator = new MidiGenerator(settings);
 
             generateButton.onClick.AddListener(OnGenerateAndPlay);
-
+            
             if (saveChordButton != null)
             {
                 saveChordButton.onClick.AddListener(() =>
@@ -195,6 +201,53 @@ namespace MidiGenPlay
                     }
                 });
             }
+
+            if (saveRhythmButton != null)
+            {
+                saveRhythmButton.onClick.AddListener(() =>
+                {
+#if UNITY_EDITOR
+                    DrumPatternData createdOrOverwritten = null;
+
+                    if (rhythmPatternPanel.GetOriginalAsset() == null)
+                    {
+                        var targetFolder = settings.GetDrumWriteFolder();
+                        createdOrOverwritten = rhythmPatternPanel.SaveRuntimeAsNewAsset(targetFolder);
+                    }
+                    else
+                    {
+                        rhythmPatternPanel.SaveRuntimeIntoAsset();
+                        createdOrOverwritten = rhythmPatternPanel.GetOriginalAsset();
+                    }
+
+                    patternRepo.Refresh();
+                    var ts = (TimeSignature)timeSignatureDropdown.value;
+                    FilterAndRefreshPatternLists(ts);
+
+                    if (createdOrOverwritten != null)
+                        SelectRhythmDropdownForAsset(createdOrOverwritten);
+#endif
+                    Debug.Log("<b>[UI]</b> Drum pattern saved.");
+                });
+            }
+
+            if (newRhythmButton != null)
+            {
+                newRhythmButton.onClick.AddListener(() =>
+                {
+                    var sig = GetCurrentSignature();
+                    rhythmPatternPanel.CreateNewRuntime(sig.ts, sig.measures, sig.subdivisions);
+
+                    // Point the active Rhythm track to the panel's runtime so Generate uses it
+                    if (activeTrack >= 0 && tracks[activeTrack].Role == TrackRole.Rhythm)
+                    {
+                        var cfg = tracks[activeTrack];
+                        cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
+                        Debug.Log("[UI] New runtime drum pattern created and assigned to the Rhythm track.");
+                    }
+                });
+            }
+
 
 #if UNITY_EDITOR
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
@@ -417,18 +470,37 @@ namespace MidiGenPlay
                 OnRoleChanged();
             });
 
+            // On Time Signature Changed
             timeSignatureDropdown.onValueChanged.AddListener(idx =>
             {
+                var sig = GetCurrentSignature();
+                rhythmPatternPanel?.SetSignature(sig.beats, sig.measures, sig.subdivisions);
                 var newTs = (TimeSignature)idx;
                 FilterAndRefreshPatternLists(newTs);
-                RebuildChordGridForCurrentPart();
+                RebuildGridsForCurrentPart();
             });
 
-            // TODO: All grids
-            measuresDropdown.onValueChanged.AddListener(_ => RebuildChordGridForCurrentPart());
+            // On Measures Changed
+            measuresDropdown.onValueChanged.AddListener(_ => 
+            {
+                var sig = GetCurrentSignature();
+                rhythmPatternPanel?.SetSignature(sig.beats, sig.measures, sig.subdivisions);
+                RebuildGridsForCurrentPart();
+            });
 
             // Patterns
-            drumPatternDropdown.onValueChanged.AddListener(_ => SaveTrack(activeTrack));
+            drumPatternDropdown.onValueChanged.AddListener(_ => 
+            {
+                SaveTrack(activeTrack);
+
+                var cfg = tracks[activeTrack];
+                var asset = cfg.Parameters?.Pattern as DrumPatternData;
+                if (asset != null)
+                {
+                    rhythmPatternPanel.Bind(asset);
+                    cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
+                }
+            });
 
             chordProgressionDropdown.onValueChanged.AddListener(_ =>
             {
@@ -500,7 +572,7 @@ namespace MidiGenPlay
             //activeTrack = -1;
             AddNewTrack();
 
-            RebuildChordGridForCurrentPart();
+            RebuildGridsForCurrentPart();
         }
 
         private void SavePart(int idx)
@@ -572,7 +644,7 @@ namespace MidiGenPlay
             if (tracks.Count > 0)
                 SelectTrack(0);
 
-            RebuildChordGridForCurrentPart();
+            RebuildGridsForCurrentPart();
         }
 
         public void SelectPart(int index)
@@ -593,7 +665,7 @@ namespace MidiGenPlay
                     .SetActiveVisual((i - 1) == index);
             }
 
-            RebuildChordGridForCurrentPart();
+            RebuildGridsForCurrentPart();
         }
 
         private void ResetTracks()
@@ -707,34 +779,47 @@ namespace MidiGenPlay
 
             roleControllers[cfg.Role].SaveFromUI(cfg);
 
-            if (cfg.Role == TrackRole.Backing)
+            BindPanel(cfg);
+        }
+
+        private void BindPanel(TrackConfig cfg)
+        {
+            switch (cfg.Role)
             {
-                var pat = cfg.Parameters?.Pattern as ChordProgressionData;
-                if (pat == null)
-                {
-                    Debug.LogWarning("[UI->Config] Backing track has NULL ChordProgressionData.");
-                }
-                else
-                {
-                    // Re-bind if needed (first time, or if user swapped asset)
-                    if (chordProgressionPanel.GetOriginalAsset() != pat)
-                        chordProgressionPanel.Bind(pat);
-
-                    cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime(); // ensure runtime goes to generator
-
-                    // Debug
-                    //Debug.Log($"[UI->Config] Backing pattern: {pat.displayName} " +
-                    //          $"(id {pat.GetInstanceID()}) | events={pat.events?.Count ?? 0} " +
-                    //          $"| measures={pat.measures} | subdivisions={pat.subdivisions}");
-
-                    // Print the raw grid the generator will consume
-                    /*for (int i = 0; i < (pat.events?.Count ?? 0); i++)
+                case TrackRole.Backing:
+                    var pat = cfg.Parameters?.Pattern as ChordProgressionData;
+                    if (pat == null)
                     {
-                        var e = pat.events[i];
-                        Debug.Log($"[UI->Config] e#{i}: start={e.startStep}, len={e.lengthSteps}, " +
-                                  $"deg={e.degree}, qual={e.quality}, vel={e.velocity}");
-                    }*/
-                }
+                        Debug.LogWarning("[UI->Config] Backing track has NULL ChordProgressionData.");
+                    }
+                    else
+                    {
+                        // Re-bind if needed
+                        if (chordProgressionPanel.GetOriginalAsset() != pat)
+                            chordProgressionPanel.Bind(pat);
+
+                        cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                    }
+                    break;
+                case TrackRole.Rhythm:
+                    var rPat = cfg.Parameters?.Pattern as DrumPatternData;
+                    if (rPat == null)
+                    {
+                        Debug.LogWarning("[UI->Config] Rhythm track has NULL DrumPatternData.");
+                    }
+                    else
+                    {
+                        if (rhythmPatternPanel.GetOriginalAsset() != rPat)
+                            rhythmPatternPanel.Bind(rPat);
+
+                        cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
+                    }
+                    break;
+                case TrackRole.Lead:
+                    // TODO
+                    break;
+                default:
+                    break;
             }
         }
 
@@ -754,19 +839,28 @@ namespace MidiGenPlay
 
             // Push cfg → UI
             roleControllers[cfg.Role].LoadIntoUI(cfg);
+            // Pull the dropdown's current choice into cfg.Parameters.Pattern
+            roleControllers[cfg.Role].SaveFromUI(cfg);
 
             // Ensure current dropdown selection becomes the config pattern,
             // and bind the panel to it immediately on first load
             if (cfg.Role == TrackRole.Backing)
             {
-                // Pull the dropdown's current choice into cfg.Parameters.Pattern
-                roleControllers[cfg.Role].SaveFromUI(cfg);
-
                 var asset = cfg.Parameters?.Pattern as ChordProgressionData;
                 if (asset != null)
                 {
                     chordProgressionPanel.Bind(asset);
                     cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                    //Debug.Log($"[UI] (Initial bind) '{asset.displayName}' → runtime clone bound to panel.");
+                }
+            }
+            else if (cfg.Role == TrackRole.Rhythm)
+            {
+                var asset = cfg.Parameters?.Pattern as DrumPatternData;
+                if (asset != null)
+                {
+                    rhythmPatternPanel.Bind(asset);
+                    cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
                     //Debug.Log($"[UI] (Initial bind) '{asset.displayName}' → runtime clone bound to panel.");
                 }
             }
@@ -792,12 +886,12 @@ namespace MidiGenPlay
 
                 // Show panel + correct instrument group; set piano range for melodic
                 roleControllers[role].Activate(cfg);
-
-                // Optional: ensure UI matches cfg (esp. first-time selection)
+                // Ensure UI matches cfg (esp. first-time selection)
                 roleControllers[role].LoadIntoUI(cfg);
-
                 // Persist immediately so subsequent actions operate on consistent state
                 roleControllers[role].SaveFromUI(cfg);
+
+                BindPanel(cfg);
             }
         }
 
@@ -867,7 +961,7 @@ namespace MidiGenPlay
             // Measures from dropdown
             int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
 
-            Debug.Log($"<color=white>Rebuilding PatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
+            Debug.Log($"<color=white>Rebuilding ChordPatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
 
             // For now, subdivisions=1, rows=1 (chords)
             chordPatternGrid.Build(
@@ -877,6 +971,26 @@ namespace MidiGenPlay
                 subdivisions: 1,
                 initialState: null // all off
             );
+
+            chordPatternGrid.UseAutoHeight();
+            chordPatternGrid.SetFitToContent(width: true, height: true);
+        }
+
+        private void RebuildRhythmGridForCurrentPart()
+        {
+            var ts = (TimeSignature)timeSignatureDropdown.value;
+            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            var measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
+            rhythmPatternPanel?.SetSignature(beats, measures, subdivisions: 1);
+
+            Debug.Log($"<color=white>Rebuilding RhythmPatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
+
+        }
+
+        private void RebuildGridsForCurrentPart()
+        {
+            RebuildChordGridForCurrentPart();
+            //RebuildRhythmGridForCurrentPart();
         }
 
 #if UNITY_EDITOR
@@ -927,6 +1041,40 @@ namespace MidiGenPlay
             }
         }
 
+        private void SelectRhythmDropdownForAsset(DrumPatternData asset)
+        {
+            if (asset == null) return;
+
+            var disp = string.IsNullOrEmpty(asset.displayName) ? asset.name : asset.displayName;
+
+            int idx = -1;
+            for (int i = 0; i < drumPatternDropdown.options.Count; i++)
+            {
+                var txt = drumPatternDropdown.options[i].text;
+                if (txt == disp || txt == asset.name) { idx = i; break; }
+            }
+
+            if (idx >= 0)
+            {
+                drumPatternDropdown.value = idx;
+                drumPatternDropdown.RefreshShownValue();
+
+                // Ensure the active Rhythm track uses the panel's runtime clone
+                if (activeTrack >= 0 && tracks[activeTrack].Role == TrackRole.Rhythm)
+                {
+                    rhythmPatternPanel.Bind(asset);
+                    tracks[activeTrack].Parameters.Pattern = rhythmPatternPanel.GetRuntime();
+                }
+
+                Debug.Log($"[UI] Selected drum pattern '{disp}' in dropdown.");
+            }
+            else
+            {
+                Debug.LogWarning($"[UI] Could not find '{disp}' in drum pattern dropdown after refresh.");
+            }
+        }
+
+
         private void HandleSongEnded()
         {
             if (loopToggle != null && loopToggle.isOn && lastSong != null)
@@ -938,5 +1086,16 @@ namespace MidiGenPlay
             }
         }
 
+        #region Helpers
+        private (MidiGenPlay.MusicTheory.MusicTheory.TimeSignature ts, int beats, int measures, int subdivisions)
+        GetCurrentSignature()
+        {
+            var ts = (MidiGenPlay.MusicTheory.MusicTheory.TimeSignature)timeSignatureDropdown.value;
+            int beats = MidiGenPlay.MusicTheory.MusicTheory.GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
+            int subdivisions = 1; // update if you later add a UI control for this
+            return (ts, beats, measures, subdivisions);
+        }
+        #endregion
     }
 }

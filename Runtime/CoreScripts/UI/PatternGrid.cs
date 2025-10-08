@@ -13,6 +13,8 @@ namespace MidiGenPlay.UI
         [SerializeField] private RectTransform content;       // child of ScrollRect
         [SerializeField] private GridLayoutGroup layout;      // on 'content'
         [SerializeField] private PatternGridCell cellPrefab;
+        [SerializeField] private bool toggleReceivesClicks = true;
+        [SerializeField] private bool overlayEnabled = true;
 
         [Header("Visuals")]
         [SerializeField] private Color barAccent = new(1f, 1f, 1f, 0.04f);
@@ -85,6 +87,8 @@ namespace MidiGenPlay.UI
                     else if (isBeat) accent = beatAccent;
 
                     cell.Initialize(r, s, startOn, accent);
+                    cell.SetToggleReceivesClicks(toggleReceivesClicks);
+                    cell.SetOverlayEnabled(overlayEnabled);
                     cell.Clicked += _ => OnCellClicked?.Invoke(cell.Row, cell.Step);
                     cell.Toggled += HandleToggled;
                     row.Add(cell);
@@ -93,6 +97,8 @@ namespace MidiGenPlay.UI
             }
 
             RecomputeCellSize();
+            EnsureTopAnchoring();
+            SnapToTop();
         }
 
         public void Clear()
@@ -104,14 +110,6 @@ namespace MidiGenPlay.UI
 
         private void HandleToggled(PatternGridCell cell, bool value)
             => OnCellToggled?.Invoke(cell.Row, cell.Step, value);
-
-        public void SetRowLabelArea(float width)
-        {
-            var p = layout.padding;
-            p.left = Mathf.RoundToInt(width);
-            layout.padding = p;
-            RecomputeCellSize();
-        }
 
         public void SetCell(int row, int step, bool value)
         {
@@ -144,6 +142,7 @@ namespace MidiGenPlay.UI
                 for (int s = 0; s < steps; s++)
                     grid[r][s].SetActive(state[r, s]);
         }
+
 
         // --- Responsive sizing ---
 
@@ -223,12 +222,101 @@ namespace MidiGenPlay.UI
             }
 
             OnRebuilt?.Invoke();
+            EnsureTopAnchoring();
+            SnapToTop();
         }
 
         public float StepToLocalX(int step)
         {
             // left padding + (cellW + spacingX) * step
             return Padding.left + (CellWidth + Spacing.x) * step;
+        }
+
+        public void SetFitToContent(bool width, bool height)
+        {
+            fitToContentWidth = width;
+            fitToContentHeight = height;
+            RecomputeCellSize();
+        }
+
+        // Lock row height to a specific value (and allow vertical scrolling if needed)
+        public void SetCellHeight(float height)
+        {
+            fitToContentHeight = false; // important: we’ll control height manually
+
+            float h = Mathf.Max(minCellHeight, height);
+            if (maxCellHeight > 0f) h = Mathf.Min(h, maxCellHeight);
+
+            var size = layout.cellSize;
+            size.y = h;
+            layout.cellSize = size;
+
+            // Ensure content is tall enough for scroll
+            float totalH = layout.padding.top + layout.padding.bottom
+                           + h * Rows + layout.spacing.y * Mathf.Max(0, Rows - 1);
+            content.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, totalH);
+
+            OnRebuilt?.Invoke();
+            EnsureTopAnchoring();
+            SnapToTop();
+        }
+
+        private void EnsureTopAnchoring()
+        {
+            if (content == null) return;
+
+            if (fitToContentHeight)
+            {
+                // Stretch vertically to the viewport (Chord grid scenario)
+                content.anchorMin = new Vector2(0f, 0f);
+                content.anchorMax = new Vector2(1f, 1f);
+                content.pivot = new Vector2(0.5f, 0.5f);
+                content.offsetMin = Vector2.zero;
+                content.offsetMax = Vector2.zero;
+            }
+            else
+            {
+                // Manual row height: anchor to TOP (Rhythm grid with headers)
+                content.anchorMin = new Vector2(0f, 1f);
+                content.anchorMax = new Vector2(1f, 1f);
+                content.pivot = new Vector2(0f, 1f);
+                content.anchoredPosition = new Vector2(0f, 0f);
+            }
+
+            if (layout != null) layout.childAlignment = TextAnchor.UpperLeft;
+        }
+
+        private void SnapToTop()
+        {
+            // Only meaningful when rows don’t fill the viewport (manual-height mode)
+            if (fitToContentHeight) return;
+
+            var sr = GetComponent<ScrollRect>();
+            if (sr != null) sr.verticalNormalizedPosition = 1f; // top
+            if (content != null)
+                content.anchoredPosition = new Vector2(content.anchoredPosition.x, 0f);
+        }
+
+        public void UseAutoHeight()
+        {
+            fitToContentHeight = true;
+            RecomputeCellSize();
+        }
+
+        public void SetToggleReceivesClicks(bool enabled)
+        {
+            toggleReceivesClicks = enabled;
+            foreach (var row in grid)
+                foreach (var cell in row)
+                    cell.SetToggleReceivesClicks(enabled);
+        }
+
+        public void SetOverlayEnabled(bool enabled)
+        {
+            overlayEnabled = enabled;
+            foreach (var row in grid)
+                foreach (var cell in row)
+                    cell.SetOverlayEnabled(enabled);
         }
     }
 }

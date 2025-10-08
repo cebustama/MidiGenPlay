@@ -12,9 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cbe172d1a7f543146b0be301460cb6c2, type: 3}
   m_Name: DrumPattern-DefaultFourFour
   m_EditorClassIdentifier: 
-  displayName: DefaultFourFour
+  displayName: 
   timeSignature: 0
   measures: 4
+  beatsPerMeasure: 4
+  subdivisions: 1
+  lanes:
+  - instrument: 39
+    defaultVelocity: 1
+    steps: 01010101010101010100000001000100
   velocity: 80
   drumMappings:
   - drumSymbol: x

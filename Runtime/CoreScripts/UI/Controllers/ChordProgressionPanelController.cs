@@ -9,9 +9,6 @@ namespace MidiGenPlay.UI
 {
     public class ChordProgressionPanelController : MonoBehaviour
     {
-        const string DefaultAssetsFolder = "Assets/MidiGenPlay/ChordProgressions";
-        const string DefaultPackageFolder = "Packages/MidiGenPlay/Runtime/Resources/ScriptableObjects/Patterns/Chords";
-
         [Header("Refs")]
         [SerializeField] private PatternGrid grid;
         [SerializeField] private ChordLabelOverlay labels;
@@ -30,8 +27,6 @@ namespace MidiGenPlay.UI
 
         // Working cache — mirrors progression.events for quick queries
         private readonly List<ChordProgressionData.ChordEvent> events = new();
-
-        private int beatsPerMeasure => grid.BeatsPerMeasure;
 
         void Awake()
         {
@@ -330,21 +325,6 @@ namespace MidiGenPlay.UI
                 if (e > start && s < endExclusive)
                     events.RemoveAt(i);
             }
-        }
-
-        private int NextFreeRun(int fromStep)
-        {
-            // length to next anchor or end
-            int next = grid.Steps;
-            foreach (var ev in events)
-            {
-                if (ev.startStep > fromStep)
-                {
-                    next = ev.startStep;
-                    break;
-                }
-            }
-            return Mathf.Max(1, next - fromStep);
         }
 
         private void ApplyEventsToRuntime()
