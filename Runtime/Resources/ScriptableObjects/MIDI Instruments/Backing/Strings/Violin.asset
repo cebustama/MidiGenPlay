@@ -18,5 +18,5 @@ MonoBehaviour:
   BankName: 000
   PatchName: 40 - Violin
   PatchIndex: 40
-  octaveMin: 3
-  octaveMax: 8
+  octaveMin: 4
+  octaveMax: 7

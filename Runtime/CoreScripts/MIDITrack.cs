@@ -25,7 +25,10 @@ namespace MidiGenPlay
     {
         Rhythm,
         Backing,
-        Lead
+        Lead,
+        Bassline,
+        Melody,
+        Harmony
     }
 
     [System.Serializable]

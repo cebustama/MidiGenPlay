@@ -337,6 +337,11 @@ namespace MidiGenPlay
                 }
             };
 
+            // TEMP
+            roleControllers[TrackRole.Melody] = roleControllers[TrackRole.Lead];
+            roleControllers[TrackRole.Bassline] = roleControllers[TrackRole.Lead];
+            roleControllers[TrackRole.Harmony] = roleControllers[TrackRole.Lead];
+
             // Initial pattern lists per role based on current TS
             var ts = (TimeSignature)timeSignatureDropdown.value;
             foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
