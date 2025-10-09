@@ -191,7 +191,6 @@ namespace MidiGenPlay
             return midiFile;
         }
 
-
         public MidiFile GenerateRhythmTrackWithPattern(
             MIDIPercussionInstrumentSO percussionInstrument,
             DrumPatternData patternData,
@@ -200,6 +199,105 @@ namespace MidiGenPlay
             int measures,
             int channel = 9)
         {
+            if (patternData == null)
+            {
+                Debug.LogWarning("[Generate] Rhythm patternData was NULL; skipping track.");
+                return null;
+            }
+
+            // If we have new-lane data, use it; else, fallback to legacy piano-roll
+            bool hasGrid =
+                patternData.lanes != null &&
+                patternData.lanes.Count > 0 &&
+                patternData.lanes.Exists(l => l.steps != null && l.steps.Count > 0);
+
+            return hasGrid
+                ? GenerateRhythmFromGrid(percussionInstrument, patternData, bpm, timeSignature, measures, channel)
+                : GenerateRhythmFromLegacyPianoRoll(percussionInstrument, patternData, bpm, timeSignature, measures, channel);
+        }
+
+        // --- NEW GRID PATH ---
+        private MidiFile GenerateRhythmFromGrid(
+            MIDIPercussionInstrumentSO kit,
+            DrumPatternData data,
+            int bpm,
+            MusicTheory.MusicTheory.TimeSignature ts,
+            int partMeasures,
+            int channel)
+        {
+            // Time/signature math
+            var tsInfo = GetTimeSignatureDetails(ts, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+            int stepsPerBeat = Mathf.Max(1, data.subdivisions);
+            int stepsPerMeasure = beatsPerBar * stepsPerBeat;
+
+            int patternMeasures = Mathf.Max(1, data.measures);
+            int patternTotalSteps = patternMeasures * stepsPerMeasure;
+            int partTotalSteps = Mathf.Max(1, partMeasures) * stepsPerMeasure;
+            int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
+
+            // Duration: one grid step
+            var stepDur = MusicalTimeSpan.Quarter.Multiply(1.0 / stepsPerBeat);
+
+            var pb = new PatternBuilder();
+            pb.MoveToStart();
+
+            // Snapshot lanes → (instrument, velocity, step indices[])
+            var lanes = data.SnapshotAsIndices(); // compact read-only view
+                                                  // emit notes
+            for (int r = 0; r < repeats; r++)
+            {
+                int stepOffset = r * patternTotalSteps;
+
+                foreach (var lane in lanes)
+                {
+                    if (!kit.TryGetMappedNote(lane.instrument, out var note))
+                    {
+                        Debug.LogWarning($"[Generate] No mapped note for {lane.instrument}");
+                        continue;
+                    }
+
+                    var vel = (SevenBitNumber)Mathf.Clamp(lane.velocity, 1, 127);
+
+                    foreach (var s in lane.stepIndices)
+                    {
+                        int sAbs = stepOffset + s;
+                        double beatsFromStart = (double)sAbs / stepsPerBeat;
+
+                        var when = MusicalTimeSpan.Quarter.Multiply(beatsFromStart);
+                        pb.MoveToTime(when);
+                        pb.Note(note, stepDur, vel);
+                    }
+                }
+            }
+
+            // Build → MidiFile
+            var pattern = pb.Build();
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var file = pattern.ToFile(tempoMap);
+
+            // Patch/bank/channel (keep existing helpers)
+            int bank = int.Parse(kit.BankName);
+            int patch = kit.PatchIndex;
+            SetBankAndPatchEvents(file, bank, patch, channel);
+            SetChannel(file, channel);
+            return file;
+        }
+
+        public MidiFile GenerateRhythmFromLegacyPianoRoll(
+            MIDIPercussionInstrumentSO percussionInstrument,
+            DrumPatternData patternData,
+            int bpm,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
+            int measures,
+            int channel = 9)
+        {
+            if (patternData == null)
+            {
+                Debug.LogWarning("[Generate] Rhythm patternData was NULL; skipping track.");
+                return null;
+            }
+
             Debug.Log($"<color=cyan>Generating Drum Track: " +
                 $"{patternData.displayName} with {percussionInstrument.InstrumentName}</color>");
 
@@ -530,6 +628,17 @@ namespace MidiGenPlay
                         MergeInto(fullSong, trackFile);
                     }
 
+                    // Stamp a boundary event at the exact end:
+                    long endTick = currentTicks + partTicks;
+                    metaMgr.Objects.Add(new TimedEvent(
+                        new ControlChangeEvent(
+                            (SevenBitNumber)(byte)ControlName.AllSoundOff, 
+                            (SevenBitNumber)0)
+                        { Channel = (FourBitNumber)MetronomeChannel }, 
+                        endTick)
+                    );
+
+                    // Advance the cursor to the next repetition
                     long ticksPerMeasure = ticksPerBeat * beatsPerBar;
                     currentTicks += ticksPerMeasure * part.Measures;
                     /*Debug.Log(
@@ -539,6 +648,7 @@ namespace MidiGenPlay
                 }
             }
 
+            LogTrackEnds(fullSong, "AfterGenerateSong");
             metaMgr.Dispose();
             return fullSong;
         }
@@ -796,6 +906,20 @@ namespace MidiGenPlay
                 .ToArray();
 
             return notes;
+        }
+
+        private static void LogTrackEnds(MidiFile file, string tag = "Song")
+        {
+            var tempoMap = file.GetTempoMap();
+            int i = 0;
+            foreach (var chunk in file.GetTrackChunks())
+            {
+                var last = chunk.GetTimedEvents().LastOrDefault();
+                var secs = last == null
+                    ? 0.0
+                    : TimeConverter.ConvertTo<MetricTimeSpan>(last.Time, tempoMap).TotalSeconds;
+                Debug.Log($"[{tag}] Track {i++} last @tick={last?.Time} s={secs:0.###} evt={last?.Event}");
+            }
         }
         #endregion
     }

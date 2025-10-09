@@ -18,9 +18,18 @@ MonoBehaviour:
   beatsPerMeasure: 4
   subdivisions: 1
   lanes:
-  - instrument: 39
-    defaultVelocity: 1
-    steps: 01010101010101010100000001000100
+  - instrument: 35
+    defaultVelocity: 127
+    steps: 01000000010000010100000001000100
+  - instrument: 38
+    defaultVelocity: 80
+    steps: 00000100000001000000010000000001
+  - instrument: 42
+    defaultVelocity: 80
+    steps: 01010100010101000101010001000100
+  - instrument: 46
+    defaultVelocity: 80
+    steps: 00000001000000010000000100010001
   velocity: 80
   drumMappings:
   - drumSymbol: x

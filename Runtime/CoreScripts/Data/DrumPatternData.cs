@@ -31,7 +31,7 @@ namespace MidiGenPlay
         public class Lane
         {
             public GeneralMidiPercussion instrument = GeneralMidiPercussion.ClosedHiHat;
-            [Range(1, 127)] public int defaultVelocity = 80;
+            [Range(1, 127)] public int defaultVelocity = 100;
 
             /// <summary>Boolean on/off steps (length == TotalSteps).</summary>
             public List<bool> steps = new List<bool>();

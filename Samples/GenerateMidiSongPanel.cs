@@ -777,8 +777,10 @@ namespace MidiGenPlay
             var cfg = tracks[index];
             cfg.Role = (TrackRole)trackRoleDropdown.value;
 
+            // 1) Pull current dropdown selections into cfg
             roleControllers[cfg.Role].SaveFromUI(cfg);
 
+            // 2) Ensure the track keeps a RUNTIME clone, not the asset
             BindPanel(cfg);
         }
 

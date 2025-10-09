@@ -224,7 +224,9 @@ namespace MidiGenPlay.UI
 
         // --- Lane utilities (for step 3 headers / buttons) ---
 
-        public void AddLane(GeneralMidiPercussion instrument = GeneralMidiPercussion.ClosedHiHat, int velocity = 80)
+        public void AddLane(
+            GeneralMidiPercussion instrument = GeneralMidiPercussion.ClosedHiHat, 
+            int velocity = 100)
         {
             if (runtime == null) return;
             runtime.lanes ??= new List<DrumPatternData.Lane>();
@@ -272,6 +274,13 @@ namespace MidiGenPlay.UI
             if (runtime == null || runtime.lanes == null) return;
             if (row < 0 || row >= runtime.lanes.Count) return;
             runtime.lanes[row].instrument = instr;
+        }
+
+        public void SetLaneVelocity(int row, int velocity)
+        {
+            if (runtime == null || runtime.lanes == null) return;
+            if (row < 0 || row >= runtime.lanes.Count) return;
+            runtime.lanes[row].defaultVelocity = Mathf.Clamp(velocity, 1, 127);
         }
 
         public (GeneralMidiPercussion instrument, int velocity, List<int> steps)[] SnapshotAsIndices()
