@@ -3509,12 +3509,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   midiPlayerAdapter: {fileID: 0}
   settings: {fileID: 11400000, guid: 2a02a4f12bc6e504083042e7790ee803, type: 2}
-  partListController: {fileID: 3903496988470581954}
-  tonalityDropdown: {fileID: 1820340290320166167}
-  rootNoteDropdown: {fileID: 8664574017796294553}
-  tempoRangeDropdown: {fileID: 8209938642745595977}
-  timeSignatureDropdown: {fileID: 5750516578669013553}
-  measuresDropdown: {fileID: 8708864488954458209}
+  partListController: {fileID: 3176867723055002379}
+  partSettingsPanel: {fileID: 8703468006805255687}
   trackTabContainer: {fileID: 3806311101509844500}
   trackTabButtonPrefab: {fileID: 2737752404760708060}
   melodicInstrumentDropdown: {fileID: 2756415672062610402}
@@ -16694,6 +16690,7 @@ GameObject:
   - component: {fileID: 7761218647545526808}
   - component: {fileID: 3821333625231776445}
   - component: {fileID: 1563073029932821191}
+  - component: {fileID: 8703468006805255687}
   m_Layer: 5
   m_Name: Part Settings
   m_TagString: Untagged
@@ -16789,6 +16786,23 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &8703468006805255687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3704715298782884832}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d0f7423c2f5202498b749f9e1774d3f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MidiGenPlay.Samples::PartSettingsPanelController
+  tonalityDropdown: {fileID: 1820340290320166167}
+  rootNoteDropdown: {fileID: 8664574017796294553}
+  tempoRangeDropdown: {fileID: 8209938642745595977}
+  timeSignatureDropdown: {fileID: 5750516578669013553}
+  measuresDropdown: {fileID: 8708864488954458209}
 --- !u!1 &3748965212960321764
 GameObject:
   m_ObjectHideFlags: 0
@@ -29926,7 +29940,6 @@ GameObject:
   - component: {fileID: 7411266366912467394}
   - component: {fileID: 506577588344728950}
   - component: {fileID: 4810364942628602102}
-  - component: {fileID: 3903496988470581954}
   m_Layer: 5
   m_Name: Parts Panel
   m_TagString: Untagged
@@ -29995,21 +30008,6 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
---- !u!114 &3903496988470581954
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7193223144993656497}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3f1027468c47b8a4ea3bba28b48948e7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: MidiGenPlay.Samples::MidiGenPlay.PartListController
-  partTabContainer: {fileID: 9092927975658272657}
-  partTabPrefab: {fileID: 1505371472791841980}
-  addPartButton: {fileID: 7887615041469666900}
 --- !u!1 &7200273445107165176
 GameObject:
   m_ObjectHideFlags: 0
@@ -36214,10 +36212,11 @@ GameObject:
   m_Component:
   - component: {fileID: 9092927975658272657}
   - component: {fileID: 5146569549285122342}
+  - component: {fileID: 3176867723055002379}
   - component: {fileID: 4521577131817371656}
   - component: {fileID: 5441929232104564682}
   m_Layer: 5
-  m_Name: Part Tabs Buttons
+  m_Name: Part List
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -36252,6 +36251,21 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8587979991884901443}
   m_CullTransparentMesh: 1
+--- !u!114 &3176867723055002379
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8587979991884901443}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3f1027468c47b8a4ea3bba28b48948e7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MidiGenPlay.Samples::MidiGenPlay.PartListController
+  partTabContainer: {fileID: 9092927975658272657}
+  partTabPrefab: {fileID: 1505371472791841980}
+  addPartButton: {fileID: 7887615041469666900}
 --- !u!114 &4521577131817371656
 MonoBehaviour:
   m_ObjectHideFlags: 0

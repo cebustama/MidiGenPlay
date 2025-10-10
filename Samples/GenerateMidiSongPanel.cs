@@ -29,13 +29,6 @@ namespace MidiGenPlay
         [SerializeField] private PartListController partListController;
         [SerializeField] private PartSettingsPanelController partSettingsPanel;
 
-        [Header("Song Parts")]
-        [SerializeField] private TMP_Dropdown tonalityDropdown;
-        [SerializeField] private TMP_Dropdown rootNoteDropdown;
-        [SerializeField] private TMP_Dropdown tempoRangeDropdown;
-        [SerializeField] private TMP_Dropdown timeSignatureDropdown;
-        [SerializeField] private TMP_Dropdown measuresDropdown;
-
         [Header("Track Tabs")]
         [SerializeField] private Transform trackTabContainer;
         [SerializeField] private TrackTabButton trackTabButtonPrefab;
@@ -143,6 +136,11 @@ namespace MidiGenPlay
             partListController.OnPartSelected += OnPartSelected;
             partListController.OnPartAddClicked += OnAddPart;
             partListController.OnPartRemoveClicked += OnRemovePartClicked;
+
+            partSettingsPanel.OnTimeSignatureChanged += HandleTimeSignatureChanged;
+            partSettingsPanel.OnMeasuresChanged += HandleMeasuresChanged;
+            partSettingsPanel.OnTonalityChanged += t => chordProgressionPanel.SetTonality(t);
+
             RefreshPartTabs();
 
 
@@ -173,7 +171,7 @@ namespace MidiGenPlay
                     }
 
                     patternRepo.Refresh();
-                    var ts = (TimeSignature)timeSignatureDropdown.value;
+                    var ts = songConfig.Parts[activePart].TimeSignature;
                     FilterAndRefreshPatternLists(ts);
 
                     if (createdOrOverwritten != null)
@@ -187,12 +185,9 @@ namespace MidiGenPlay
             {
                 newChordButton.onClick.AddListener(() =>
                 {
-                    var t = (Tonality)tonalityDropdown.value;
-                    var ts = (TimeSignature)timeSignatureDropdown.value;
-                    int measures = 
-                    int.Parse(measuresDropdown.options[measuresDropdown.value].text);
-
-                    chordProgressionPanel.CreateNewRuntime(t, ts, measures, subdivisions: 1);
+                    var p = songConfig.Parts[activePart];
+                    chordProgressionPanel.CreateNewRuntime(
+                        p.Tonality, p.TimeSignature, p.Measures, subdivisions: 1);
 
                     // Point the active backing track to the runtime object so
                     // "Generate" uses it
@@ -225,7 +220,7 @@ namespace MidiGenPlay
                     }
 
                     patternRepo.Refresh();
-                    var ts = (TimeSignature)timeSignatureDropdown.value;
+                    var ts = songConfig.Parts[activePart].TimeSignature;
                     FilterAndRefreshPatternLists(ts);
 
                     if (createdOrOverwritten != null)
@@ -239,8 +234,10 @@ namespace MidiGenPlay
             {
                 newRhythmButton.onClick.AddListener(() =>
                 {
-                    var sig = GetCurrentSignature();
-                    rhythmPatternPanel.CreateNewRuntime(sig.ts, sig.measures, sig.subdivisions);
+                    var p = songConfig.Parts[activePart];
+                    var beats = GetTimeSignatureDetails(p.TimeSignature).BeatsPerMeasure;
+                    rhythmPatternPanel.CreateNewRuntime(
+                        p.TimeSignature, p.Measures, subdivisions: 1);
 
                     // Point the active Rhythm track to the panel's runtime so Generate uses it
                     if (activeTrack >= 0 && tracks[activeTrack].Role == TrackRole.Rhythm)
@@ -270,26 +267,6 @@ namespace MidiGenPlay
         private void PopulateAllDropdowns()
         {
             PopulateLoadConfigDropdown();
-
-            PopulateDropdownFromEnum<Tonality>(tonalityDropdown);
-            tonalityDropdown.onValueChanged.AddListener(v =>
-            {
-                chordProgressionPanel.SetTonality((Tonality)v);
-            });
-            tonalityDropdown.value = (int)Tonality.Ionian;
-
-            PopulateDropdownFromEnum<NoteName>(rootNoteDropdown);
-            PopulateDropdownFromEnum<TempoRange>(tempoRangeDropdown);
-            tempoRangeDropdown.value = (int)TempoRange.Fast;
-            tempoRangeDropdown.RefreshShownValue();
-            PopulateDropdownFromEnum<TimeSignature>(timeSignatureDropdown);
-
-            var measuresOptions = new List<string> { "1", "2", "4", "8" };
-            measuresDropdown.ClearOptions();
-            measuresDropdown.AddOptions(measuresOptions);
-            measuresDropdown.value = measuresOptions.IndexOf("4");
-            measuresDropdown.RefreshShownValue();
-
             PopulateInstruments();
 
             // Track Roles
@@ -347,10 +324,12 @@ namespace MidiGenPlay
             roleControllers[TrackRole.Harmony] = roleControllers[TrackRole.Lead];
 
             // Initial pattern lists per role based on current TS
-            var ts = (TimeSignature)timeSignatureDropdown.value;
-            foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
+            var ts = (songConfig.Parts.Count > 0) ? 
+                songConfig.Parts[
+                    Mathf.Clamp(activePart, 0, songConfig.Parts.Count - 1)].TimeSignature
+                : TimeSignature.FourFour;
 
-            FilterAndRefreshPatternLists((TimeSignature)timeSignatureDropdown.value);
+            foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
         }
 
         private void PopulateInstruments()
@@ -450,24 +429,6 @@ namespace MidiGenPlay
                 OnRoleChanged();
             });
 
-            // On Time Signature Changed
-            timeSignatureDropdown.onValueChanged.AddListener(idx =>
-            {
-                var sig = GetCurrentSignature();
-                rhythmPatternPanel?.SetSignature(sig.beats, sig.measures, sig.subdivisions);
-                var newTs = (TimeSignature)idx;
-                FilterAndRefreshPatternLists(newTs);
-                RebuildGridsForCurrentPart();
-            });
-
-            // On Measures Changed
-            measuresDropdown.onValueChanged.AddListener(_ => 
-            {
-                var sig = GetCurrentSignature();
-                rhythmPatternPanel?.SetSignature(sig.beats, sig.measures, sig.subdivisions);
-                RebuildGridsForCurrentPart();
-            });
-
             // Patterns
             drumPatternDropdown.onValueChanged.AddListener(_ => 
             {
@@ -519,18 +480,7 @@ namespace MidiGenPlay
         private void SavePart(int idx)
         {
             if (idx < 0 || idx >= songConfig.Parts.Count) return;
-
             Debug.Log($"<color=white>Saving part {idx}</color>");
-
-            part.Tonality = (Tonality)tonalityDropdown.value;
-            part.RootNote = (NoteName)rootNoteDropdown.value;
-            part.TempoRange = (TempoRange)tempoRangeDropdown.value;
-            part.TimeSignature = (TimeSignature)timeSignatureDropdown.value;
-
-            if (int.TryParse(measuresDropdown.options[measuresDropdown.value].text, out int m))
-                part.Measures = m;
-
-            // snapshot currently-selected track before we blow away UI
             if (activeTrack >= 0) SaveTrack(activeTrack);
         }
 
@@ -539,31 +489,6 @@ namespace MidiGenPlay
             if (idx < 0 || idx >= songConfig.Parts.Count) return;
 
             Debug.Log($"<color=green> Loading part {idx}.</color>");
-
-            // Set each dropdown to the enum’s underlying int, then refresh
-            tonalityDropdown.value = (int)part.Tonality;
-            tonalityDropdown.RefreshShownValue();
-
-            rootNoteDropdown.value = (int)part.RootNote;
-            rootNoteDropdown.RefreshShownValue();
-
-            tempoRangeDropdown.value = (int)part.TempoRange;
-            tempoRangeDropdown.RefreshShownValue();
-
-            timeSignatureDropdown.value = (int)part.TimeSignature;
-            timeSignatureDropdown.RefreshShownValue();
-
-            // Find the measures option whose text matches part.Measures
-            string target = part.Measures.ToString();
-            for (int i = 0; i < measuresDropdown.options.Count; i++)
-            {
-                if (measuresDropdown.options[i].text == target)
-                {
-                    measuresDropdown.value = i;
-                    break;
-                }
-            }
-            measuresDropdown.RefreshShownValue();
 
             ResetTracks();
 
@@ -755,8 +680,7 @@ namespace MidiGenPlay
             roleControllers[TrackRole.Backing].Deactivate();
             roleControllers[TrackRole.Lead].Deactivate();
 
-            // Ensure pattern dropdowns reflect current TS (if user changed TS before selecting track)
-            var ts = (TimeSignature)timeSignatureDropdown.value;
+            var ts = songConfig.Parts[activePart].TimeSignature;
             roleControllers[cfg.Role].RefreshPatterns(ts);
 
             // Push cfg → UI
@@ -875,38 +799,14 @@ namespace MidiGenPlay
 
         private void RebuildChordGridForCurrentPart()
         {
-            if (chordPatternGrid == null) return;
+            if (chordPatternGrid == null || activePart < 0) return;
+            var p = songConfig.Parts[activePart];
+            int beats = GetTimeSignatureDetails(p.TimeSignature).BeatsPerMeasure;
+            int measures = p.Measures;
 
-            var ts = (TimeSignature)timeSignatureDropdown.value;
-            int beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
-
-            // Measures from dropdown
-            int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
-
-            Debug.Log($"<color=white>Rebuilding ChordPatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
-
-            // For now, subdivisions=1, rows=1 (chords)
-            chordPatternGrid.Build(
-                rows: 1,
-                measures: measures,
-                beatsPerMeasure: beats,
-                subdivisions: 1,
-                initialState: null // all off
-            );
-
+            chordPatternGrid.Build(rows: 1, measures: measures, beatsPerMeasure: beats, subdivisions: 1, initialState: null);
             chordPatternGrid.UseAutoHeight();
             chordPatternGrid.SetFitToContent(width: true, height: true);
-        }
-
-        private void RebuildRhythmGridForCurrentPart()
-        {
-            var ts = (TimeSignature)timeSignatureDropdown.value;
-            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
-            var measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
-            rhythmPatternPanel?.SetSignature(beats, measures, subdivisions: 1);
-
-            Debug.Log($"<color=white>Rebuilding RhythmPatternGrid for {1} rows, {measures} measures, {beats} beats per measure");
-
         }
 
         private void RebuildGridsForCurrentPart()
@@ -1009,16 +909,6 @@ namespace MidiGenPlay
         }
 
         #region Helpers
-        private (MidiGenPlay.MusicTheory.MusicTheory.TimeSignature ts, int beats, int measures, int subdivisions)
-        GetCurrentSignature()
-        {
-            var ts = (MidiGenPlay.MusicTheory.MusicTheory.TimeSignature)timeSignatureDropdown.value;
-            int beats = MidiGenPlay.MusicTheory.MusicTheory.GetTimeSignatureDetails(ts).BeatsPerMeasure;
-            int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
-            int subdivisions = 1; // update if you later add a UI control for this
-            return (ts, beats, measures, subdivisions);
-        }
-
         private void RefreshPartTabs()
         {
             int partCount = songConfig.Parts.Count;
@@ -1028,35 +918,47 @@ namespace MidiGenPlay
         private void OnAddPart()
         {
             Debug.Log("<color=orange>Adding new part.</color>");
-
             if (activePart >= 0) SavePart(activePart);
 
             var newPart = new SongConfig.PartConfig
             {
-                Name = $"Part {songConfig.Parts.Count + 1}"
+                Name = $"Part {songConfig.Parts.Count + 1}",
+                Tonality = Tonality.Ionian,
+                RootNote = NoteName.C,
+                TempoRange = TempoRange.Fast,
+                TimeSignature = TimeSignature.FourFour,
+                Measures = 4
             };
+
             songConfig.Parts.Add(newPart);
             activePart = songConfig.Parts.Count - 1;
 
             partListController.SetPartTabs(songConfig.Parts.Count, activePart);
+            partListController.SelectTab(activePart);
+
+            partSettingsPanel.Bind(newPart);
 
             ResetTracks();
             AddNewTrack();
+            FilterAndRefreshPatternLists(newPart.TimeSignature);
             RebuildGridsForCurrentPart();
         }
 
-        private void OnPartSelected(int index)
+        private void OnPartSelected(int partIndex)
         {
-            Debug.Log($"<color=green>Selecting part {index}.</color>");
-
-            if (activePart >= 0)
-                SavePart(activePart);
+            Debug.Log($"<color=green>Selecting part {partIndex}.</color>");
+            if (activePart >= 0) SavePart(activePart);
 
             ResetTracks();
-            
-            activePart = index;
+
+            activePart = partIndex;
+            partListController.SelectTab(partIndex);
+
+            var p = songConfig.Parts[partIndex];
+            partSettingsPanel.Bind(p);
+            FilterAndRefreshPatternLists(p.TimeSignature);
+
             LoadPart(activePart);
-            
             RebuildGridsForCurrentPart();
         }
 
@@ -1075,9 +977,31 @@ namespace MidiGenPlay
             activePart = Mathf.Clamp(activePart, 0, songConfig.Parts.Count - 1);
             partListController.SetPartTabs(songConfig.Parts.Count, activePart);
 
+            // keep settings UI in sync with new selection
+            var p = songConfig.Parts[activePart];
+            partSettingsPanel.Bind(p);
+            FilterAndRefreshPatternLists(p.TimeSignature);
+
             // Rebuild UI and track state
             ResetTracks();
             LoadPart(activePart);
+            RebuildGridsForCurrentPart();
+        }
+
+        private void HandleTimeSignatureChanged(TimeSignature ts)
+        {
+            var p = songConfig.Parts[activePart];
+            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            rhythmPatternPanel?.SetSignature(beats, p.Measures, 1);
+            FilterAndRefreshPatternLists(ts);
+            RebuildGridsForCurrentPart();
+        }
+
+        private void HandleMeasuresChanged(int measures)
+        {
+            var ts = songConfig.Parts[activePart].TimeSignature;
+            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            rhythmPatternPanel?.SetSignature(beats, measures, 1);
             RebuildGridsForCurrentPart();
         }
         #endregion

@@ -62,7 +62,7 @@ namespace MidiGenPlay
             SelectTab(selected);
         }
 
-        private void SelectTab(int index)
+        public void SelectTab(int index)
         {
             selectedIndex = index;
             for (int i = 0; i < partTabButtons.Count; i++)
