@@ -306,5 +306,21 @@ namespace MidiGenPlay.MusicTheory
             var names = GetNotesFromScale(scale, root, 4, 7).Select(n => n.NoteName.ToString());
             return $"{mode} ({root}): " + string.Join(" ", names);
         }
+
+        public static NoteName[] ChordPitchClasses(
+            Tonality tonality,
+            NoteName partRoot,
+            ScaleDegree degree,
+            ChordQuality quality)
+        {
+            // degree root for the current tonality/root (any octave)
+            var scale = GetScaleFromTonality(tonality, partRoot);
+            var scaleNames = 
+                GetNotesFromScale(scale, partRoot, 4, 7).Select(n => n.NoteName).ToArray();
+            var degreeRoot = scaleNames[(int)degree];
+
+            // chord pitch classes (names) for that degree+quality
+            return GetChordNoteNames(degreeRoot, quality);
+        }
     }
 }

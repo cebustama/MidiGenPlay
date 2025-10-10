@@ -28,6 +28,21 @@ namespace MidiGenPlay
             settings = config;
         }
 
+        public struct GenContext
+        {
+            public System.Random rng;
+            public VoiceLeadingConfig chordVoicingPreset;
+            public MIDIInstrumentSO DefaultMelodicInstrument;
+
+            // already there
+            public System.Func<SongConfig.PartConfig, TrackRole, MidiFile> GetTrackForRole;
+            public System.Func<MidiFile, List<Melanchall.DryWetMidi.Interaction.Note>> ExtractMonophonicNotes;
+            public System.Func<ChordProgressionData, TempoMap, MusicTheory.MusicTheory.TimeSignature, long, ChordProgressionData.ChordEvent> FindChordEventAt;
+
+            // ➕ add this:
+            public System.Func<SongConfig.PartConfig, ChordProgressionData> GetProgressionForPart;
+        }
+
         #region Harmony 
         public enum HarmonyIntervalMode { ChordMember, ScaleDegree, SemitoneOffset }
         public enum HarmonyInterval { Unison, Third, Fifth, Sixth, Octave }
