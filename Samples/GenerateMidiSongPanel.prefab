@@ -3508,9 +3508,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   midiPlayerAdapter: {fileID: 0}
-  settings: {fileID: 0}
-  partTabContainer: {fileID: 9092927975658272657}
-  partTabButtonPrefab: {fileID: 1394110690158971833}
+  settings: {fileID: 11400000, guid: 2a02a4f12bc6e504083042e7790ee803, type: 2}
+  partListController: {fileID: 3903496988470581954}
   tonalityDropdown: {fileID: 1820340290320166167}
   rootNoteDropdown: {fileID: 8664574017796294553}
   tempoRangeDropdown: {fileID: 8209938642745595977}
@@ -3531,7 +3530,6 @@ MonoBehaviour:
   melodySettingsPanel: {fileID: 8449342118758339943}
   melodyPatternDropdown: {fileID: 9020018746166265687}
   pianoKeysPanel: {fileID: 2137518206436640311}
-  newPartButton: {fileID: 7887615041469666900}
   newTrackButton: {fileID: 4911206394186447408}
   generateButton: {fileID: 2911255151182798109}
   useMetronomeToggle: {fileID: 2191566779034330761}
@@ -7710,6 +7708,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 972a4a1feec5cbf4b9d6d128ae7623fb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  label: {fileID: 0}
+  background: {fileID: 0}
 --- !u!1 &1534313265319191725
 GameObject:
   m_ObjectHideFlags: 0
@@ -29926,6 +29926,7 @@ GameObject:
   - component: {fileID: 7411266366912467394}
   - component: {fileID: 506577588344728950}
   - component: {fileID: 4810364942628602102}
+  - component: {fileID: 3903496988470581954}
   m_Layer: 5
   m_Name: Parts Panel
   m_TagString: Untagged
@@ -29994,6 +29995,21 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &3903496988470581954
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7193223144993656497}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3f1027468c47b8a4ea3bba28b48948e7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MidiGenPlay.Samples::MidiGenPlay.PartListController
+  partTabContainer: {fileID: 9092927975658272657}
+  partTabPrefab: {fileID: 1505371472791841980}
+  addPartButton: {fileID: 7887615041469666900}
 --- !u!1 &7200273445107165176
 GameObject:
   m_ObjectHideFlags: 0

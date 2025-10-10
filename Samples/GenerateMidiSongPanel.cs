@@ -26,9 +26,8 @@ namespace MidiGenPlay
         [Header("MidiGenPlay Settings")]
         [SerializeField] private MidiGenPlayConfig settings;
 
-        [Header("Part Tabs")]
-        [SerializeField] private Transform partTabContainer;
-        [SerializeField] private PartTabButton partTabButtonPrefab;
+        [SerializeField] private PartListController partListController;
+        [SerializeField] private PartSettingsPanelController partSettingsPanel;
 
         [Header("Song Parts")]
         [SerializeField] private TMP_Dropdown tonalityDropdown;
@@ -63,7 +62,6 @@ namespace MidiGenPlay
         [SerializeField] private PianoKeysPanel pianoKeysPanel;
 
         [Header("Controls")]
-        [SerializeField] private Button newPartButton;
         [SerializeField] private Button newTrackButton;
         [SerializeField] private Button generateButton;
         [SerializeField] private Toggle useMetronomeToggle;
@@ -141,8 +139,14 @@ namespace MidiGenPlay
             BuildUIControllers();
             SubscribeUIChanges();
 
+            // Subscribe parts
+            partListController.OnPartSelected += OnPartSelected;
+            partListController.OnPartAddClicked += OnAddPart;
+            partListController.OnPartRemoveClicked += OnRemovePartClicked;
+            RefreshPartTabs();
+
+
             // TODO: Wire buttons method
-            newPartButton.onClick.AddListener(AddNewPart);
             newTrackButton.onClick.AddListener(AddNewTrack);
 
             midiGenerator = new MidiGenerator(settings);
@@ -252,7 +256,7 @@ namespace MidiGenPlay
 #if UNITY_EDITOR
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
 #endif
-            AddNewPart();
+            OnAddPart();
 
             if (settings.defaultSeed != 0)
                 UnityEngine.Random.InitState(settings.defaultSeed);
@@ -396,12 +400,11 @@ namespace MidiGenPlay
                     Parts = new List<SongConfig.PartConfig>(),
                     Structure = new List<SongConfig.PartSequenceEntry>()
                 };
-                // clear UI
-                ClearAllPartTabs();
+
                 sequenceInputField.SetTextWithoutNotify(string.Empty);
 
                 // start fresh
-                AddNewPart();
+                OnAddPart();
                 return;
             }
 
@@ -410,46 +413,18 @@ namespace MidiGenPlay
             LoadSongConfigSO(so);
         }
 
-
-        private void ClearAllPartTabs()
-        {
-            // Leave the “+” button; destroy everything else under partTabContainer
-            for (int i = partTabContainer.childCount - 2; i >= 1; i--)
-            {
-                Destroy(partTabContainer.GetChild(i).gameObject);
-            }
-
-            // Also clear tracks UI
-            ResetTracks();
-        }
-
         private void LoadSongConfigSO(SongConfigSO so)
         {
             // Use the store to produce a deep runtime clone from the asset
             songConfig = configStore.CloneFromAsset(so);
 
-            // 2) repopulate the sequence input
+            // repopulate the sequence input
             sequenceInputField.SetTextWithoutNotify(
                 sequenceSerializer.Serialize(songConfig.Structure)
             );
 
-            // 3) rebuild the Part tabs
-            ClearAllPartTabs();
-
-            for (int i = 0; i < songConfig.Parts.Count; i++)
-            {
-                var pd = songConfig.Parts[i];
-                var tab = Instantiate(partTabButtonPrefab, partTabContainer);
-                tab.gameObject.SetActive(true);
-                tab.Initialize(i, this, pd.Name);
-
-                if (i == 0) tab.SetActiveVisual(true);
-            }
-
-            newPartButton.transform.SetAsLastSibling();
-
-            // 4) finally load the very first part into the UI
-            SelectPart(0);
+            partListController.SetPartTabs(songConfig.Parts.Count, 0);
+            OnPartSelected(0);
         }
 
         private void SubscribeUIChanges()
@@ -540,45 +515,6 @@ namespace MidiGenPlay
         }
 
         #region Parts
-        private void AddNewPart()
-        {
-            Debug.Log("<color=orange>Adding new part.</color>");
-
-            // save outgoing part
-            if (activePart >= 0) SavePart(activePart);
-
-            // create & name
-            var newPart = new SongConfig.PartConfig
-            {
-                Name = $"Part {songConfig.Parts.Count + 1}"
-            };
-            songConfig.Parts.Add(newPart);
-
-            // instantiate its tab
-            var tab = Instantiate(partTabButtonPrefab, partTabContainer);
-            tab.gameObject.SetActive(true);
-            int newIdx = songConfig.Parts.Count - 1;
-            tab.Initialize(newIdx, this, newPart.Name);
-
-            // Place this new tab just before the “+” button
-            int plusIndex = newPartButton.transform.GetSiblingIndex();
-            tab.transform.SetSiblingIndex(plusIndex);
-            newPartButton.transform.SetAsLastSibling();
-
-            // immediately select it
-            SelectPart(newIdx);
-
-            // Start with a single track
-            // TODO: Clone the same instruments as previous part
-            if (activeTrack >= 0)
-            {
-                ResetTracks();
-            }
-            //activeTrack = -1;
-            AddNewTrack();
-
-            RebuildGridsForCurrentPart();
-        }
 
         private void SavePart(int idx)
         {
@@ -648,27 +584,6 @@ namespace MidiGenPlay
             // if there was at least one track, select it
             if (tracks.Count > 0)
                 SelectTrack(0);
-
-            RebuildGridsForCurrentPart();
-        }
-
-        public void SelectPart(int index)
-        {
-            Debug.Log($"<color=green>Selecting part {index}.</color>");
-
-            if (activePart >= 0) SavePart(activePart);
-
-            activePart = index;
-            if (part != null && part.Tracks != null)
-                LoadPart(activePart);
-
-            // highlight tab visuals…
-            for (int i = 1; i < partTabContainer.childCount - 1; i++)
-            {
-                partTabContainer.GetChild(i)
-                    .GetComponent<PartTabButton>()
-                    .SetActiveVisual((i - 1) == index);
-            }
 
             RebuildGridsForCurrentPart();
         }
@@ -1102,6 +1017,68 @@ namespace MidiGenPlay
             int measures = int.Parse(measuresDropdown.options[measuresDropdown.value].text);
             int subdivisions = 1; // update if you later add a UI control for this
             return (ts, beats, measures, subdivisions);
+        }
+
+        private void RefreshPartTabs()
+        {
+            int partCount = songConfig.Parts.Count;
+            partListController.SetPartTabs(partCount, activePart);
+        }
+
+        private void OnAddPart()
+        {
+            Debug.Log("<color=orange>Adding new part.</color>");
+
+            if (activePart >= 0) SavePart(activePart);
+
+            var newPart = new SongConfig.PartConfig
+            {
+                Name = $"Part {songConfig.Parts.Count + 1}"
+            };
+            songConfig.Parts.Add(newPart);
+            activePart = songConfig.Parts.Count - 1;
+
+            partListController.SetPartTabs(songConfig.Parts.Count, activePart);
+
+            ResetTracks();
+            AddNewTrack();
+            RebuildGridsForCurrentPart();
+        }
+
+        private void OnPartSelected(int index)
+        {
+            Debug.Log($"<color=green>Selecting part {index}.</color>");
+
+            if (activePart >= 0)
+                SavePart(activePart);
+
+            ResetTracks();
+            
+            activePart = index;
+            LoadPart(activePart);
+            
+            RebuildGridsForCurrentPart();
+        }
+
+        private void OnRemovePartClicked(int index)
+        {
+            if (songConfig.Parts.Count <= 1)
+            {
+                Debug.LogWarning("Cannot remove the last remaining part.");
+                return;
+            }
+
+            Debug.Log($"<color=red>Removing part {index}.</color>");
+            songConfig.Parts.RemoveAt(index);
+
+            // Re-select a safe index
+            activePart = Mathf.Clamp(activePart, 0, songConfig.Parts.Count - 1);
+            partListController.SetPartTabs(songConfig.Parts.Count, activePart);
+
+            // Rebuild UI and track state
+            ResetTracks();
+            LoadPart(activePart);
+            RebuildGridsForCurrentPart();
         }
         #endregion
     }
