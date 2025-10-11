@@ -21,9 +21,6 @@ namespace MidiGenPlay.UI
 
         private List<ChordProgressionData> patterns = new();
 
-        private readonly PatternGrid grid;
-        private readonly IChordGridAdapter adapter = new ChordGridAdapter();
-
         private ChordProgressionData currentSO;
         private int beatsPerMeasure;
         private int measures;
@@ -35,8 +32,7 @@ namespace MidiGenPlay.UI
             Transform melodicInstrumentGroup,
             PianoKeysPanel piano,
             IList<MIDIInstrumentSO> melodicInstruments,
-            IPatternRepository patternRepo,
-            PatternGrid chordPatternGrid)
+            IPatternRepository patternRepo)
         {
             this.chordPanel = chordPanel;
             this.chordDropdown = chordDropdown;
@@ -45,7 +41,6 @@ namespace MidiGenPlay.UI
             this.piano = piano;
             this.melodicInstruments = melodicInstruments;
             this.patternRepo = patternRepo;
-            grid = chordPatternGrid;
         }
 
         public void RefreshPatterns(TimeSignature ts)
@@ -88,20 +83,11 @@ namespace MidiGenPlay.UI
         public void Activate(SongConfig.PartConfig.TrackConfig currentCfg)
         {
             chordPanel.SetActive(true);
-            melodicInstrumentGroup.gameObject.SetActive(true);
-            if (melodicInstruments.Count > 0)
-            {
-                var inst = melodicInstruments[Mathf.Clamp(melodicInstrumentDropdown.value, 0, melodicInstruments.Count - 1)];
-                piano.gameObject.SetActive(true);
-                piano.SetInteractableRange(inst.octaveMin, inst.octaveMax);
-            }
         }
 
         public void Deactivate()
         {
             chordPanel.SetActive(false);
-            melodicInstrumentGroup.gameObject.SetActive(false);
-            piano.gameObject.SetActive(false);
         }
     }
 }

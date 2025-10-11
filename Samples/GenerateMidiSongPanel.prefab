@@ -3514,26 +3514,10 @@ MonoBehaviour:
   partListController: {fileID: 3176867723055002379}
   partSettingsPanel: {fileID: 8703468006805255687}
   trackListController: {fileID: 5578323262099095209}
-  melodicInstrumentDropdown: {fileID: 2756415672062610402}
-  percInstrumentDropdown: {fileID: 6553250652669276559}
-  trackRoleDropdown: {fileID: 1973107158519700761}
-  drumSettingsPanel: {fileID: 2026252742293097521}
-  drumPatternDropdown: {fileID: 2541058139623777811}
-  rhythmPatternPanel: {fileID: 4442827322378404722}
-  chordSettingsPanel: {fileID: 8849838096094036968}
-  chordProgressionDropdown: {fileID: 2421173616183945862}
-  chordProgressionPanel: {fileID: 3452995125088232617}
-  chordPatternGrid: {fileID: 8967516608736004008}
-  melodySettingsPanel: {fileID: 8449342118758339943}
-  melodyPatternDropdown: {fileID: 9020018746166265687}
-  pianoKeysPanel: {fileID: 2137518206436640311}
+  trackDetailsPanel: {fileID: 7195402431700352647}
   generateButton: {fileID: 2911255151182798109}
   useMetronomeToggle: {fileID: 2191566779034330761}
   loopToggle: {fileID: 1109596380866341629}
-  saveChordButton: {fileID: 8513262935690266516}
-  newChordButton: {fileID: 9093941810816512332}
-  saveRhythmButton: {fileID: 4921727921541838232}
-  newRhythmButton: {fileID: 6258318257667316986}
   defaultTrackRole: 1
   saveConfigButton: {fileID: 6382395240597438307}
   loadConfigDropdown: {fileID: 3028224515816731509}
@@ -33852,6 +33836,7 @@ GameObject:
   - component: {fileID: 7828467902133068093}
   - component: {fileID: 1963621398156734105}
   - component: {fileID: 5253119853545811204}
+  - component: {fileID: 7195402431700352647}
   m_Layer: 5
   m_Name: Tracks Panel
   m_TagString: Untagged
@@ -33919,6 +33904,37 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &7195402431700352647
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8201644713971508048}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b5fbd7fee95b73346b4c6a6fb1b3e03d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MidiGenPlay.Samples::MidiGenPlay.TrackDetailsPanel
+  trackRoleDropdown: {fileID: 1973107158519700761}
+  melodicInstrumentDropdown: {fileID: 2756415672062610402}
+  percInstrumentDropdown: {fileID: 6553250652669276559}
+  melodicInstrumentGroup: {fileID: 878758734239001360}
+  percInstrumentGroup: {fileID: 441052375455284945}
+  drumSettingsPanel: {fileID: 2026252742293097521}
+  drumPatternDropdown: {fileID: 2541058139623777811}
+  rhythmPatternPanel: {fileID: 4442827322378404722}
+  chordSettingsPanel: {fileID: 8849838096094036968}
+  chordProgressionDropdown: {fileID: 2421173616183945862}
+  chordProgressionPanel: {fileID: 3452995125088232617}
+  chordPatternGrid: {fileID: 8967516608736004008}
+  melodySettingsPanel: {fileID: 8449342118758339943}
+  melodyPatternDropdown: {fileID: 9020018746166265687}
+  pianoKeysPanel: {fileID: 2137518206436640311}
+  saveChordButton: {fileID: 8513262935690266516}
+  newChordButton: {fileID: 9093941810816512332}
+  saveRhythmButton: {fileID: 4921727921541838232}
+  newRhythmButton: {fileID: 6258318257667316986}
 --- !u!1 &8204186303499218989
 GameObject:
   m_ObjectHideFlags: 0

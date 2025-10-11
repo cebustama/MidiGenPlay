@@ -1,15 +1,15 @@
-﻿using System;
+﻿using MidiGenPlay.Interfaces;
+using MidiGenPlay.UI;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using MidiGenPlay.Interfaces;
-using MidiGenPlay.UI;
-
+using static MidiGenPlay.MusicTheory.MusicTheory;
+using static PlasticPipe.Server.MonitorStats;
 // Short aliases
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
-using static MidiGenPlay.MusicTheory.MusicTheory;
 using TrackConfig = MidiGenPlay.SongConfig.PartConfig.TrackConfig;
 
 namespace MidiGenPlay
@@ -47,7 +47,6 @@ namespace MidiGenPlay
         [SerializeField] private GameObject chordSettingsPanel;
         [SerializeField] private TMP_Dropdown chordProgressionDropdown;
         [SerializeField] private ChordProgressionPanelController chordProgressionPanel;
-        [SerializeField] private PatternGrid chordPatternGrid;
         // Melody-ish (Lead/Melody/Harmony/Bassline share this for now)
         [SerializeField] private GameObject melodySettingsPanel;
         [SerializeField] private TMP_Dropdown melodyPatternDropdown;
@@ -131,8 +130,7 @@ namespace MidiGenPlay
                         melodicInstrumentGroup != null ? melodicInstrumentGroup.transform : null,
                         pianoKeysPanel,
                         melodicInstruments,
-                        patternRepo,
-                        chordPatternGrid
+                        patternRepo
                     )
                 },
                 {
@@ -180,8 +178,19 @@ namespace MidiGenPlay
             // Ensure runtime binding where needed (chords/drums)
             BindRuntimePatternIfNeeded(track);
 
+            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            if (track.Role == TrackRole.Rhythm)
+                rhythmPatternPanel?.SetSignature(beats, part.Measures, 1);
+            if (track.Role == TrackRole.Backing)
+                chordProgressionPanel?.SetSignature(ts, part.Measures, 1);
+
             // Activate correct panel, toggle instrument groups, update piano range if melodic
-            roleControllers[track.Role].Activate(track);
+            if (!roleControllers.TryGetValue(track.Role, out var controller))
+            {
+                Debug.LogWarning($"No controller for role {track.Role}");
+                return;
+            }
+            controller.Activate(track);
             UpdateInstrumentGroupsForRole(track.Role, track);
         }
 
@@ -199,9 +208,9 @@ namespace MidiGenPlay
         public void OnPartSignatureChanged(TimeSignature ts, int measures)
         {
             currentTS = ts;
-            // Update drum editor signature (kept here to avoid leaking UI refs outside)
             var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
-            rhythmPatternPanel?.SetSignature(beats, measures, 1);
+            rhythmPatternPanel?.SetSignature(ts, measures, 1);
+            chordProgressionPanel?.SetSignature(ts, measures, 1);
             RefreshPatterns(ts);
         }
 
@@ -289,9 +298,15 @@ namespace MidiGenPlay
 
             DeactivateAllRoles();
 
-            roleControllers[role].Activate(boundTrack);
-            roleControllers[role].LoadIntoUI(boundTrack);
-            roleControllers[role].SaveFromUI(boundTrack);
+            if (!roleControllers.TryGetValue(boundTrack.Role, out var controller))
+            {
+                Debug.LogWarning($"No controller for role {boundTrack.Role}");
+                return;
+            }
+
+            controller.Activate(boundTrack);
+            controller.LoadIntoUI(boundTrack);
+            controller.SaveFromUI(boundTrack);
 
             BindRuntimePatternIfNeeded(boundTrack);
             UpdateInstrumentGroupsForRole(role, boundTrack);
@@ -309,9 +324,7 @@ namespace MidiGenPlay
 
         private void DeactivateAllRoles()
         {
-            roleControllers[TrackRole.Rhythm].Deactivate();
-            roleControllers[TrackRole.Backing].Deactivate();
-            roleControllers[TrackRole.Lead].Deactivate();
+            foreach (var c in roleControllers.Values) c.Deactivate();
         }
 
         private void UpdateInstrumentGroupsForRole(TrackRole role, TrackConfig cfg)
@@ -455,5 +468,15 @@ namespace MidiGenPlay
         }
 #endif
         #endregion
+
+        private void OnDestroy()
+        {
+            melodicInstrumentDropdown.onValueChanged.RemoveAllListeners();
+            percInstrumentDropdown.onValueChanged.RemoveAllListeners();
+            trackRoleDropdown.onValueChanged.RemoveAllListeners();
+            drumPatternDropdown.onValueChanged.RemoveAllListeners();
+            chordProgressionDropdown.onValueChanged.RemoveAllListeners();
+            melodyPatternDropdown.onValueChanged.RemoveAllListeners();
+        }
     }
 }

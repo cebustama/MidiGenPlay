@@ -82,13 +82,11 @@ namespace MidiGenPlay.UI
         public void Activate(SongConfig.PartConfig.TrackConfig currentCfg)
         {
             drumPanel.SetActive(true);
-            percInstrumentGroup.gameObject.SetActive(true);
         }
 
         public void Deactivate()
         {
             drumPanel.SetActive(false);
-            percInstrumentGroup.gameObject.SetActive(false);
         }
     }
 }

@@ -56,6 +56,7 @@ namespace MidiGenPlay.UI
             if (runtime != null && runtime.events != null)
                 events.AddRange(runtime.events);
 
+            SetSignature(runtime.timeSignature, runtime.measures, runtime.subdivisions);
             PaintAnchorsFromEvents();
             labels?.Refresh(events);
         }
@@ -69,9 +70,7 @@ namespace MidiGenPlay.UI
             originalAsset.measures = runtime.measures;
             originalAsset.subdivisions = runtime.subdivisions;
 
-            originalAsset.tonalities = new(originalAsset.tonalities ?? new());
-            originalAsset.tonalities.Clear();
-            if (runtime.tonalities != null) originalAsset.tonalities.AddRange(runtime.tonalities);
+            originalAsset.tonalities = new List<Tonality>(runtime.tonalities ?? new());
 
             originalAsset.events.Clear();
             foreach (var e in runtime.events)
@@ -107,6 +106,7 @@ namespace MidiGenPlay.UI
             progression = runtime; // keep legacy field in sync
             events.Clear();
 
+            SetSignature(ts, measures, subdivisions);
             PaintAnchorsFromEvents();
             labels?.SetTonality(t);
             labels?.Refresh(events);
@@ -362,6 +362,53 @@ namespace MidiGenPlay.UI
                         velocity = e.velocity
                     });
             return clone;
+        }
+
+        public void SetSignature(TimeSignature ts, int measures, int subdivisions = 1)
+        {
+            if (!grid) return;
+
+            var beats = GetTimeSignatureDetails(ts).BeatsPerMeasure;
+            grid.Build(
+                rows: 1,
+                measures: Mathf.Max(1, measures),
+                beatsPerMeasure: beats,
+                subdivisions: Mathf.Max(1, subdivisions),
+                initialState: null);
+
+            // Clamp/trim events to new grid length
+            var maxSteps = grid.Steps;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (e.startStep >= maxSteps) { events.RemoveAt(i); continue; }
+                if (e.startStep + e.lengthSteps > maxSteps)
+                    e.lengthSteps = Mathf.Max(1, maxSteps - e.startStep);
+                events[i] = e;
+            }
+
+            // Write back to runtime (if any)
+            if (runtime != null)
+            {
+                runtime.timeSignature = ts;
+                runtime.measures = measures;
+                runtime.subdivisions = subdivisions;
+                runtime.events = new List<ChordProgressionData.ChordEvent>(events);
+            }
+
+            PaintAnchorsFromEvents();
+            labels?.Refresh(events);
+        }
+
+        private void OnDestroy()
+        {
+            if (grid != null)
+            {
+                grid.OnCellClicked -= HandleCellClicked;
+                grid.OnCellToggled -= HandleCellToggled;
+            }
+            if (popup != null)
+                popup.Confirmed -= HandlePopupConfirmed;
         }
     }
 }
