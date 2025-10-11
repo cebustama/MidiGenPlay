@@ -1,5 +1,4 @@
 ﻿using Melanchall.DryWetMidi.Core;
-using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Interfaces;
 using MidiGenPlay.Services;
@@ -8,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
-using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.UI;
 using static MidiGenPlay.MusicTheory.MusicTheory;
@@ -28,10 +26,7 @@ namespace MidiGenPlay
 
         [SerializeField] private PartListController partListController;
         [SerializeField] private PartSettingsPanelController partSettingsPanel;
-
-        [Header("Track Tabs")]
-        [SerializeField] private Transform trackTabContainer;
-        [SerializeField] private TrackTabButton trackTabButtonPrefab;
+        [SerializeField] private TrackListController trackListController;
 
         [Header("Track Settings UI")]
         [SerializeField] private TMP_Dropdown melodicInstrumentDropdown;
@@ -55,7 +50,6 @@ namespace MidiGenPlay
         [SerializeField] private PianoKeysPanel pianoKeysPanel;
 
         [Header("Controls")]
-        [SerializeField] private Button newTrackButton;
         [SerializeField] private Button generateButton;
         [SerializeField] private Toggle useMetronomeToggle;
         [SerializeField] private Toggle loopToggle;
@@ -80,8 +74,6 @@ namespace MidiGenPlay
         private SongConfig songConfig = new SongConfig();
         private SongConfig.PartConfig part => songConfig.Parts[activePart];
         private List<SongConfig.PartConfig.TrackConfig> tracks => part.Tracks;
-
-        private List<TrackTabButton> trackTabs = new List<TrackTabButton>();
         private int activePart = -1;
         private int activeTrack = -1;
 
@@ -103,6 +95,8 @@ namespace MidiGenPlay
         private ISongConfigStore configStore;
 
         private Dictionary<TrackRole, ITrackRoleUIController> roleControllers;
+
+        private Action<MidiGenPlay.MusicTheory.MusicTheory.Tonality> _tonalityHandler;
 
         private void Awake()
         {
@@ -131,24 +125,10 @@ namespace MidiGenPlay
             PopulateAllDropdowns();
             BuildUIControllers();
             SubscribeUIChanges();
-
-            // Subscribe parts
-            partListController.OnPartSelected += OnPartSelected;
-            partListController.OnPartAddClicked += OnAddPart;
-            partListController.OnPartRemoveClicked += OnRemovePartClicked;
-
-            partSettingsPanel.OnTimeSignatureChanged += HandleTimeSignatureChanged;
-            partSettingsPanel.OnMeasuresChanged += HandleMeasuresChanged;
-            partSettingsPanel.OnTonalityChanged += t => chordProgressionPanel.SetTonality(t);
-
+            SubscribeControllers();
             RefreshPartTabs();
 
-
-            // TODO: Wire buttons method
-            newTrackButton.onClick.AddListener(AddNewTrack);
-
             midiGenerator = new MidiGenerator(settings);
-
             generateButton.onClick.AddListener(OnGenerateAndPlay);
             
             if (saveChordButton != null)
@@ -262,6 +242,8 @@ namespace MidiGenPlay
         private void OnDestroy()
         {
             if (midiPlayer != null) midiPlayer.OnSongEnded -= HandleSongEnded;
+
+            UnsubscribeControllers();
         }
 
         private void PopulateAllDropdowns()
@@ -330,6 +312,41 @@ namespace MidiGenPlay
                 : TimeSignature.FourFour;
 
             foreach (var c in roleControllers.Values) c.RefreshPatterns(ts);
+        }
+
+        private void SubscribeControllers()
+        {
+            // Parts
+            partListController.OnPartSelected += OnPartSelected;
+            partListController.OnPartAddClicked += OnAddPart;
+            partListController.OnPartRemoveClicked += OnRemovePartClicked;
+
+            partSettingsPanel.OnTimeSignatureChanged += HandleTimeSignatureChanged;
+            partSettingsPanel.OnMeasuresChanged += HandleMeasuresChanged;
+            _tonalityHandler = t => chordProgressionPanel.SetTonality(t);
+            partSettingsPanel.OnTonalityChanged += _tonalityHandler;
+
+            // Tracks
+            trackListController.OnAddTrackClicked += AddNewTrack;
+            trackListController.OnTrackSelected += SelectTrack;
+            trackListController.OnRemoveTrackClicked += RemoveTrack;
+        }
+
+        private void UnsubscribeControllers()
+        {
+            // Parts
+            partListController.OnPartSelected -= OnPartSelected;
+            partListController.OnPartAddClicked -= OnAddPart;
+            partListController.OnPartRemoveClicked -= OnRemovePartClicked;
+
+            partSettingsPanel.OnTimeSignatureChanged -= HandleTimeSignatureChanged;
+            partSettingsPanel.OnMeasuresChanged -= HandleMeasuresChanged;
+            partSettingsPanel.OnTonalityChanged -= _tonalityHandler;
+
+            // Tracks
+            trackListController.OnAddTrackClicked -= AddNewTrack;
+            trackListController.OnTrackSelected -= SelectTrack;
+            trackListController.OnRemoveTrackClicked -= RemoveTrack;
         }
 
         private void PopulateInstruments()
@@ -492,19 +509,8 @@ namespace MidiGenPlay
 
             ResetTracks();
 
-            // create one tab per TrackConfig in this part (if any)
-            for (int i = 0; i < tracks.Count; i++)
-            {
-                var tab = Instantiate(trackTabButtonPrefab, trackTabContainer);
-                tab.gameObject.SetActive(true);
-                tab.Initialize(i, this, $"Track {i + 1}");
-
-                trackTabs.Add(tab);
-
-                // Keep the “+” button at the end
-                int plusIndex = newTrackButton.transform.GetSiblingIndex();
-                tab.transform.SetSiblingIndex(plusIndex);
-            }
+            // build track tabs for this part
+            trackListController.SetTrackTabs(tracks.Count, tracks.Count > 0 ? 0 : -1);
 
             // if there was at least one track, select it
             if (tracks.Count > 0)
@@ -512,29 +518,6 @@ namespace MidiGenPlay
 
             RebuildGridsForCurrentPart();
         }
-
-        private void ResetTracks()
-        {
-            Debug.Log("<color=red>Resetting tracks.</color>");
-
-            for (int i = trackTabs.Count - 1; i >= 0; i--)
-            {
-                Destroy(trackTabs[i].gameObject);
-            }
-
-            trackTabs.Clear();
-
-            activeTrack = -1;
-
-            newTrackButton.transform.SetAsLastSibling();
-        }
-
-        public void RemovePart(int index)
-        {
-
-        }
-
-        
         #endregion
 
         #region Tracks
@@ -559,18 +542,7 @@ namespace MidiGenPlay
             tracks.Add(newConfig);
             int newIndex = tracks.Count - 1;
 
-            var tab = Instantiate(trackTabButtonPrefab, trackTabContainer);
-            tab.gameObject.SetActive(true);
-            tab.Initialize(newIndex, this, $"Track {newIndex + 1}");
-            
-            trackTabs.Add(tab);
-
-            // Place this new tab just before the “+” button
-            int plusIndex = newTrackButton.transform.GetSiblingIndex();
-            tab.transform.SetSiblingIndex(plusIndex);
-            newTrackButton.transform.SetAsLastSibling();
-
-            // TODO: Remove track button
+            trackListController.SetTrackTabs(tracks.Count, newIndex);
 
             SelectTrack(newIndex);
         }
@@ -580,94 +552,50 @@ namespace MidiGenPlay
             Debug.Log($"<color=lime>Selecting track {index}</color>");
             if (index < 0 || index >= tracks.Count) return;
 
-            // save outgoing
-            if (activeTrack >= 0)
+            // save outgoing only if it still exists
+            if (activeTrack >= 0 && activeTrack < tracks.Count)
                 SaveTrack(activeTrack);
 
             activeTrack = index;
             LoadTrack(activeTrack);
 
-            // Highlight active tab
-            for (int i = 0; i < trackTabs.Count; i++)
-            {
-                trackTabs[i].SetActiveVisual(i == index);
-            }
-
+            trackListController.SelectTab(index);
             OnRoleChanged();
         }
 
         public void RemoveTrack(int index)
         {
-            Destroy(trackTabs[index].gameObject);
-            trackTabs.RemoveAt(index);
+            var wasActive = (index == activeTrack);
             tracks.RemoveAt(index);
 
-            // Re-label remaining tabs
-            for (int i = 0; i < trackTabs.Count; i++)
-            {
-                trackTabs[i].GetComponentInChildren<TMP_Text>().text = $"Track {i + 1}";
-            }
+            if (wasActive || activeTrack >= tracks.Count)
+                activeTrack = -1;
 
-            newTrackButton.transform.SetAsLastSibling();
+            var next = (tracks.Count == 0) ? -1 : Mathf.Clamp(index, 0, tracks.Count - 1);
+            trackListController.SetTrackTabs(tracks.Count, next);
 
-            // Choose valid index
-            if (tracks.Count > 0) SelectTrack(Mathf.Clamp(index, 0, tracks.Count - 1));
+            if (next >= 0) SelectTrack(next);
             else activeTrack = -1;
         }
 
         private void SaveTrack(int index)
         {
-            Debug.Log($"<color=yellow>Saving track {index}</color>");
+            if (index < 0 || index >= tracks.Count) return;
 
+            Debug.Log($"<color=yellow>Saving track {index}</color>");
             var cfg = tracks[index];
             cfg.Role = (TrackRole)trackRoleDropdown.value;
 
-            // 1) Pull current dropdown selections into cfg
             roleControllers[cfg.Role].SaveFromUI(cfg);
-
-            // 2) Ensure the track keeps a RUNTIME clone, not the asset
             BindPanel(cfg);
         }
 
-        private void BindPanel(TrackConfig cfg)
+        private void ResetTracks()
         {
-            switch (cfg.Role)
-            {
-                case TrackRole.Backing:
-                    var pat = cfg.Parameters?.Pattern as ChordProgressionData;
-                    if (pat == null)
-                    {
-                        Debug.LogWarning("[UI->Config] Backing track has NULL ChordProgressionData.");
-                    }
-                    else
-                    {
-                        // Re-bind if needed
-                        if (chordProgressionPanel.GetOriginalAsset() != pat)
-                            chordProgressionPanel.Bind(pat);
+            Debug.Log("<color=red>Resetting tracks.</color>");
 
-                        cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
-                    }
-                    break;
-                case TrackRole.Rhythm:
-                    var rPat = cfg.Parameters?.Pattern as DrumPatternData;
-                    if (rPat == null)
-                    {
-                        Debug.LogWarning("[UI->Config] Rhythm track has NULL DrumPatternData.");
-                    }
-                    else
-                    {
-                        if (rhythmPatternPanel.GetOriginalAsset() != rPat)
-                            rhythmPatternPanel.Bind(rPat);
-
-                        cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
-                    }
-                    break;
-                case TrackRole.Lead:
-                    // TODO
-                    break;
-                default:
-                    break;
-            }
+            trackListController.SetTrackTabs(0, -1);
+            activeTrack = -1;
         }
 
         private void LoadTrack(int index)
@@ -716,6 +644,46 @@ namespace MidiGenPlay
         }
         #endregion
 
+        private void BindPanel(TrackConfig cfg)
+        {
+            switch (cfg.Role)
+            {
+                case TrackRole.Backing:
+                    var pat = cfg.Parameters?.Pattern as ChordProgressionData;
+                    if (pat == null)
+                    {
+                        Debug.LogWarning("[UI->Config] Backing track has NULL ChordProgressionData.");
+                    }
+                    else
+                    {
+                        // Re-bind if needed
+                        if (chordProgressionPanel.GetOriginalAsset() != pat)
+                            chordProgressionPanel.Bind(pat);
+
+                        cfg.Parameters.Pattern = chordProgressionPanel.GetRuntime();
+                    }
+                    break;
+                case TrackRole.Rhythm:
+                    var rPat = cfg.Parameters?.Pattern as DrumPatternData;
+                    if (rPat == null)
+                    {
+                        Debug.LogWarning("[UI->Config] Rhythm track has NULL DrumPatternData.");
+                    }
+                    else
+                    {
+                        if (rhythmPatternPanel.GetOriginalAsset() != rPat)
+                            rhythmPatternPanel.Bind(rPat);
+
+                        cfg.Parameters.Pattern = rhythmPatternPanel.GetRuntime();
+                    }
+                    break;
+                case TrackRole.Lead:
+                    // TODO
+                    break;
+                default:
+                    break;
+            }
+        }
         private void OnRoleChanged()
         {
             var role = (TrackRole)trackRoleDropdown.value;

@@ -2891,6 +2891,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bdd9224bbca2b1b4e851eb8b959a9747, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  label: {fileID: 4790088688369328227}
+  background: {fileID: 3255624321793470651}
 --- !u!1 &670163479249106011
 GameObject:
   m_ObjectHideFlags: 0
@@ -3511,8 +3513,7 @@ MonoBehaviour:
   settings: {fileID: 11400000, guid: 2a02a4f12bc6e504083042e7790ee803, type: 2}
   partListController: {fileID: 3176867723055002379}
   partSettingsPanel: {fileID: 8703468006805255687}
-  trackTabContainer: {fileID: 3806311101509844500}
-  trackTabButtonPrefab: {fileID: 2737752404760708060}
+  trackListController: {fileID: 5578323262099095209}
   melodicInstrumentDropdown: {fileID: 2756415672062610402}
   percInstrumentDropdown: {fileID: 6553250652669276559}
   trackRoleDropdown: {fileID: 1973107158519700761}
@@ -3526,7 +3527,6 @@ MonoBehaviour:
   melodySettingsPanel: {fileID: 8449342118758339943}
   melodyPatternDropdown: {fileID: 9020018746166265687}
   pianoKeysPanel: {fileID: 2137518206436640311}
-  newTrackButton: {fileID: 4911206394186447408}
   generateButton: {fileID: 2911255151182798109}
   useMetronomeToggle: {fileID: 2191566779034330761}
   loopToggle: {fileID: 1109596380866341629}
@@ -7704,8 +7704,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 972a4a1feec5cbf4b9d6d128ae7623fb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  label: {fileID: 0}
-  background: {fileID: 0}
+  label: {fileID: 2009791103305262780}
+  background: {fileID: 3921216458066513629}
 --- !u!1 &1534313265319191725
 GameObject:
   m_ObjectHideFlags: 0
@@ -14607,8 +14607,9 @@ GameObject:
   - component: {fileID: 3346959695209388293}
   - component: {fileID: 4552248146348028542}
   - component: {fileID: 4907557829940221231}
+  - component: {fileID: 5578323262099095209}
   m_Layer: 5
-  m_Name: Track Tabs Buttons
+  m_Name: Track List
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -14699,6 +14700,21 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &5578323262099095209
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3100304332645418370}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87a7cd0f96d010748baaa71fb1e61a96, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: MidiGenPlay.Samples::MidiGenPlay.TrackListController
+  trackTabContainer: {fileID: 3806311101509844500}
+  trackTabPrefab: {fileID: 2737752404760708060}
+  addTrackButton: {fileID: 4911206394186447408}
 --- !u!1 &3138065458512783724
 GameObject:
   m_ObjectHideFlags: 0
