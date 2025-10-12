@@ -43,12 +43,16 @@ namespace MidiGenPlay
 
         [Header("Input Text")]
         [SerializeField] private TMP_InputField sequenceInputField;
-        
-        private SongConfig songConfig = new SongConfig();
-        private SongConfig.PartConfig part => songConfig.Parts[activePart];
-        private List<TrackConfig> tracks => part.Tracks;
-        private int activePart = -1;
-        private int activeTrack = -1;
+
+        // Domain manager (single source of truth)
+        private ISongConfigManager manager;
+        private SongConfig songConfig => manager?.Song;
+        private int activePart => manager?.ActivePart.Value ?? -1;
+        private int activeTrack => manager?.ActiveTrack.Value ?? -1;
+        private SongConfig.PartConfig part => 
+            (activePart >= 0 && activePart < (songConfig?.Parts?.Count ?? 0)) ? 
+                songConfig.Parts[activePart] : null;
+        private List<TrackConfig> tracks => part?.Tracks;
 
         // loaded scriptables:
         private List<MIDIInstrumentSO> melodicInstruments;
@@ -85,8 +89,6 @@ namespace MidiGenPlay
                 settings = MidiGenPlayConfig.FindInResources() ?? 
                     ScriptableObject.CreateInstance<MidiGenPlayConfig>();
 
-            songConfig = new SongConfig();
-            songConfig.Parts = new List<SongConfig.PartConfig>();
             configStore = new SongConfigStoreResources();
 
             instrumentRepo = new InstrumentRepositoryResources(settings);
@@ -103,7 +105,12 @@ namespace MidiGenPlay
 
             PopulateLoadConfigDropdown();
             SubscribeControllers();
-            RefreshPartTabs();
+
+            // Create manager and subscribe to its events (manager -> UI)
+            manager = new SongConfigManager(
+                settings, instrumentRepo, patternRepo, sequenceSerializer, configStore);
+            trackDetailsPanel.SetManager(manager);
+            SubscribeManagerEvents();
 
             midiGenerator = new MidiGenerator(settings);
             generateButton.onClick.AddListener(OnGenerateAndPlay);
@@ -111,7 +118,9 @@ namespace MidiGenPlay
 #if UNITY_EDITOR
             saveConfigButton.onClick.AddListener(OnSaveConfigClicked);
 #endif
-            OnAddPart();
+            // Start with a first part & a first track via manager
+            manager.AddPart();
+            manager.AddTrack(defaultTrackRole);
 
             if (settings.defaultSeed != 0)
                 UnityEngine.Random.InitState(settings.defaultSeed);
@@ -127,9 +136,9 @@ namespace MidiGenPlay
         private void SubscribeControllers()
         {
             // Parts
-            partListController.OnPartSelected += OnPartSelected;
-            partListController.OnPartAddClicked += OnAddPart;
-            partListController.OnPartRemoveClicked += OnRemovePartClicked;
+            partListController.OnPartSelected += i => manager.SelectPart(new PartIdx(i));
+            partListController.OnPartAddClicked += () => manager.AddPart();
+            partListController.OnPartRemoveClicked += i => manager.RemovePart(new PartIdx(i));
 
             partSettingsPanel.OnTimeSignatureChanged += HandleTimeSignatureChanged;
             partSettingsPanel.OnMeasuresChanged += HandleMeasuresChanged;
@@ -137,27 +146,96 @@ namespace MidiGenPlay
             partSettingsPanel.OnTonalityChanged += _tonalityHandler;
 
             // Tracks
-            trackListController.OnAddTrackClicked += AddNewTrack;
-            trackListController.OnTrackSelected += SelectTrack;
-            trackListController.OnRemoveTrackClicked += RemoveTrack;
+            trackListController.OnAddTrackClicked += () => manager.AddTrack(defaultTrackRole);
+            trackListController.OnTrackSelected += i => manager.SelectTrack(new TrackIdx(i));
+            trackListController.OnRemoveTrackClicked += 
+                i => manager.RemoveTrack(new TrackIdx(i));
         }
 
         private void UnsubscribeControllers()
         {
-            // Parts
-            partListController.OnPartSelected -= OnPartSelected;
-            partListController.OnPartAddClicked -= OnAddPart;
-            partListController.OnPartRemoveClicked -= OnRemovePartClicked;
-
-            partSettingsPanel.OnTimeSignatureChanged -= HandleTimeSignatureChanged;
-            partSettingsPanel.OnMeasuresChanged -= HandleMeasuresChanged;
-            partSettingsPanel.OnTonalityChanged -= _tonalityHandler;
-
-            // Tracks
-            trackListController.OnAddTrackClicked -= AddNewTrack;
-            trackListController.OnTrackSelected -= SelectTrack;
-            trackListController.OnRemoveTrackClicked -= RemoveTrack;
+            if (partSettingsPanel != null)
+            {
+                partSettingsPanel.OnTimeSignatureChanged -= HandleTimeSignatureChanged;
+                partSettingsPanel.OnMeasuresChanged -= HandleMeasuresChanged;
+                if (_tonalityHandler != null)
+                    partSettingsPanel.OnTonalityChanged -= _tonalityHandler;
+            }
         }
+
+        private void SubscribeManagerEvents()
+        {
+            // Part lifecycle
+            manager.PartAdded += (_, e) =>
+            {
+                partListController.SetPartTabs(manager.Song.Parts.Count, e.Part.Value);
+                partListController.SelectTab(e.Part.Value);
+
+                var p = manager.Song.Parts[e.Part.Value];
+                partSettingsPanel.Bind(p);
+                trackListController.SetTrackTabs(p.Tracks?.Count ?? 0, (p.Tracks?.Count ?? 0) > 0 ? 0 : -1);
+                trackDetailsPanel.OnPartSignatureChanged(p.TimeSignature, p.Measures);
+            };
+
+            manager.PartRemoved += (_, e) =>
+            {
+                int count = manager.Song.Parts?.Count ?? 0;
+
+                int sel = manager.ActivePart.Value;
+                if (sel < 0 && count > 0) sel = 0;
+                sel = Mathf.Clamp(sel, 0, Mathf.Max(0, count - 1));
+
+                partListController.SetPartTabs(count, sel);
+            };
+
+            manager.ActivePartChanged += (_, e) =>
+            {
+                partListController.SelectTab(e.Part.Value);
+                var p = manager.Song.Parts[e.Part.Value];
+                partSettingsPanel.Bind(p);
+                var tCount = p.Tracks?.Count ?? 0;
+                trackListController.SetTrackTabs(tCount, tCount > 0 ? 0 : -1);
+
+                // Auto-select track 0 if it exists so details bind immediately
+                if (tCount > 0) manager.SelectTrack(new TrackIdx(0));
+            };
+
+            // Track lifecycle
+            manager.TrackAdded += (_, e) =>
+            {
+                var p = manager.Song.Parts[e.Part.Value];
+                trackListController.SetTrackTabs(p.Tracks.Count, e.Track.Value);
+                trackListController.SelectTab(e.Track.Value);
+                trackDetailsPanel.BindTrack(p, p.Tracks[e.Track.Value], p.TimeSignature);
+            };
+
+            manager.TrackRemoved += (_, e) =>
+            {
+                var p = manager.Song.Parts[e.Part.Value];
+                int count = p.Tracks?.Count ?? 0;
+
+                int sel = manager.ActiveTrack.Value;
+                if (sel < 0 && count > 0) sel = 0;
+                sel = Mathf.Clamp(sel, 0, Mathf.Max(0, count - 1));
+
+                trackListController.SetTrackTabs(count, sel);
+            };
+
+            manager.ActiveTrackChanged += (_, e) =>
+            {
+                var p = manager.Song.Parts[e.Part.Value];
+                var t = p.Tracks[e.Track.Value];
+                trackListController.SelectTab(e.Track.Value);
+                trackDetailsPanel.BindTrack(p, t, p.TimeSignature);
+            };
+
+            // Structure (keeps input field synced when changed programmatically)
+            manager.StructureChanged += (_, __) =>
+            {
+                sequenceInputField.SetTextWithoutNotify(manager.SerializeStructure());
+            };
+        }
+
 
         private void PopulateLoadConfigDropdown()
         {
@@ -184,21 +262,21 @@ namespace MidiGenPlay
             // 0 means “–” → reset to a brand new song
             if (selectedIndex == 0)
             {
-                // clear data
-                songConfig = new SongConfig
+                manager.ReplaceSong(new SongConfig
                 {
                     Parts = new List<SongConfig.PartConfig>(),
                     Structure = new List<SongConfig.PartSequenceEntry>()
-                };
+                });
 
                 sequenceInputField.SetTextWithoutNotify(string.Empty);
 
-                // start fresh
-                OnAddPart();
+                // Seed a fresh part/track so UI has something to bind to
+                manager.AddPart();
+                manager.AddTrack(defaultTrackRole);
                 return;
             }
 
-            // otherwise load the chosen SO
+            // Otherwise load the chosen ScriptableObject
             var so = availableConfigs[selectedIndex - 1];
             LoadSongConfigSO(so);
         }
@@ -206,175 +284,81 @@ namespace MidiGenPlay
         private void LoadSongConfigSO(SongConfigSO so)
         {
             // Use the store to produce a deep runtime clone from the asset
-            songConfig = configStore.CloneFromAsset(so);
+            var clone = configStore.CloneFromAsset(so);
 
-            // repopulate the sequence input
+            // Replace the current song in the manager
+            manager.ReplaceSong(clone);
+
+            // Repopulate the structure input text
             sequenceInputField.SetTextWithoutNotify(
-                sequenceSerializer.Serialize(songConfig.Structure)
-            );
+                sequenceSerializer.Serialize(clone.Structure));
 
-            partListController.SetPartTabs(songConfig.Parts.Count, 0);
-            OnPartSelected(0);
+            // Select first part/track if present
+            if (clone.Parts != null && clone.Parts.Count > 0)
+            {
+                manager.SelectPart(new PartIdx(0));
+                if (clone.Parts[0].Tracks != null && clone.Parts[0].Tracks.Count > 0)
+                    manager.SelectTrack(new TrackIdx(0));
+            }
         }
 
-        #region Parts
         private void SavePart(int idx)
         {
             if (idx < 0 || idx >= songConfig.Parts.Count) return;
             Debug.Log($"<color=white>Saving part {idx}</color>");
-            if (activeTrack >= 0) SaveTrack(activeTrack);
+            if (activeTrack >= 0) SaveActiveTrack();
         }
 
-        private void LoadPart(int idx)
+        private void SaveActiveTrack()
         {
-            if (idx < 0 || idx >= songConfig.Parts.Count) return;
-
-            Debug.Log($"<color=green> Loading part {idx}.</color>");
-
-            ResetTracks();
-
-            // build track tabs for this part
-            trackListController.SetTrackTabs(tracks.Count, tracks.Count > 0 ? 0 : -1);
-
-            // if there was at least one track, select it
-            if (tracks.Count > 0)
-                SelectTrack(0);
-
+            if (activePart < 0 || activeTrack < 0) return;
             var p = songConfig.Parts[activePart];
-            trackDetailsPanel.OnPartSignatureChanged(p.TimeSignature, p.Measures);
+            if (p.Tracks == null || activeTrack >= p.Tracks.Count) return;
+            trackDetailsPanel.SaveInto(p.Tracks[activeTrack]);
         }
-        #endregion
-
-        #region Tracks
-        private void AddNewTrack()
-        {
-            Debug.Log("<color=cyan>Adding new track.</color>");
-            // 1) save the current UI into its TrackConfig
-            if (activeTrack >= 0)
-                SaveTrack(activeTrack);
-
-            var defaultMelodic = (melodicInstruments != null && melodicInstruments.Count > 0)
-                ? melodicInstruments[0] : null;
-            var defaultPerc = (percInstruments != null && percInstruments.Count > 0)
-                ? percInstruments[0] : null;
-
-            var newConfig = new SongConfig.PartConfig.TrackConfig
-            {
-                Instrument = defaultMelodic,
-                PercussionInstrument = defaultPerc,
-                Role = defaultTrackRole,
-                Parameters = new TrackParameters()
-            };
-
-            if (part.Tracks == null) part.Tracks = new List<SongConfig.PartConfig.TrackConfig>();
-
-            tracks.Add(newConfig);
-            int newIndex = tracks.Count - 1;
-
-            trackListController.SetTrackTabs(tracks.Count, newIndex);
-
-            SelectTrack(newIndex);
-        }
-
-        public void SelectTrack(int index)
-        {
-            Debug.Log($"<color=lime>Selecting track {index}</color>");
-            if (index < 0 || index >= tracks.Count) return;
-
-            // save outgoing only if it still exists
-            if (activeTrack >= 0 && activeTrack < tracks.Count)
-                SaveTrack(activeTrack);
-
-            activeTrack = index;
-            LoadTrack(activeTrack);
-            trackListController.SelectTab(index);
-        }
-
-        public void RemoveTrack(int index)
-        {
-            var wasActive = (index == activeTrack);
-            tracks.RemoveAt(index);
-
-            if (wasActive || activeTrack >= tracks.Count)
-                activeTrack = -1;
-
-            var next = (tracks.Count == 0) ? -1 : Mathf.Clamp(index, 0, tracks.Count - 1);
-            trackListController.SetTrackTabs(tracks.Count, next);
-
-            if (next >= 0) SelectTrack(next);
-            else activeTrack = -1;
-        }
-
-        private void SaveTrack(int index)
-        {
-            if (index < 0 || index >= tracks.Count) return;
-            trackDetailsPanel.SaveInto(tracks[index]);
-        }
-
-        private void ResetTracks()
-        {
-            Debug.Log("<color=red>Resetting tracks.</color>");
-
-            trackListController.SetTrackTabs(0, -1);
-            activeTrack = -1;
-        }
-
-        private void LoadTrack(int index)
-        {
-            var cfg = tracks[index];
-            var ts = songConfig.Parts[activePart].TimeSignature;
-            trackDetailsPanel.BindTrack(part, cfg, ts);
-        }
-        #endregion
 
         private void OnGenerateAndPlay()
         {
-            SaveTrack(activeTrack);
-            SavePart(activePart);
-            UpdateStructureFromInput();
+            if (activeTrack >= 0) SaveActiveTrack();
+            if (activePart >= 0) SavePart(activePart);
+            UpdateStructureFromInput(); // now writes through manager
 
-            var backing = songConfig.Parts.SelectMany(p => p.Tracks)
-                  .FirstOrDefault(t => t.Role == TrackRole.Backing);
-            var patObj = backing?.Parameters?.Pattern;
-            Debug.Log($"[Generate] Backing Pattern object type={patObj?.GetType().Name} " +
-                      $"name={(patObj as ChordProgressionData)?.displayName} " +
-                      $"id={((patObj as ChordProgressionData)?.GetInstanceID().ToString() ?? "-")}");
+            // Your existing metronome toggles / channel volume logic can stay
+            var backing = songConfig.Parts
+                .SelectMany(p => p.Tracks)
+                .FirstOrDefault(t => t.Role == TrackRole.Backing);
 
-            var fullSong = midiGenerator.GenerateSong(songConfig);
+            foreach (var (p, pIdx) in manager.Song.Parts.Select((pp, ii) => (pp, ii)))
+            {
+                var tracksStr = (p.Tracks ?? new List<SongConfig.PartConfig.TrackConfig>())
+                    .Select((t, ti) =>
+                        $"[t{ti}:{t.Role} inst={t.Instrument?.InstrumentName ?? "-"} perc={t.PercussionInstrument?.InstrumentName ?? "-"} patt={(t.Parameters?.Pattern ? t.Parameters.Pattern.name : "-")}]")
+                    .Aggregate("", (acc, s) => acc + " " + s);
+
+                Debug.Log($"[Gen] p{pIdx} {p.Tonality}/{p.RootNote} {p.TimeSignature}x{p.Measures} :: {tracksStr}");
+            }
+
+            var fullSong = midiGenerator.GenerateSong(manager.Song);
             lastSong = fullSong;
 
+            // Apply (or mute) metronome channel volume per toggle
             var metroVol = (useMetronomeToggle != null && useMetronomeToggle.isOn)
                 ? Mathf.Clamp(settings.metronomeChannelVolume, 0, 127)
                 : 0;
+            MidiGenerator.ApplyChannelVolume(fullSong, MidiGenerator.MetronomeChannel, metroVol);
 
-            MidiGenerator.ApplyChannelVolume(
-                fullSong, MidiGenerator.MetronomeChannel, metroVol);
-
-            /*foreach (var chunk in fullSong.GetTrackChunks())
-                Debug.Log($"Chunk has {chunk.Events.Count} events; last event at " +
-                    $"{chunk.GetTimedEvents().Max(e => e.Time)} ticks");*/
-
+            midiPlayback.Stop();
             midiPlayback.Play(fullSong);
         }
 
         private void UpdateStructureFromInput()
         {
-            if (sequenceSerializer.TryParse(sequenceInputField.text,
-                                            songConfig.Parts?.Count ?? 0,
-                                            out var parsed,
-                                            out var warnings))
+            if (manager.TrySetStructureFromString(sequenceInputField.text, out var warnings))
             {
-                songConfig.Structure = parsed;
+                // ok
             }
-            else
-            {
-                // empty or invalid → clear structure
-                songConfig.Structure = new List<SongConfig.PartSequenceEntry>();
-            }
-
-            // surface warnings
-            foreach (var w in warnings)
-                Debug.LogWarning(w);
+            if (warnings != null)
+                foreach (var w in warnings) Debug.LogWarning(w);
         }
 
 #if UNITY_EDITOR
@@ -402,92 +386,18 @@ namespace MidiGenPlay
             }
         }
 
-        #region Helpers
-        private void RefreshPartTabs()
-        {
-            int partCount = songConfig.Parts.Count;
-            partListController.SetPartTabs(partCount, activePart);
-        }
-
-        private void OnAddPart()
-        {
-            Debug.Log("<color=orange>Adding new part.</color>");
-            if (activePart >= 0) SavePart(activePart);
-
-            var newPart = new SongConfig.PartConfig
-            {
-                Name = $"Part {songConfig.Parts.Count + 1}",
-                Tonality = Tonality.Ionian,
-                RootNote = NoteName.C,
-                TempoRange = TempoRange.Fast,
-                TimeSignature = TimeSignature.FourFour,
-                Measures = 4
-            };
-
-            songConfig.Parts.Add(newPart);
-            activePart = songConfig.Parts.Count - 1;
-
-            partListController.SetPartTabs(songConfig.Parts.Count, activePart);
-            partListController.SelectTab(activePart);
-
-            partSettingsPanel.Bind(newPart);
-
-            ResetTracks();
-            AddNewTrack();
-            trackDetailsPanel.OnPartSignatureChanged(newPart.TimeSignature, newPart.Measures);
-        }
-
-        private void OnPartSelected(int partIndex)
-        {
-            Debug.Log($"<color=green>Selecting part {partIndex}.</color>");
-            if (activePart >= 0) SavePart(activePart);
-
-            ResetTracks();
-
-            activePart = partIndex;
-            partListController.SelectTab(partIndex);
-
-            var p = songConfig.Parts[partIndex];
-            partSettingsPanel.Bind(p);
-
-            LoadPart(activePart);
-        }
-
-        private void OnRemovePartClicked(int index)
-        {
-            if (songConfig.Parts.Count <= 1)
-            {
-                Debug.LogWarning("Cannot remove the last remaining part.");
-                return;
-            }
-
-            Debug.Log($"<color=red>Removing part {index}.</color>");
-            songConfig.Parts.RemoveAt(index);
-
-            // Re-select a safe index
-            activePart = Mathf.Clamp(activePart, 0, songConfig.Parts.Count - 1);
-            partListController.SetPartTabs(songConfig.Parts.Count, activePart);
-
-            // keep settings UI in sync with new selection
-            var p = songConfig.Parts[activePart];
-            partSettingsPanel.Bind(p);
-
-            // Rebuild UI and track state
-            ResetTracks();
-            LoadPart(activePart);
-        }
-
         private void HandleTimeSignatureChanged(TimeSignature ts)
         {
+            if (activePart < 0 || activePart >= songConfig.Parts.Count) return;
             var p = songConfig.Parts[activePart];
             trackDetailsPanel.OnPartSignatureChanged(ts, p.Measures);
         }
 
         private void HandleMeasuresChanged(int measures)
         {
+            if (activePart < 0 || activePart >= songConfig.Parts.Count) return;
             var ts = songConfig.Parts[activePart].TimeSignature;
             trackDetailsPanel.OnPartSignatureChanged(ts, measures);
         }
-        #endregion
     }
 }
