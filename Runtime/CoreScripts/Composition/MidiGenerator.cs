@@ -3,14 +3,12 @@ using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
-using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay.Composition;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
 using static MidiGenPlay.MusicTheory.MusicTheory;
-using DryWetMidiChord = Melanchall.DryWetMidi.MusicTheory.Chord;
 using DryWetMidiNote = Melanchall.DryWetMidi.MusicTheory.Note;
 
 namespace MidiGenPlay
@@ -38,8 +36,18 @@ namespace MidiGenPlay
             _composers[TrackRole.Melody] = 
                 new MelodyComposerMinimal(melodyCfg, melodyStrategy);
             _composers[TrackRole.Lead] = _composers[TrackRole.Melody]; // same for now
+
             _composers[TrackRole.Harmony] = 
                 new HarmonyComposerMinimal(harmonyCfg, harmonyStrategy);
+
+            _composers[TrackRole.Backing] =
+                new ChordTrackComposer(settings, voicer);
+
+            _composers[TrackRole.Rhythm] =
+                new RhythmTrackComposer(settings);
+
+            _composers[TrackRole.Bassline] = 
+                new BassTrackComposer(settings, randomChordTone: false);
 
             if (settings != null && settings.logGenerator)
             {
@@ -101,384 +109,6 @@ namespace MidiGenPlay
         #endregion
 
         #region Generation Methods
-        public MidiFile GenerateChordProgressionMidiTrackFile(
-            MIDIInstrumentSO instrument,
-            TrackRole role,
-            Tonality tonality,
-            NoteName rootNote,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel = 0,
-            ChordProgressionData progressionData = null,
-            GenContext ctx = null)
-        {
-            Debug.Log($"{DebugTag}<color=cyan> Generating Chord Progression " +
-                $"using progression: {progressionData?.displayName ?? "(null)"} " +
-                $"(id {progressionData?.GetInstanceID()}) | " +
-                $"events={progressionData?.events?.Count ?? 0}</color>");
-
-            Debug.Log($"{DebugTag} {DescribeScale(tonality, rootNote)}");
-
-            // Voice Leading
-            IChordVoicer voicer = ctx?.ChordVoicer ?? _voicer ?? new BasicVoiceLeadingVoicer();
-            IReadOnlyList<DryWetMidiNote> lastVoicing = null;
-
-            var tsInfo = GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            // degree + quality → chord notes
-            var scale = GetScaleFromTonality(tonality, rootNote);
-            var scalePreview = GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName.ToString());
-            
-            Debug.Log($"{DebugTag} Part Tonality={tonality} Root={rootNote} " +
-                $"| Scale= [{string.Join(" ", scalePreview)}]");
-
-            var scaleNames = GetNotesFromScale(scale, rootNote, 4, 7)  // any octave; just for names
-                             .Select(n => n.NoteName).ToArray();
-
-            // collect meta markers to stamp after pattern is built
-            var chordMarkers = 
-                new List<(MusicalTimeSpan when, 
-                string roman, string symbol, int deg, string quality)>();
-
-            var patternBuilder = new PatternBuilder();
-
-            if (progressionData != null && progressionData.events != null && 
-                progressionData.events.Count > 0)
-            {
-                // Steps/measure for the PART (not the asset): part uses asset.subdivisions to snap chords
-                int stepsPerBeat = Mathf.Max(1, progressionData.subdivisions);
-                int stepsPerMeasure = beatsPerBar * stepsPerBeat;
-
-                // How many steps the part spans & how many steps the pattern spans
-                int partTotalSteps = Mathf.Max(1, measures) * stepsPerMeasure;
-                int patternMeasures = Mathf.Max(1, progressionData.measures);
-                int patternTotalSteps = patternMeasures * stepsPerMeasure;
-
-                int numRepeats = Mathf.Max(1, Mathf.CeilToInt(
-                    (float)partTotalSteps / patternTotalSteps));
-
-                for (int repeat = 0; repeat < numRepeats; repeat++)
-                {
-                    Debug.Log($"{DebugTag} Repeat {repeat + 1}");
-
-                    int repeatStepOffset = repeat * patternTotalSteps;
-
-                    foreach (var e in progressionData.events)
-                    {
-                        // resolve the chord ROOT from the current scale degree in this tonality
-                        NoteName degreeRoot = scaleNames[(int)e.degree];
-                        // get pitch classes for this quality
-                        var chordNames = GetChordNoteNames(degreeRoot, e.quality);
-
-                        IReadOnlyList<DryWetMidiNote> playable;
-                        var vl = settings?.voiceLeading;
-
-                        if (vl != null && vl.enableVoiceLeading)
-                            playable = voicer.VoiceChord(
-                                chordNames, instrument, lastVoicing, vl);
-                        else
-                            playable = RealizeChordForInstrument(chordNames, instrument);
-
-                        lastVoicing = playable;
-
-                        // Debug
-                        if (vl != null && settings.logGenerator)
-                        {
-                            int move = 0;
-                            if (lastVoicing != null)
-                                move = Enumerable.Range(0, Mathf.Min(
-                                    lastVoicing.Count, playable.Count))
-                                    .Sum(i => Mathf.Abs(
-                                        BasicVoiceLeadingVoicer.Semis(lastVoicing[i]) -
-                                        BasicVoiceLeadingVoicer.Semis(playable[i])));
-
-                            Debug.Log($"{DebugTag} VL pick | movement={move} | " +
-                                      $"candNotes=[{string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"))}]");
-                        }
-
-                        // Chord data
-                        var rn = ToRomanRich(e.degree, e.quality);
-                        var sym = GetChordSymbol(degreeRoot, e.quality);
-                        int degIndex = ((int)e.degree) + 1;  // 1..7
-                        string qName = e.quality.ToString();
-
-                        var notesStr = 
-                            string.Join("-", playable.Select(n => $"{n.NoteName}{n.Octave}"));
-
-                        Debug.Log($"{DebugTag} step={e.startStep}, len={e.lengthSteps} " +
-                            $"| {rn} ({sym}) | root={degreeRoot} | notes=[{notesStr}]");
-
-                        // Convert step offsets to beats:
-                        // 1 step = 1/stepsPerBeat beats; 1 beat = MusicalTimeSpan.Quarter
-                        int startStepAbs = repeatStepOffset + Mathf.Max(0, e.startStep);
-                        double startBeats = (double)startStepAbs / stepsPerBeat;
-                        double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
-
-                        var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
-                        var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
-
-                        patternBuilder.MoveToTime(startTime);
-                        patternBuilder.Chord(playable, duration, 
-                            (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
-
-                        chordMarkers.Add((
-                            (MusicalTimeSpan when, string roman, string symbol, int deg, string quality))
-                            (startTime, rn, sym, degIndex, qName));
-                    }
-                }
-            }
-
-            // Build MIDI Pattern
-            var pattern = patternBuilder.Build();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            
-            // Convert to Midi File
-            var midiFile = pattern.ToFile(tempoMap);
-
-            // --- Stamp chord meta tags at their exact ticks
-            // Format: chd:<channel>:<roman>:<symbol>:<deg>:<quality>
-            if (chordMarkers.Count > 0)
-            {
-                var chunk = midiFile.GetTrackChunks().FirstOrDefault();
-                if (chunk != null)
-                {
-                    using (var mgr = chunk.ManageTimedEvents())
-                    {
-                        foreach (var cm in chordMarkers)
-                        {
-                            long tick = TimeConverter.ConvertFrom(cm.when, tempoMap); // absolute tick
-                            var txt = $"chd:{channel}:{cm.roman}:{cm.symbol}:{cm.deg}:{cm.quality}";
-                            mgr.Objects.Add(new TimedEvent(new TextEvent(txt), tick));
-
-                            if (settings != null && settings.logGenerator)
-                                Debug.Log($"[MidiGenerator] chd tag @tick={tick} '{txt}'");
-                        }
-                    }
-                }
-            }
-
-            // Patch/bank/channel
-            SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), 
-                instrument.PatchIndex, channel);
-            SetChannel(midiFile, channel);
-
-            if (settings != null && settings.logGenerator)
-            {
-                var i = Inspect(midiFile);
-                Debug.Log($"{DebugTag} Chords built → " +
-                    $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
-            }
-
-            return midiFile;
-        }
-
-        public MidiFile GenerateRhythmTrackWithPattern(
-            MIDIPercussionInstrumentSO percussionInstrument,
-            DrumPatternData patternData,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel = 9)
-        {
-            if (patternData == null)
-            {
-                Debug.LogWarning("[Generate] Rhythm patternData was NULL; skipping track.");
-                return null;
-            }
-
-            // If we have new-lane data, use it; else, fallback to legacy piano-roll
-            bool hasGrid =
-                patternData.lanes != null &&
-                patternData.lanes.Count > 0 &&
-                patternData.lanes.Exists(l => l.steps != null && l.steps.Count > 0);
-
-            return hasGrid
-                ? GenerateRhythmFromGrid(percussionInstrument, patternData, bpm, timeSignature, measures, channel)
-                : GenerateRhythmFromLegacyPianoRoll(percussionInstrument, patternData, bpm, timeSignature, measures, channel);
-        }
-
-        // --- NEW GRID PATH ---
-        private MidiFile GenerateRhythmFromGrid(
-            MIDIPercussionInstrumentSO kit,
-            DrumPatternData data,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature ts,
-            int partMeasures,
-            int channel)
-        {
-            // Time/signature math
-            var tsInfo = GetTimeSignatureDetails(ts, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-            int stepsPerBeat = Mathf.Max(1, data.subdivisions);
-            int stepsPerMeasure = beatsPerBar * stepsPerBeat;
-
-            int patternMeasures = Mathf.Max(1, data.measures);
-            int patternTotalSteps = patternMeasures * stepsPerMeasure;
-            int partTotalSteps = Mathf.Max(1, partMeasures) * stepsPerMeasure;
-            int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
-
-            // Duration: one grid step
-            var stepDur = MusicalTimeSpan.Quarter.Multiply(1.0 / stepsPerBeat);
-
-            var pb = new PatternBuilder();
-            pb.MoveToStart();
-
-            // Snapshot lanes → (instrument, velocity, step indices[])
-            var lanes = data.SnapshotAsIndices(); // compact read-only view
-                                                  // emit notes
-            for (int r = 0; r < repeats; r++)
-            {
-                int stepOffset = r * patternTotalSteps;
-
-                foreach (var lane in lanes)
-                {
-                    if (!kit.TryGetMappedNote(lane.instrument, out var note))
-                    {
-                        Debug.LogWarning($"[Generate] No mapped note for {lane.instrument}");
-                        continue;
-                    }
-
-                    var vel = (SevenBitNumber)Mathf.Clamp(lane.velocity, 1, 127);
-
-                    foreach (var s in lane.stepIndices)
-                    {
-                        int sAbs = stepOffset + s;
-                        double beatsFromStart = (double)sAbs / stepsPerBeat;
-
-                        var when = MusicalTimeSpan.Quarter.Multiply(beatsFromStart);
-                        pb.MoveToTime(when);
-                        pb.Note(note, stepDur, vel);
-                    }
-                }
-            }
-
-            // Build → MidiFile
-            var pattern = pb.Build();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var file = pattern.ToFile(tempoMap);
-
-            // Patch/bank/channel (keep existing helpers)
-            int bank = int.Parse(kit.BankName);
-            int patch = kit.PatchIndex;
-            SetBankAndPatchEvents(file, bank, patch, channel);
-            SetChannel(file, channel);
-            return file;
-        }
-
-        public MidiFile GenerateRhythmFromLegacyPianoRoll(
-            MIDIPercussionInstrumentSO percussionInstrument,
-            DrumPatternData patternData,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel = 9)
-        {
-            if (patternData == null)
-            {
-                Debug.LogWarning("[Generate] Rhythm patternData was NULL; skipping track.");
-                return null;
-            }
-
-            Debug.Log($"<color=cyan>Generating Drum Track: " +
-                $"{patternData.displayName} with {percussionInstrument.InstrumentName}</color>");
-
-            // Extract time signature details
-            var timeSignatureInfo = GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = timeSignatureInfo.BeatsPerMeasure;
-
-            // Extract the lines of the PianoRoll pattern
-            string[] patternLines = patternData.pianoRollPattern.Split('\n');
-
-            // Determine the number of times to repeat the pattern
-            int patternLength = patternData.measures;
-            int numRepeats = Mathf.CeilToInt((float)measures / patternLength);
-
-            // Dictionary for processed mappings
-            Dictionary<string, string> processedLines = new Dictionary<string, string>();
-
-            // Initialize pattern builder
-            PatternBuilder patternBuilder = new PatternBuilder();
-            patternBuilder.MoveToStart();
-
-            // Process each line of the pattern
-            foreach (string line in patternLines)
-            {
-                int firstBracket = line.IndexOf('{');
-                int lastBracket = line.IndexOf('}');
-
-                if (firstBracket == -1 || lastBracket == -1 || lastBracket <= firstBracket)
-                {
-                    Debug.LogWarning($"Skipping invalid pattern line: {line}");
-                    continue;
-                }
-
-                // Extract tag (e.g., {x}, {o}, {O})
-                string tag = line.Substring(firstBracket, lastBracket - firstBracket + 1);
-                string drumSymbol = tag.Trim('{', '}');
-
-                // Find the corresponding GeneralMidiPercussion type
-                GeneralMidiPercussion percussionType = GeneralMidiPercussion.AcousticBassDrum;
-                bool foundMapping = false;
-
-                foreach (var mapping in patternData.drumMappings)
-                {
-                    if (mapping.drumSymbol == drumSymbol)
-                    {
-                        percussionType = mapping.drumNote;
-                        foundMapping = true;
-                        break;
-                    }
-                }
-
-                if (!foundMapping)
-                {
-                    Debug.LogWarning($"No drum mapping found for symbol: {drumSymbol}");
-                    continue;
-                }
-
-                // Get the mapped MIDI note
-                if (!percussionInstrument.TryGetMappedNote(percussionType, out DryWetMidiNote mappedNote))
-                {
-                    Debug.LogWarning($"No mapped MIDI note found for {percussionType}");
-                    continue;
-                }
-
-                // Convert note to string format
-                string noteString = $"{mappedNote.NoteName}{mappedNote.Octave}";
-
-                // Replace the drum symbol in the pattern with the mapped note name
-                string processedLine = line.Replace(tag, noteString);
-                processedLines[noteString] = processedLine;
-            }
-
-            // Convert processed lines into the final PianoRoll string
-            string processedPattern = string.Join("\n", processedLines.Values);
-            Debug.Log($"Generated PianoRoll Pattern:\n{processedPattern}");
-
-            // Repeat the pattern for the required number of measures
-            for (int repeat = 0; repeat < numRepeats; repeat++)
-            {
-                int measureOffset = repeat * patternLength * beatsPerBar;
-                patternBuilder.MoveToTime(MusicalTimeSpan.Quarter * measureOffset);
-                patternBuilder.PianoRoll(processedPattern);
-            }
-
-            // Convert to MIDI
-            Pattern pattern = patternBuilder.Build();
-            TempoMap tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            MidiFile midiFile = pattern.ToFile(tempoMap);
-
-            // Set bank and patch events
-            int bankNumber = int.Parse(percussionInstrument.BankName);
-            int presetNumber = percussionInstrument.PatchIndex;
-            SetBankAndPatchEvents(midiFile, bankNumber, presetNumber, channel);
-            SetChannel(midiFile, channel);
-
-            return midiFile;
-        }
-
 
         public MidiFile GenerateMelodyTrackWithPattern(
             MIDIInstrumentSO instrument,
@@ -776,8 +406,6 @@ namespace MidiGenPlay
         }
         #endregion
 
-        #region Public Methods
-
         public static void ApplyChannelVolume(MidiFile file, int channel, int volume01_127)
         {
             var vol = (SevenBitNumber)Mathf.Clamp(volume01_127, 0, 127);
@@ -793,8 +421,6 @@ namespace MidiGenPlay
             }
         }
 
-        #endregion
-
         #region Private Methods
 
         private MidiFile GenerateTrack(
@@ -809,37 +435,6 @@ namespace MidiGenPlay
                           $"inst={(cfg.Instrument ? cfg.Instrument.InstrumentName : "-")} " +
                           $"perc={(cfg.PercussionInstrument ? cfg.PercussionInstrument.InstrumentName : "-")} " +
                           $"pattern={(cfg.Parameters?.Pattern ? cfg.Parameters.Pattern.name : "-")}");
-
-            if (cfg.Role == TrackRole.Rhythm)
-            {
-                var r = GenerateRhythmTrackWithPattern(
-                    cfg.PercussionInstrument, (DrumPatternData)cfg.Parameters.Pattern,
-                    bpm, part.TimeSignature, part.Measures, channel);
-
-                if (settings != null && settings.logGenerator)
-                {
-                    var i = Inspect(r);
-                    Debug.Log($"{DebugTag} ← Rhythm result " +
-                        $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
-                }
-                return r;
-            }
-
-            if (cfg.Role == TrackRole.Backing)
-            {
-                var b = GenerateChordProgressionMidiTrackFile(
-                    cfg.Instrument, cfg.Role, part.Tonality, part.RootNote,
-                    bpm, part.TimeSignature, part.Measures, channel,
-                    (ChordProgressionData)cfg.Parameters.Pattern, ctx);
-
-                if (settings != null && settings.logGenerator)
-                {
-                    var i = Inspect(b);
-                    Debug.Log($"{DebugTag} ← Backing result " +
-                        $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
-                }
-                return b;
-            }
 
             // Composer-based roles
             if (_composers.TryGetValue(cfg.Role, out var composer))
@@ -941,27 +536,6 @@ namespace MidiGenPlay
                 target.Chunks.Add(chunk.Clone());
         }
 
-        private DryWetMidiNote[] GetPlayableChordNotes(
-            DryWetMidiChord chord,
-            MIDIInstrumentSO instrument)
-        {
-            int minOct = instrument.octaveMin - 1;
-            int maxOct = instrument.octaveMax - 1;
-
-            int startOct = Random.Range(minOct, maxOct + 1);
-            Debug.Log("<color=white>" + startOct + "</color>");
-            var rawNotes = chord.ResolveNotes(Octave.Get(startOct));
-
-            foreach (var note in rawNotes)
-                Debug.Log($"note {note}");
-
-            return rawNotes
-                .Select(n => DryWetMidiNote.Get(
-                    n.NoteName,
-                    Mathf.Clamp(n.Octave, minOct, maxOct)))
-                .ToArray();
-        }
-
         private List<int> BuildChannelMap(List<TrackRole> roles)
         {
             var map = Enumerable.Repeat(-1, roles?.Count ?? 0).ToList();
@@ -1026,23 +600,6 @@ namespace MidiGenPlay
                         evMgr.Objects.Remove(te);
                 }
             }
-        }
-
-        private DryWetMidiNote[] RealizeChordForInstrument(
-            NoteName[] chordNames, MIDIInstrumentSO instrument)
-        {
-            int minOct = instrument.octaveMin - 1;
-            int maxOct = instrument.octaveMax - 1;
-
-            int startOct = Random.Range(minOct, maxOct + 1);
-
-            // Build once near startOct
-            var notes = chordNames
-                .Select(nn => DryWetMidiNote.Get(nn, startOct))
-                .Select(n => DryWetMidiNote.Get(n.NoteName, Mathf.Clamp(n.Octave, minOct, maxOct)))
-                .ToArray();
-
-            return notes;
         }
 
         private static void LogTrackEnds(MidiFile file, string tag = "Song")

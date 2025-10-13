@@ -4,7 +4,7 @@ using System.Linq;
 using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
-using Melanchall.DryWetMidi.Interaction;
+using Melanchall.DryWetMidi.Interaction;   // ITimeSpan
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition;
 using UnityEngine;
@@ -13,11 +13,11 @@ using DryWetMidiNote = Melanchall.DryWetMidi.MusicTheory.Note;
 
 namespace MidiGenPlay.Composition
 {
-    /// Backing/chord track composer. Mirrors current MidiGenerator chord logic:
-    /// - voices chords via injected IChordVoicer (or simple realization if disabled)
-    /// - repeats to fill part length
-    /// - stamps "chd:..." meta tags
-    /// - sets bank/patch/channel on the output file
+    /// Backing/chord track composer.
+    /// - Voices chords via injected IChordVoicer (or simple realization if disabled)
+    /// - Repeats progression to fill the part
+    /// - Stamps "chd:..." meta tags
+    /// - Sets bank/patch on ALL chunks and forces channel on ALL ChannelEvents
     public sealed class ChordTrackComposer : ITrackComposer
     {
         private readonly MidiGenPlayConfig _settings;
@@ -42,14 +42,17 @@ namespace MidiGenPlay.Composition
             var prog = ctx?.GetProgressionForPart?.Invoke(part)
                        ?? (cfg.Parameters?.Pattern as ChordProgressionData);
 
-            Debug.Log($"<color=green>[ChordTrackComposer]</color> part='{part.Name}' " +
-                      $"inst='{instrument?.InstrumentName}' bpm={bpm} ch={channel} " +
-                      $"progression='{prog?.displayName ?? "(null)"}' evts={prog?.events?.Count ?? 0}");
+            if (_settings?.logGenerator == true)
+            {
+                Debug.Log($"<color=green>[ChordTrackComposer]</color> part='{part.Name}' " +
+                          $"inst='{instrument?.InstrumentName}' bpm={bpm} ch={channel} " +
+                          $"progression='{prog?.displayName ?? "(null)"}' evts={prog?.events?.Count ?? 0}");
+            }
 
             if (prog == null || prog.events == null || prog.events.Count == 0)
                 return new MidiFile();
 
-            // Scale / grid info
+            // Grid info
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
@@ -60,17 +63,15 @@ namespace MidiGenPlay.Composition
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
 
-            // degree + quality → chord notes
+            // degree + quality → chord pcs
             var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
             var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
 
-            // collect markers to stamp after building pattern
-            var chordMarkers = new List<(MusicalTimeSpan when, string roman, string symbol, int deg, string quality)>();
+            var chordMarkers = new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
             var pb = new PatternBuilder();
 
-            // Choose voicer (ctx overrides; else injected; else null)
+            // Choose voicer
             var voicer = ctx?.ChordVoicer ?? _voicer;
-
             IReadOnlyList<DryWetMidiNote> lastVoicing = null;
 
             for (int repeat = 0; repeat < numRepeats; repeat++)
@@ -79,25 +80,21 @@ namespace MidiGenPlay.Composition
 
                 foreach (var e in prog.events)
                 {
-                    // scale-degree root → chord pcs for this quality
                     var degreeRoot = scaleNames[(int)e.degree];
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
-                    IReadOnlyList<DryWetMidiNote> playable =
+                    var playable =
                         (_vl != null && _vl.enableVoiceLeading && voicer != null)
                         ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, _vl)
-                        : RealizeChordSimple(chordPcs, instrument);
+                        : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
 
-                    // keep for next next
                     lastVoicing = playable;
 
-                    // meta strings
                     var rn = ToRomanRich(e.degree, e.quality);
                     var sym = GetChordSymbol(degreeRoot, e.quality);
-                    int degIndex = ((int)e.degree) + 1;
-                    string qName = e.quality.ToString();
+                    int degIdx = ((int)e.degree) + 1;
+                    string q = e.quality.ToString();
 
-                    // timing
                     int startStepAbs = repeatStepOffset + Mathf.Max(0, e.startStep);
                     double startBeats = (double)startStepAbs / stepsPerBeat;
                     double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
@@ -108,28 +105,27 @@ namespace MidiGenPlay.Composition
                     pb.MoveToTime(startTime);
                     pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
 
-                    chordMarkers.Add((startTime, rn, sym, degIndex, qName));
+                    chordMarkers.Add((startTime, rn, sym, degIdx, q));
                 }
             }
 
-            // Build → MidiFile
             var pattern = pb.Build();
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
             var file = pattern.ToFile(tempoMap);
 
-            // Stamp chord meta tags at exact ticks
+            // Chord tags
             StampChordMarkers(file, tempoMap, chordMarkers, channel, _settings?.logGenerator == true);
 
-            // Patch/bank/channel parity with previous implementation
+            // Bank/Patch on ALL chunks + force channel on ALL ChannelEvents
             StampBankAndPatch(file, instrument, channel);
-            SetAllNotesChannel(file, channel);
+            ForceAllChannel(file, channel);
 
             if (_settings != null && _settings.logGenerator)
             {
                 var chunks = file.GetTrackChunks().Count();
                 var notes = file.GetNotes().Count();
                 var lastTick = file.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
-                                  .Select(te => te.Time).DefaultIfEmpty(0).Max();
+                                   .Select(te => te.Time).DefaultIfEmpty(0).Max();
                 Debug.Log($"[ChordTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
             }
 
@@ -139,7 +135,7 @@ namespace MidiGenPlay.Composition
         private static void StampChordMarkers(
             MidiFile file,
             TempoMap tempoMap,
-            List<(MusicalTimeSpan when, string roman, string symbol, int deg, string quality)> markers,
+            List<(ITimeSpan when, string roman, string symbol, int deg, string quality)> markers,
             int channel,
             bool verbose)
         {
@@ -158,48 +154,52 @@ namespace MidiGenPlay.Composition
         }
 
         private static IReadOnlyList<DryWetMidiNote> RealizeChordSimple(
-            NoteName[] pcs, MIDIInstrumentSO inst)
+            NoteName[] pcs, MIDIInstrumentSO inst, System.Random rng = null)
         {
-            // Keep the legacy simple realization (root-position in viable register)
+            // Legacy simple realization: root-position within instrument range
             int minOct = inst.octaveMin - 1;
             int maxOct = inst.octaveMax - 1;
-            int startOct = UnityEngine.Random.Range(minOct, maxOct + 1);
+
+            int startOct = (rng != null)
+                ? rng.Next(minOct, maxOct + 1)
+                : UnityEngine.Random.Range(minOct, maxOct + 1);
 
             return pcs.Select(nn => DryWetMidiNote.Get(nn, startOct))
                       .Select(n => DryWetMidiNote.Get(n.NoteName, Mathf.Clamp(n.Octave, minOct, maxOct)))
                       .ToArray();
         }
 
-        private static void SetAllNotesChannel(MidiFile file, int channel)
+        private static void ForceAllChannel(MidiFile file, int channel)
         {
-            foreach (var n in file.GetNotes()) n.Channel = (FourBitNumber)channel;
+            foreach (var ev in file.GetTrackChunks().SelectMany(c => c.Events))
+                if (ev is ChannelEvent ce) ce.Channel = (FourBitNumber)channel;
         }
 
         private static void StampBankAndPatch(MidiFile file, MIDIInstrumentSO inst, int channel)
         {
-            var chunk = file.GetTrackChunks().FirstOrDefault();
-            if (chunk == null)
+            if (!int.TryParse(inst.BankName?.Trim(), out var bank))
             {
-                chunk = new TrackChunk();
-                file.Chunks.Add(chunk);
+                Debug.LogWarning($"[ChordTrackComposer] Instrument bank is not numeric: '{inst.BankName}'");
+                bank = 0; // fallback to 0 like old behavior if parse failed
             }
 
-            // (MPTK expects MSB = bankNumber, LSB = 0)
-            if (int.TryParse(inst.BankName, out var bankNumber))
+            foreach (var chunk in file.GetTrackChunks())
             {
-                var msb = (SevenBitNumber)bankNumber;
+                var msb = (SevenBitNumber)bank;
                 var lsb = (SevenBitNumber)0;
 
+                // CC0 Bank Select MSB
                 chunk.Events.Insert(0, new ControlChangeEvent((SevenBitNumber)0, msb)
                 { Channel = (FourBitNumber)channel, DeltaTime = 0 });
 
+                // CC32 Bank Select LSB
                 chunk.Events.Insert(1, new ControlChangeEvent((SevenBitNumber)32, lsb)
                 { Channel = (FourBitNumber)channel, DeltaTime = 0 });
-            }
 
-            // small non-zero delta after bank to guarantee ordering
-            chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)inst.PatchIndex)
-            { Channel = (FourBitNumber)channel, DeltaTime = 1 });
+                // Program Change. Keep tiny DeltaTime after bank to ensure ordering.
+                chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)inst.PatchIndex)
+                { Channel = (FourBitNumber)channel, DeltaTime = 1 });
+            }
         }
     }
 }

@@ -141,7 +141,7 @@ public class EmotionalGenerationPanel : MonoBehaviour
         int measures = this.measures;
         NoteName rootNote = NoteName.C;
         var finalMidiFile = new MidiFile();
-
+        /*
         // Generate Tracks Based on User Selection
         if (usePercussionTrack && percussionInstrument != null && drumPattern != null)
         {
@@ -172,7 +172,7 @@ public class EmotionalGenerationPanel : MonoBehaviour
                 chordProgression);
 
             MergeIntoFinalMidi(finalMidiFile, backingTrackMidiFile);
-        }
+        }*/
 
         if (useMelodyTrack && leadInstrument != null && melodyPattern != null)
         {

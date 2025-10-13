@@ -32,7 +32,7 @@ namespace MidiGenPlay.Composition
 
             if (data == null || kit == null)
             {
-                Debug.LogWarning("[DrumTrackComposer] Missing pattern or percussion instrument.");
+                Debug.LogWarning("[RhythmTrackComposer] Missing pattern or percussion instrument.");
                 return new MidiFile();
             }
 
@@ -51,7 +51,7 @@ namespace MidiGenPlay.Composition
                 var notes = file.GetNotes().Count();
                 var lastTick = file.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
                                   .Select(te => te.Time).DefaultIfEmpty(0).Max();
-                Debug.Log($"[DrumTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
+                Debug.Log($"[RhythmTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
             }
 
             return file;
@@ -89,7 +89,7 @@ namespace MidiGenPlay.Composition
                 {
                     if (!kit.TryGetMappedNote(lane.instrument, out var note))
                     {
-                        Debug.LogWarning($"[DrumTrackComposer] No mapped note for {lane.instrument}");
+                        Debug.LogWarning($"[RhythmTrackComposer] No mapped note for {lane.instrument}");
                         continue;
                     }
 
@@ -112,7 +112,7 @@ namespace MidiGenPlay.Composition
             var file = pattern.ToFile(tempoMap);
 
             StampBankAndPatch(file, kit, channel);
-            SetAllNotesChannel(file, channel);
+            ForceAllChannel(file, channel);
             return file;
         }
 
@@ -146,11 +146,11 @@ namespace MidiGenPlay.Composition
                 foreach (var mapping in patternData.drumMappings)
                     if (mapping.drumSymbol == symbol) { gm = mapping.drumNote; foundMap = true; break; }
 
-                if (!foundMap) { Debug.LogWarning($"[DrumTrackComposer] No map for symbol {symbol}"); continue; }
+                if (!foundMap) { Debug.LogWarning($"[RhythmTrackComposer] No map for symbol {symbol}"); continue; }
 
                 if (!kit.TryGetMappedNote(gm, out var note))
                 {
-                    Debug.LogWarning($"[DrumTrackComposer] No MIDI note for {gm}");
+                    Debug.LogWarning($"[RhythmTrackComposer] No MIDI note for {gm}");
                     continue;
                 }
 
@@ -177,38 +177,43 @@ namespace MidiGenPlay.Composition
             var file = pattern.ToFile(tempoMap);
 
             StampBankAndPatch(file, kit, channel);
-            SetAllNotesChannel(file, channel);
+            ForceAllChannel(file, channel);
             return file;
         }
 
-        private static void SetAllNotesChannel(MidiFile file, int channel)
+        private static void ForceAllChannel(MidiFile file, int channel)
         {
-            foreach (var n in file.GetNotes()) n.Channel = (FourBitNumber)channel;
+            foreach (var ev in file.GetTrackChunks().SelectMany(c => c.Events))
+                if (ev is ChannelEvent ce) ce.Channel = (FourBitNumber)channel;
         }
 
-        private static void StampBankAndPatch(MidiFile file, MIDIPercussionInstrumentSO kit, int channel)
+        private static void StampBankAndPatch(
+    MidiFile file, MIDIPercussionInstrumentSO kit, int channel)
         {
-            var chunk = file.GetTrackChunks().FirstOrDefault();
-            if (chunk == null)
+            if (!int.TryParse(kit.BankName?.Trim(), out var bank))
             {
-                chunk = new TrackChunk();
-                file.Chunks.Add(chunk);
+                Debug.LogWarning($"[RhythmTrackComposer] " +
+                    $"Percussion bank is not numeric: '{kit.BankName}', falling back to 0");
+                bank = 0;
             }
 
-            if (int.TryParse(kit.BankName, out var bank))
+            foreach (var chunk in file.GetTrackChunks())
             {
                 var msb = (SevenBitNumber)bank;
                 var lsb = (SevenBitNumber)0;
 
+                // CC0 Bank Select MSB
                 chunk.Events.Insert(0, new ControlChangeEvent((SevenBitNumber)0, msb)
                 { Channel = (FourBitNumber)channel, DeltaTime = 0 });
 
+                // CC32 Bank Select LSB
                 chunk.Events.Insert(1, new ControlChangeEvent((SevenBitNumber)32, lsb)
                 { Channel = (FourBitNumber)channel, DeltaTime = 0 });
-            }
 
-            chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)kit.PatchIndex)
-            { Channel = (FourBitNumber)channel, DeltaTime = 1 });
+                // Program Change (small delta to keep ordering stable)
+                chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)kit.PatchIndex)
+                { Channel = (FourBitNumber)channel, DeltaTime = 1 });
+            }
         }
     }
 }

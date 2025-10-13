@@ -108,6 +108,7 @@ namespace MidiGenPlay
             int measures = 4;
 
             // Generate Backing Track
+            /*
             var backingTrackMidiFile = midiGenerator.GenerateChordProgressionMidiTrackFile(
                 instrument,
                 role,
@@ -156,7 +157,7 @@ namespace MidiGenPlay
             }
 
             // 🔥 5️⃣ Play the generated song
-            PlaySong(finalMidiFile);
+            PlaySong(finalMidiFile);*/
         }
 
 
