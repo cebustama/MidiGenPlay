@@ -22,25 +22,48 @@ namespace MidiGenPlay
         public const int MetronomeChannel = 15;
 
         private MidiGenPlayConfig settings;
+        private readonly Dictionary<TrackRole, ITrackComposer> _composers = new();
+        private readonly IChordVoicer _voicer;
 
-        public MidiGenerator(MidiGenPlayConfig config)
+        public MidiGenerator(MidiGenPlayConfig config, IChordVoicer voicer = null)
         {
             settings = config;
+
+            _voicer = voicer;
+            var melodyCfg = settings.melodicLeading;
+            var harmonyCfg = settings.harmonicLeading;
+            var melodyStrategy = new NearestChordToneMelodyStrategy();
+            var harmonyStrategy = new NearestDifferentChordToneHarmonyStrategy();
+
+            _composers[TrackRole.Melody] = 
+                new MelodyComposerMinimal(melodyCfg, melodyStrategy);
+            _composers[TrackRole.Lead] = _composers[TrackRole.Melody]; // same for now
+            _composers[TrackRole.Harmony] = 
+                new HarmonyComposerMinimal(harmonyCfg, harmonyStrategy);
+
+            if (settings != null && settings.logGenerator)
+            {
+                var roles = string.Join(", ", _composers.Keys.Select(r => r.ToString()));
+                Debug.Log($"{DebugTag} Composer registry: [{roles}]  " +
+                    $"| Voicer={(voicer != null ? voicer.GetType().Name : "null")}");
+            }
         }
 
-        public struct GenContext
+        public class GenContext
         {
             public System.Random rng;
+            public IChordVoicer ChordVoicer;
             public VoiceLeadingConfig chordVoicingPreset;
             public MIDIInstrumentSO DefaultMelodicInstrument;
 
-            // already there
-            public System.Func<SongConfig.PartConfig, TrackRole, MidiFile> GetTrackForRole;
-            public System.Func<MidiFile, List<Melanchall.DryWetMidi.Interaction.Note>> ExtractMonophonicNotes;
-            public System.Func<ChordProgressionData, TempoMap, MusicTheory.MusicTheory.TimeSignature, long, ChordProgressionData.ChordEvent> FindChordEventAt;
-
-            // ➕ add this:
-            public System.Func<SongConfig.PartConfig, ChordProgressionData> GetProgressionForPart;
+            public System.Func<SongConfig.PartConfig, TrackRole, MidiFile> 
+                GetTrackForRole;
+            public System.Func<MidiFile, List<Melanchall.DryWetMidi.Interaction.Note>> 
+                ExtractMonophonicNotes;
+            public System.Func<ChordProgressionData, TempoMap, MusicTheory.MusicTheory.TimeSignature, long, ChordProgressionData.ChordEvent> 
+                FindChordEventAt;
+            public System.Func<SongConfig.PartConfig, ChordProgressionData> 
+                GetProgressionForPart;
         }
 
         #region Harmony 
@@ -75,10 +98,6 @@ namespace MidiGenPlay
             public DryWetMidiNote note; // absolute pitch
         }
 
-        private List<GuideNote> _currentPartMelodyGuide; // may be null
-        private ChordProgressionData _ctxProgression; // for harmony chord lookups
-        private Tonality _ctxTonality;
-        private NoteName _ctxRoot;
         #endregion
 
         #region Generation Methods
@@ -91,7 +110,8 @@ namespace MidiGenPlay
             MusicTheory.MusicTheory.TimeSignature timeSignature,
             int measures,
             int channel = 0,
-            ChordProgressionData progressionData = null)
+            ChordProgressionData progressionData = null,
+            GenContext ctx = null)
         {
             Debug.Log($"{DebugTag}<color=cyan> Generating Chord Progression " +
                 $"using progression: {progressionData?.displayName ?? "(null)"} " +
@@ -101,7 +121,7 @@ namespace MidiGenPlay
             Debug.Log($"{DebugTag} {DescribeScale(tonality, rootNote)}");
 
             // Voice Leading
-            var voicer = new BasicVoiceLeadingVoicer();
+            IChordVoicer voicer = ctx?.ChordVoicer ?? _voicer ?? new BasicVoiceLeadingVoicer();
             IReadOnlyList<DryWetMidiNote> lastVoicing = null;
 
             var tsInfo = GetTimeSignatureDetails(timeSignature, bpm);
@@ -110,7 +130,10 @@ namespace MidiGenPlay
             // degree + quality → chord notes
             var scale = GetScaleFromTonality(tonality, rootNote);
             var scalePreview = GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName.ToString());
-            Debug.Log($"{DebugTag} Part Tonality={tonality} Root={rootNote} | Scale= [{string.Join(" ", scalePreview)}]");
+            
+            Debug.Log($"{DebugTag} Part Tonality={tonality} Root={rootNote} " +
+                $"| Scale= [{string.Join(" ", scalePreview)}]");
+
             var scaleNames = GetNotesFromScale(scale, rootNote, 4, 7)  // any octave; just for names
                              .Select(n => n.NoteName).ToArray();
 
@@ -240,6 +263,13 @@ namespace MidiGenPlay
             SetBankAndPatchEvents(midiFile, int.Parse(instrument.BankName), 
                 instrument.PatchIndex, channel);
             SetChannel(midiFile, channel);
+
+            if (settings != null && settings.logGenerator)
+            {
+                var i = Inspect(midiFile);
+                Debug.Log($"{DebugTag} Chords built → " +
+                    $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
+            }
 
             return midiFile;
         }
@@ -661,24 +691,26 @@ namespace MidiGenPlay
                                             MusicalTimeSpan.Quarter, partTempo);
                     long partTicks = ticksPerBeat * beatsPerBar * part.Measures;
 
-                    // Build a melody guide once per part (only if there is a melodic track)
-                    _currentPartMelodyGuide = null;
-                    _ctxProgression = FindProgressionForPart(part);
-                    _ctxTonality = part.Tonality;
-                    _ctxRoot = part.RootNote;
-
-                    // Use the first Melody/Lead track (minimal)
-                    var melodyCfg = 
-                        part.Tracks.FirstOrDefault(t => t.Role == TrackRole.Melody 
-                        || t.Role == TrackRole.Lead);
-
-                    if (melodyCfg != null && _ctxProgression != null)
+                    var producedByRole = new Dictionary<TrackRole, MidiFile>();
+                    var ctx = new GenContext
                     {
-                        _currentPartMelodyGuide = BuildMelodyGuideFromProgression(
-                            melodyCfg.Instrument, _ctxProgression, 
-                            part.Tonality, part.RootNote, bpm,
-                            part.TimeSignature, part.Measures);
-                    }
+                        // each repetition differs deterministically
+                        rng = new System.Random(
+                            settings.defaultSeed + entry.PartIndex * 397 ^ rep),
+
+                        chordVoicingPreset = settings.voiceLeading,
+                        ChordVoicer = _voicer,
+                        DefaultMelodicInstrument = part.Tracks.FirstOrDefault(t => t.Instrument != null)?.Instrument,
+
+                        GetTrackForRole = (p, role) => producedByRole.TryGetValue(role, out var f) ? f : null,
+                        ExtractMonophonicNotes = (file) => file?.GetNotes()?.OrderBy(n => n.Time).ToList()
+                                               ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
+                        FindChordEventAt = (prog, tempoMap, ts, absTicks) =>
+                            // prefer your real utility if you have one on ChordProgressionData
+                            prog?.FindChordEventAt(tempoMap, ts, absTicks),
+
+                        GetProgressionForPart = (p) => FindProgressionForPart(p)
+                    };
 
                     // generate every track in this part
                     for (int t = 0; t < part.Tracks.Count; t++)
@@ -687,16 +719,35 @@ namespace MidiGenPlay
                         // stable mapping (all Rhythm on 9, others unique non-9)
                         int channel = channelMap[t];
 
-                        MidiFile trackFile = GenerateTrack(cfg, part, channel, bpm);
+                        var trackFile = GenerateTrack(cfg, part, channel, bpm, ctx);
 
                         // cut anything that spills past the end of the part
                         TrimFileToLength(trackFile, partTicks);
+
+                        // quick inspect before merge
+                        if (settings != null && settings.logGenerator)
+                        {
+                            var i = Inspect(trackFile);
+                            Debug.Log($"{DebugTag} Pre-merge [{cfg.Role}] " +
+                                $"ch={channel} tracks={i.tracks} " +
+                                $"notes={i.notes} lastTick={i.lastTick}");
+                        }
 
                         TagTrackWithMusician(trackFile, cfg.MusicianId);
                         // shift everything by the offset of this part
                         ShiftFile(trackFile, currentTicks);
                         // merge into the master file
                         MergeInto(fullSong, trackFile);
+
+                        producedByRole[cfg.Role] = trackFile;
+
+                        // optional: confirm merged chunk presence
+                        if (settings != null && settings.logGenerator)
+                        {
+                            var totalTracks = fullSong.GetTrackChunks().Count();
+                            Debug.Log($"{DebugTag} Merged [{cfg.Role}] → " +
+                                $"fullSong chunks={totalTracks}");
+                        }
                     }
 
                     // Stamp a boundary event at the exact end:
@@ -725,261 +776,6 @@ namespace MidiGenPlay
         }
         #endregion
 
-        #region Melody/Harmony Generation
-        private MidiFile GenerateMelodyFromProgression(
-            MIDIInstrumentSO instrument,
-            ChordProgressionData progression,
-            Tonality tonality,
-            NoteName rootNote,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel)
-        {
-            // Fallback: nothing to do without a progression
-            if (progression == null || progression.events == null || progression.events.Count == 0)
-            {
-                Debug.LogWarning("[Melody] No progression in this part; skipping melody.");
-                return new MidiFile(); // empty track (safe)
-            }
-
-            var tsInfo = MusicTheory.MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-            int stepsPerBeat = Mathf.Max(1, progression.subdivisions);
-            int stepsPerMeas = beatsPerBar * stepsPerBeat;
-
-            // Scale + helper array of degree roots for quick lookups
-            var scale = MusicTheory.MusicTheory.GetScaleFromTonality(tonality, rootNote);
-            var scaleNames = MusicTheory.MusicTheory
-                                .GetNotesFromScale(scale, rootNote, 4, 7)
-                                .Select(n => n.NoteName)
-                                .ToArray();
-
-            var pb = new PatternBuilder();
-
-            // How many times the progression pattern should repeat to cover the part
-            int pattMeasures = Mathf.Max(1, progression.measures);
-            int pattTotalSteps = pattMeasures * stepsPerMeas;
-            int partTotalSteps = Mathf.Max(1, measures) * stepsPerMeas;
-            int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / pattTotalSteps));
-
-            // instrument range
-            int minOct = instrument.octaveMin; // already user-facing
-            int maxOct = instrument.octaveMax;
-
-            for (int r = 0; r < repeats; r++)
-            {
-                int stepOffset = r * pattTotalSteps;
-
-                foreach (var e in progression.events)
-                {
-                    // chord root from scale degree
-                    var degreeRoot = scaleNames[(int)e.degree];
-                    var chordNotes = MusicTheory.MusicTheory.GetChordNoteNames(degreeRoot, e.quality);
-
-                    // pick ONE in-chord note (simple and musical)
-                    var picked = chordNotes[UnityEngine.Random.Range(0, chordNotes.Length)];
-                    int octave = UnityEngine.Random.Range(minOct, maxOct + 1);
-                    var note = Melanchall.DryWetMidi.MusicTheory.Note.Get(picked, octave);
-
-                    // timing: steps → beats → time spans
-                    int startAbsSteps = stepOffset + Mathf.Max(0, e.startStep);
-                    double startBeats = (double)startAbsSteps / stepsPerBeat;
-                    double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
-
-                    var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
-                    var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
-
-                    pb.MoveToTime(startTime);
-                    pb.Note(note, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 1, 127));
-                }
-            }
-
-            // build → file
-            var pattern = pb.Build();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var file = pattern.ToFile(tempoMap);
-
-            // bank/patch/channel like other generators
-            int bank = int.Parse(instrument.BankName);
-            int patch = instrument.PatchIndex;
-            SetBankAndPatchEvents(file, bank, patch, channel);
-            SetChannel(file, channel);
-
-            return file;
-        }
-
-        private List<GuideNote> BuildMelodyGuideFromProgression(
-            MIDIInstrumentSO instrument,
-            ChordProgressionData progression,
-            MusicTheory.MusicTheory.Tonality tonality,
-            Melanchall.DryWetMidi.MusicTheory.NoteName rootNote,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures)
-        {
-            var result = new List<GuideNote>();
-            if (progression == null || progression.events == null || 
-                progression.events.Count == 0)
-                return result;
-
-            var tsInfo = MusicTheory.MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            int stepsPerBeat = Mathf.Max(1, progression.subdivisions);
-            int stepsPerMeas = beatsPerBar * stepsPerBeat;
-
-            var scale = MusicTheory.MusicTheory.GetScaleFromTonality(tonality, rootNote);
-            var scaleNames = MusicTheory.MusicTheory
-                              .GetNotesFromScale(scale, rootNote, 4, 7)
-                              .Select(n => n.NoteName).ToArray();
-
-            int pattMeasures = Mathf.Max(1, progression.measures);
-            int pattTotalSteps = pattMeasures * stepsPerMeas;
-            int partTotalSteps = Mathf.Max(1, measures) * stepsPerMeas;
-            int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / pattTotalSteps));
-
-            for (int r = 0; r < repeats; r++)
-            {
-                int stepOffset = r * pattTotalSteps;
-
-                foreach (var e in progression.events)
-                {
-                    var degreeRoot = scaleNames[(int)e.degree];
-                    var chordNames = 
-                        MusicTheory.MusicTheory.GetChordNoteNames(degreeRoot, e.quality);
-
-                    DryWetMidiNote? lastNote = (result.Count > 0) ? result[result.Count - 1].note : (DryWetMidiNote?)null;
-                    var note = ChooseNearestAllowed(
-                        chordNames,
-                        lastNote,
-                        instrument,
-                        forbiddenName: null,
-                        options: new MelodicLeadingOptions { enabled = true, preferStepwise = true });
-
-                    int startStepsAbs = stepOffset + Mathf.Max(0, e.startStep);
-                    double startBeats = (double)startStepsAbs / stepsPerBeat;
-                    double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
-
-                    result.Add(new GuideNote
-                    {
-                        startBeats = startBeats,
-                        durBeats = durBeats,
-                        note = note
-                    });
-                }
-            }
-
-            return result;
-        }
-
-        private MidiFile GenerateMelodyFromGuide(
-            MIDIInstrumentSO instrument,
-            List<GuideNote> guide,
-            int bpm,
-            int channel)
-        {
-            var pb = new PatternBuilder();
-            foreach (var g in guide)
-            {
-                var start = MusicalTimeSpan.Quarter.Multiply(g.startBeats);
-                var dur = MusicalTimeSpan.Quarter.Multiply(g.durBeats);
-                var n = ClampToInstrumentRange(
-                    g.note, instrument.octaveMin, instrument.octaveMax);
-
-                pb.MoveToTime(start);
-                pb.Note(n, dur, (SevenBitNumber)96);
-            }
-
-            var pattern = pb.Build();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var file = pattern.ToFile(tempoMap);
-
-            SetBankAndPatchEvents(
-                file, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
-            SetChannel(file, channel);
-            return file;
-        }
-
-        private MidiFile GenerateHarmonyFromGuide(
-            MIDIInstrumentSO instrument,
-            List<GuideNote> guide,
-            ChordProgressionData progression,
-            MusicTheory.MusicTheory.Tonality tonality,
-            Melanchall.DryWetMidi.MusicTheory.NoteName rootNote,
-            int bpm,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            int measures,
-            int channel,
-            HarmonyOptions options = null)
-        {
-            options ??= new HarmonyOptions();
-
-            var localLastHarmony = new Dictionary<int, DryWetMidiNote?>(); // key = repeat index
-
-            var tsInfo = MusicTheory.MusicTheory.GetTimeSignatureDetails(timeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            int stepsPerBeat = Mathf.Max(1, progression.subdivisions);
-            int stepsPerMeas = beatsPerBar * stepsPerBeat;
-
-            var scale = MusicTheory.MusicTheory.GetScaleFromTonality(tonality, rootNote);
-            var scaleNames = MusicTheory.MusicTheory
-                              .GetNotesFromScale(scale, rootNote, 4, 7)
-                              .Select(n => n.NoteName).ToArray();
-
-            // Re-walk progression in the same order we used for the guide
-            var pb = new PatternBuilder();
-            int pattMeasures = Mathf.Max(1, progression.measures);
-            int pattTotalSteps = pattMeasures * stepsPerMeas;
-            int partTotalSteps = Mathf.Max(1, measures) * stepsPerMeas;
-            int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / pattTotalSteps));
-
-            int guideIdx = 0;
-            for (int r = 0; r < repeats; r++)
-            {
-                foreach (var e in progression.events)
-                {
-                    if (guideIdx >= guide.Count) break; // safety
-
-                    var g = guide[guideIdx++];
-
-                    // chord for this event
-                    var degreeRoot = scaleNames[(int)e.degree];
-                    var chordNames = MusicTheory.MusicTheory.GetChordNoteNames(degreeRoot, e.quality);
-
-                    // Avoid unison with melody’s note-name and stay close to previous harmony
-                    if (!localLastHarmony.TryGetValue(r, out DryWetMidiNote? lastHNote))
-                        lastHNote = null;
-
-                    var harmonyNote = ChooseNearestAllowed(
-                        chordNames,
-                        lastHNote,
-                        instrument,
-                        forbiddenName: g.note.NoteName,
-                        options: new MelodicLeadingOptions { enabled = true, preferStepwise = true, preferAbove = true });
-
-                    // remember for next event in this repeat
-                    localLastHarmony[r] = harmonyNote;
-                    var start = MusicalTimeSpan.Quarter.Multiply(g.startBeats);
-                    var dur = MusicalTimeSpan.Quarter.Multiply(g.durBeats);
-
-                    pb.MoveToTime(start);
-                    pb.Note(harmonyNote, dur, (SevenBitNumber)90);
-                }
-            }
-
-            var pattern = pb.Build();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var file = pattern.ToFile(tempoMap);
-
-            SetBankAndPatchEvents(file, int.Parse(instrument.BankName), instrument.PatchIndex, channel);
-            SetChannel(file, channel);
-            return file;
-        }
-
-        #endregion
-
         #region Public Methods
 
         public static void ApplyChannelVolume(MidiFile file, int channel, int volume01_127)
@@ -1005,85 +801,61 @@ namespace MidiGenPlay
             SongConfig.PartConfig.TrackConfig cfg,
             SongConfig.PartConfig part,
             int channel,
-            int bpm)
+            int bpm,
+            GenContext ctx)
         {
-            switch (cfg.Role)
+            if (settings != null && settings.logGenerator)
+                Debug.Log($"{DebugTag} → GenerateTrack role={cfg.Role} ch={channel} bpm={bpm} " +
+                          $"inst={(cfg.Instrument ? cfg.Instrument.InstrumentName : "-")} " +
+                          $"perc={(cfg.PercussionInstrument ? cfg.PercussionInstrument.InstrumentName : "-")} " +
+                          $"pattern={(cfg.Parameters?.Pattern ? cfg.Parameters.Pattern.name : "-")}");
+
+            if (cfg.Role == TrackRole.Rhythm)
             {
-                case TrackRole.Rhythm:
-                    return GenerateRhythmTrackWithPattern(
-                                cfg.PercussionInstrument,
-                                (DrumPatternData)cfg.Parameters.Pattern,
-                                bpm,
-                                part.TimeSignature,
-                                part.Measures,
-                                channel);
+                var r = GenerateRhythmTrackWithPattern(
+                    cfg.PercussionInstrument, (DrumPatternData)cfg.Parameters.Pattern,
+                    bpm, part.TimeSignature, part.Measures, channel);
 
-                case TrackRole.Backing:
-                    return GenerateChordProgressionMidiTrackFile(
-                                cfg.Instrument,
-                                cfg.Role,
-                                part.Tonality,
-                                part.RootNote,
-                                bpm,
-                                part.TimeSignature,
-                                part.Measures,
-                                channel,
-                                (ChordProgressionData)cfg.Parameters.Pattern);
-
-                case TrackRole.Lead:
-                case TrackRole.Melody:
+                if (settings != null && settings.logGenerator)
                 {
-                    if (_currentPartMelodyGuide != null && _currentPartMelodyGuide.Count > 0)
-                        return GenerateMelodyFromGuide(cfg.Instrument, _currentPartMelodyGuide, bpm, channel);
-
-                    // Fallback to old progression-based melody if guide not available:
-                    var progression = FindProgressionForPart(part);
-                    return GenerateMelodyFromProgression(
-                        cfg.Instrument, progression,
-                        part.Tonality, part.RootNote,
-                        bpm, part.TimeSignature, part.Measures, channel);
+                    var i = Inspect(r);
+                    Debug.Log($"{DebugTag} ← Rhythm result " +
+                        $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
                 }
-
-                case TrackRole.Harmony:
-                {
-                    if (_currentPartMelodyGuide != null && _ctxProgression != null)
-                    {
-                        var opts = new HarmonyOptions(); // defaults now; later expose
-                        return GenerateHarmonyFromGuide(
-                            cfg.Instrument,
-                            _currentPartMelodyGuide,
-                            _ctxProgression,
-                            _ctxTonality,
-                            _ctxRoot,
-                            bpm,
-                            part.TimeSignature,
-                            part.Measures,
-                            channel,
-                            opts);
-                    }
-
-                    // No melody guide? Minimal fallback: pick other chord tones (same as melody fallback)
-                    var progression = FindProgressionForPart(part);
-                    return GenerateMelodyFromProgression(
-                        cfg.Instrument, progression,
-                        part.Tonality, part.RootNote,
-                        bpm, part.TimeSignature, part.Measures, channel);
-                }
-
-                case TrackRole.Bassline:
-                {
-                    // Minimal placeholder: root-only long notes (same routine, but always pick chord root).
-                    // Later: implement a richer pattern (root, fifth, octave etc.)
-                    var progression = FindProgressionForPart(part);
-                    return GenerateMelodyFromProgression(
-                        cfg.Instrument, progression,
-                        part.Tonality, part.RootNote,
-                        bpm, part.TimeSignature, part.Measures, channel);
-                }
-
-                default:
-                    throw new System.NotSupportedException($"Unhandled role {cfg.Role}");
+                return r;
             }
+
+            if (cfg.Role == TrackRole.Backing)
+            {
+                var b = GenerateChordProgressionMidiTrackFile(
+                    cfg.Instrument, cfg.Role, part.Tonality, part.RootNote,
+                    bpm, part.TimeSignature, part.Measures, channel,
+                    (ChordProgressionData)cfg.Parameters.Pattern, ctx);
+
+                if (settings != null && settings.logGenerator)
+                {
+                    var i = Inspect(b);
+                    Debug.Log($"{DebugTag} ← Backing result " +
+                        $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
+                }
+                return b;
+            }
+
+            // Composer-based roles
+            if (_composers.TryGetValue(cfg.Role, out var composer))
+            {
+                var r = composer.Compose(part, cfg, bpm, channel, ctx);
+                if (settings != null && settings.logGenerator)
+                {
+                    var i = Inspect(r);
+                    Debug.Log($"{DebugTag} ← {cfg.Role} composer={composer.GetType().Name} " +
+                              $"tracks={i.tracks} notes={i.notes} lastTick={i.lastTick}");
+                }
+                return r;
+            }
+
+            Debug.LogWarning($"{DebugTag} No composer registered for role {cfg.Role}");
+            return new MidiFile();
         }
 
         private void SetBankAndPatchEvents(MidiFile midiFile, int bankNumber, int presetNumber, int channel)
@@ -1299,93 +1071,14 @@ namespace MidiGenPlay
             return null;
         }
 
-        private Melanchall.DryWetMidi.MusicTheory.Note ClampToInstrumentRange(
-            Melanchall.DryWetMidi.MusicTheory.Note n, int minOct, int maxOct)
+        private static (int tracks, int notes, long lastTick) Inspect(MidiFile f)
         {
-            int o = n.Octave;
-            if (o < minOct) o = minOct;
-            if (o > maxOct) o = maxOct;
-            return Melanchall.DryWetMidi.MusicTheory.Note.Get(n.NoteName, o);
-        }
-
-        // Realize a NoteName near a target octave and clamp to instrument range.
-        private static DryWetMidiNote RealizeNear(NoteName name, int nearOct, MIDIInstrumentSO inst)
-        {
-            int min = inst.octaveMin, max = inst.octaveMax;
-            // Start near target octave then adjust by +/- 1 octave for closeness after clamping
-            var cand0 = DryWetMidiNote.Get(name, Mathf.Clamp(nearOct, min, max));
-            var candDown = DryWetMidiNote.Get(name, Mathf.Clamp(nearOct - 1, min, max));
-            var candUp = DryWetMidiNote.Get(name, Mathf.Clamp(nearOct + 1, min, max));
-            return cand0; // callers will compare with last and pick the closest
-        }
-
-        // semitone number for comparisons (reuse chord voicer util logic)
-        private static int Semis(DryWetMidiNote n) => BasicVoiceLeadingVoicer.Semis(n);
-
-        // Choose the nearest allowed note to `last` from a set of NoteNames (chord tones),
-        // respecting instrument range and simple tie-breaks. If `forbiddenName` is set,
-        // avoid unison with that note-name when possible (for harmony).
-        private DryWetMidiNote ChooseNearestAllowed(
-            NoteName[] allowed,
-            DryWetMidiNote? last,
-            MIDIInstrumentSO inst,
-            NoteName? forbiddenName = null,
-            MelodicLeadingOptions options = null)
-        {
-            options ??= new MelodicLeadingOptions();
-            // Target octave = last note’s octave if available; else instrument center
-            int targetOct = last != null ? 
-                last.Octave : (inst.octaveMin + inst.octaveMax) / 2;
-
-            DryWetMidiNote best = default;
-            int bestDist = int.MaxValue;
-            bool bestIsForbiddenUnison = false;
-
-            foreach (var nn in allowed)
-            {
-                // Realize three close octave candidates and evaluate them
-                var cands = new[]
-                {
-                    RealizeNear(nn, targetOct, inst),
-                    RealizeNear(nn, targetOct - 1, inst),
-                    RealizeNear(nn, targetOct + 1, inst),
-                };
-
-                foreach (var c in cands)
-                {
-                    // Skip strict unison with melody when forbidden
-                    bool isForbidden = 
-                        (forbiddenName.HasValue && c.NoteName == forbiddenName.Value);
-
-                    int dist = last != null ? Mathf.Abs(Semis(c) - Semis(last)) : 0;
-
-                    // Soft preference: stepwise motion (<= 2 semis) wins ties.
-                    int tieBias = 0;
-                    if (options.preferStepwise) tieBias -= (dist <= 2 ? 1 : 0);
-                    if (options.preferAbove && last != null && Semis(c) > Semis(last)) 
-                        tieBias -= 1;
-
-                    // Ordering: (isForbidden, distance, tieBias)
-                    bool better =
-                        (bestIsForbiddenUnison == false && isForbidden == true) ? false :
-                        (bestIsForbiddenUnison == true && isForbidden == false) ? true :
-                        (dist < bestDist) ? true :
-                        (dist == bestDist && tieBias < 0);
-
-                    if (better)
-                    {
-                        best = c;
-                        bestDist = dist;
-                        bestIsForbiddenUnison = isForbidden;
-                    }
-                }
-            }
-
-            // If everything was forbidden (rare), just return the first legal realization.
-            if (best == default)
-                best = RealizeNear(allowed[0], targetOct, inst);
-
-            return best;
+            if (f == null) return (0, 0, 0);
+            var chunks = f.GetTrackChunks().ToList();
+            var notes = f.GetNotes().Count();
+            var last = chunks.SelectMany(c => c.GetTimedEvents())
+                              .Select(te => te.Time).DefaultIfEmpty(0).Max();
+            return (chunks.Count, notes, last);
         }
         #endregion
     }

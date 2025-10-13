@@ -1,4 +1,6 @@
+﻿using Melanchall.DryWetMidi.Interaction;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 using static MidiGenPlay.MusicTheory.MusicTheory;
@@ -73,6 +75,53 @@ namespace MidiGenPlay
                     velocity = defaultVelocity
                 });
             }
+        }
+
+        /// Finds the chord event active at an absolute tick within the part.
+        /// Returns null if no events exist.
+        public ChordEvent FindChordEventAt(
+            TempoMap tempoMap,
+            MusicTheory.MusicTheory.TimeSignature timeSignature,
+            long absoluteTicks)
+        {
+            if (events == null || events.Count == 0)
+                return null;
+
+            var tsInfo = TimeSignatureProperties[timeSignature];
+            int beatsPerMeasure = tsInfo.BeatsPerMeasure;
+
+            int totalSteps = TotalSteps(beatsPerMeasure);
+            if (totalSteps <= 0)
+                return events[0];
+
+            // ticks → beats → steps
+            long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, tempoMap);
+            if (ticksPerBeat <= 0) return events[0];
+
+            double beats = absoluteTicks / (double)ticksPerBeat;
+            int step = (int)System.Math.Floor(beats * System.Math.Max(1, subdivisions));
+
+            // Wrap inside progression length for repeating progressions
+            step %= totalSteps;
+            if (step < 0) step += totalSteps;
+
+            // Find event whose [start, start+length) covers 'step'
+            // If gaps exist, fall back to the nearest preceding start.
+            ChordEvent best = null;
+
+            foreach (var e in events.OrderBy(ev => ev.startStep))
+            {
+                if (step < e.startStep)
+                    break;
+
+                // Covers region?
+                if (step >= e.startStep && step < e.startStep + e.lengthSteps)
+                    return e;
+
+                best = e;
+            }
+
+            return best ?? events.OrderBy(ev => ev.startStep).Last();
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.MusicTheory;
+using MidiGenPlay.Composition;
 using MidiGenPlay.Interfaces;
 using MidiGenPlay.Services;
 using MidiGenPlay.UI;
@@ -52,7 +53,6 @@ namespace MidiGenPlay
         private SongConfig.PartConfig part => 
             (activePart >= 0 && activePart < (songConfig?.Parts?.Count ?? 0)) ? 
                 songConfig.Parts[activePart] : null;
-        private List<TrackConfig> tracks => part?.Tracks;
 
         // loaded scriptables:
         private List<MIDIInstrumentSO> melodicInstruments;
@@ -109,10 +109,12 @@ namespace MidiGenPlay
             // Create manager and subscribe to its events (manager -> UI)
             manager = new SongConfigManager(
                 settings, instrumentRepo, patternRepo, sequenceSerializer, configStore);
+
             trackDetailsPanel.SetManager(manager);
+
             SubscribeManagerEvents();
 
-            midiGenerator = new MidiGenerator(settings);
+            midiGenerator = new MidiGenerator(settings, new BasicVoiceLeadingVoicer());
             generateButton.onClick.AddListener(OnGenerateAndPlay);
 
 #if UNITY_EDITOR

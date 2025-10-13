@@ -85,7 +85,5 @@ namespace MidiGenPlay.Composition
 
             return pb.Build().ToFile(tempoMap);
         }
-
-        private static int Semis(NoteTheory n) => (int)(byte)n.NoteNumber;
     }
 }

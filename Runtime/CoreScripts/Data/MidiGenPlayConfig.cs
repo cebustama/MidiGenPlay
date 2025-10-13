@@ -45,9 +45,10 @@ public class MidiGenPlayConfig : ScriptableObject
     [Tooltip("Ventana en ticks para empatar etiquetas chd: con NoteOn (±valor).")]
     public int chordLabelTickTolerance = 2;
 
-    [Header("Voice Leading")]
-    [Tooltip("Optional rules asset. If null, voice-leading is disabled.")]
+    [Header("Voice Leadings")]
     public VoiceLeadingConfig voiceLeading;
+    public MelodicLeadingConfig melodicLeading;
+    public HarmonicLeadingConfig harmonicLeading;
 
     // --------- LOCAL resources helper properties ----------
     public string ResourcesChordsPath => $"{resourcesPatternsRoot}/Chords";

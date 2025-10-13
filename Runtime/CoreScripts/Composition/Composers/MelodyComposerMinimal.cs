@@ -26,20 +26,30 @@ namespace MidiGenPlay.Composition
 
         public MidiFile Compose(
             SongConfig.PartConfig part,
-            SongConfig.PartConfig.TrackConfig cfg,
+            SongConfig.PartConfig.TrackConfig trackCfg,
             int bpm,
             int channel,
             MidiGenerator.GenContext ctx)
         {
-            var inst = cfg.Instrument;
+            UnityEngine.Debug.Log($"[MelodyComposer] Start part='{part.Name}' " +
+                $"inst='{trackCfg.Instrument?.InstrumentName}' " +
+                $"role={trackCfg.Role} bpm={bpm} ch={channel}");
+
+            var inst = trackCfg.Instrument;
             var prog =
                 ctx.GetProgressionForPart?.Invoke(part) ??
-                (cfg.Parameters?.Pattern as ChordProgressionData);
+                (trackCfg.Parameters?.Pattern as ChordProgressionData);
 
             if (prog == null)
             {
-                UnityEngine.Debug.Log("<color=red>No chord progression fround in Melody Composer</color>");
-                return new MidiFile();
+                UnityEngine.Debug.LogWarning("[MelodyComposer] No chord progression found → empty melody.");
+                return ComposeRandomTestMelody(part, trackCfg, bpm, channel, ctx);
+            }
+
+            if (prog.events == null || prog.events.Count == 0)
+            {
+                UnityEngine.Debug.LogWarning("[MelodyComposer] Progression has 0 events → empty melody.");
+                return ComposeRandomTestMelody(part, trackCfg, bpm, channel, ctx);
             }
 
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -80,27 +90,13 @@ namespace MidiGenPlay.Composition
             SetAllNotesChannel(file, channel);
             StampBankAndPatch(file, inst, channel);
 
+            var notes = file.GetNotes().Count();
+            var lastTick = file.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
+                            .Select(te => te.Time).DefaultIfEmpty(0).Max();
+
+            UnityEngine.Debug.Log($"[MelodyComposer] Done notes={notes} lastTick={lastTick}");
+
             return file;
-        }
-
-        private static ChordProgressionData ResolveProgression(
-            SongConfig.PartConfig part, SongConfig.PartConfig.TrackConfig cfg)
-        {
-            // 1) explicit on this track?
-            var prog = cfg.Parameters?.Pattern as ChordProgressionData;
-            if (prog != null) return prog;
-
-            // 2) fallback to the part's backing track
-            prog = part.Tracks
-                .FirstOrDefault(t => t.Role == TrackRole.Backing)
-                ?.Parameters?.Pattern as ChordProgressionData;
-
-            if (prog == null)
-                throw new InvalidOperationException(
-                    "[MelodyComposer] No chord progression found for this part. " +
-                    "Add a Backing track or assign a progression to this track’s Parameters.Pattern.");
-
-            return prog;
         }
 
         private static void SetAllNotesChannel(MidiFile file, int channel)
@@ -118,17 +114,64 @@ namespace MidiGenPlay.Composition
                 file.Chunks.Add(chunk);
             }
 
-            if (int.TryParse(inst.BankName, out var bank))
+            // Match MidiGenerator.SetBankAndPatchEvents
+            // (MPTK expects MSB = bankNumber, LSB = 0)
+            if (int.TryParse(inst.BankName, out var bankNumber))
             {
-                var msb = (SevenBitNumber)(bank / 128);
-                var lsb = (SevenBitNumber)(bank % 128);
-                chunk.Events.Insert(0, new ControlChangeEvent((SevenBitNumber)0, msb) { Channel = (FourBitNumber)channel });
-                chunk.Events.Insert(1, new ControlChangeEvent((SevenBitNumber)32, lsb) { Channel = (FourBitNumber)channel });
+                var msb = (SevenBitNumber)bankNumber;
+                var lsb = (SevenBitNumber)0;
+
+                chunk.Events.Insert(0, new ControlChangeEvent((SevenBitNumber)0, msb)
+                { Channel = (FourBitNumber)channel, DeltaTime = 0 });
+
+                chunk.Events.Insert(1, new ControlChangeEvent((SevenBitNumber)32, lsb)
+                { Channel = (FourBitNumber)channel, DeltaTime = 0 });
             }
 
+            // small non-zero delta after bank to guarantee ordering
             chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)inst.PatchIndex)
-            { Channel = (FourBitNumber)channel });
+            { Channel = (FourBitNumber)channel, DeltaTime = 1 });
         }
-        private static int Semis(Note n) => (int)(byte)n.NoteNumber;
+
+        private MidiFile ComposeRandomTestMelody(
+            SongConfig.PartConfig part,
+            SongConfig.PartConfig.TrackConfig trackCfg,
+            int bpm,
+            int channel,
+            MidiGenerator.GenContext ctx)
+        {
+            var inst = trackCfg.Instrument;
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var pb = new PatternBuilder();
+
+            // Use the part’s scale (feels musical) but randomize notes
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+            var pcs = GetNotesFromScale(scale, part.RootNote, 4, 4).Select(n => n.NoteName).ToArray();
+
+            var ts = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = ts.BeatsPerMeasure;
+            int totalBeats = Math.Max(1, part.Measures) * beatsPerBar;
+
+            var rng = ctx?.rng ?? new System.Random();
+
+            // One quarter-note per beat (simple & loud)
+            for (int beat = 0; beat < totalBeats; beat++)
+            {
+                var pc = pcs[rng.Next(0, pcs.Length)];
+                int oct = Math.Clamp(inst.octaveMin + rng.Next(0, (inst.octaveMax - inst.octaveMin + 1)),
+                                     inst.octaveMin, inst.octaveMax);
+                var note = Note.Get(pc, oct);
+
+                pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(beat));
+                pb.Note(note, MusicalTimeSpan.Quarter, (SevenBitNumber)110);
+            }
+
+            var file = pb.Build().ToFile(tempoMap);
+            SetAllNotesChannel(file, channel);
+            StampBankAndPatch(file, inst, channel);
+
+            UnityEngine.Debug.Log($"[MelodyComposer] (Fallback) random notes={file.GetNotes().Count()}");
+            return file;
+        }
     }
 }
