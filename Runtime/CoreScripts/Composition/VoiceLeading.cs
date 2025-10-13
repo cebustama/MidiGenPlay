@@ -1,20 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using Melanchall.DryWetMidi.MusicTheory; // Note, NoteName
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
 {
-    public interface IChordVoicer
-    {
-        IReadOnlyList<Note> VoiceChord(
-            NoteName[] pitchClasses,
-            MIDIInstrumentSO instrument,
-            IReadOnlyList<Note> lastVoicing,
-            VoiceLeadingConfig cfg);
-    }
-
     // Minimal, fast, and tunable
     public sealed class BasicVoiceLeadingVoicer : IChordVoicer
     {

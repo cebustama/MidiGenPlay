@@ -1,23 +1,28 @@
-﻿namespace MidiGenPlay.Composition
+﻿
+using Melanchall.DryWetMidi.Common;
+using Melanchall.DryWetMidi.Composing;
+using Melanchall.DryWetMidi.Core;
+using Melanchall.DryWetMidi.Interaction;
+using Melanchall.DryWetMidi.MusicTheory;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using static MidiGenPlay.MusicTheory.MusicTheory;
+using Note = Melanchall.DryWetMidi.MusicTheory.Note;
+
+namespace MidiGenPlay.Composition
 {
-    using UnityEngine;
-    using Melanchall.DryWetMidi.Common;
-    using Melanchall.DryWetMidi.Composing;
-    using Melanchall.DryWetMidi.Core;
-    using Melanchall.DryWetMidi.Interaction;
-    using Melanchall.DryWetMidi.MusicTheory;
-    using System;
-    using System.Collections.Generic;
-    using System.Diagnostics;
-    using System.Linq;
-    using static MidiGenPlay.MusicTheory.MusicTheory;
-    using Note = Melanchall.DryWetMidi.MusicTheory.Note;
 
     public sealed class MelodyComposerMinimal : ITrackComposer
     {
         private readonly MelodicLeadingConfig _cfg;
+        private readonly IMelodyStrategy _strategy;
 
-        public MelodyComposerMinimal(MelodicLeadingConfig cfg) => _cfg = cfg;
+        public MelodyComposerMinimal(MelodicLeadingConfig cfg, IMelodyStrategy strategy)
+        {
+            _cfg = cfg;
+            _strategy = strategy;
+        }
 
         public MidiFile Compose(
             SongConfig.PartConfig part,
@@ -56,7 +61,7 @@
                 var degreeRoot = scaleNames[(int)ce.degree];
                 var chordNames = GetChordNoteNames(degreeRoot, ce.quality); // pitch classes of chord
 
-                var nn = NearestAllowedTone(chordNames, last, inst, _cfg);
+                var nn = _strategy.PickNext(chordNames, last, inst, _cfg, ctx.rng);
                 if (nn == null) continue;
 
                 // grid steps -> beats
@@ -124,38 +129,6 @@
             chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)inst.PatchIndex)
             { Channel = (FourBitNumber)channel });
         }
-
-        private Note NearestAllowedTone(
-            NoteName[] chordPcs,
-            Note last,
-            MIDIInstrumentSO inst,
-            MelodicLeadingConfig cfg)
-        {
-            // all chord tones across the instrument range
-            var cand = new List<Note>();
-            for (int oct = inst.octaveMin; oct <= inst.octaveMax; oct++)
-                foreach (var pc in chordPcs)
-                    cand.Add(Note.Get(pc, oct));
-
-            if (cand.Count == 0) return null;
-
-            if (last == null)
-            {
-                // start near the instrument center
-                int centerOct = (inst.octaveMin + inst.octaveMax) / 2;
-                return cand.OrderBy(n => Math.Abs(Semis(n) - Semis(Note.Get(n.NoteName, centerOct))))
-                           .First();
-            }
-
-            // nearest to last within maxStep; otherwise nearest overall
-            var ordered = cand.OrderBy(n => Math.Abs(Semis(n) - Semis(last)));
-            foreach (var n in ordered)
-                if (Math.Abs(Semis(n) - Semis(last)) <= cfg.maxStepSemitones)
-                    return n;
-
-            return ordered.First();
-        }
-
         private static int Semis(Note n) => (int)(byte)n.NoteNumber;
     }
 }
