@@ -22,11 +22,14 @@ public class MidiGenPlayConfig : ScriptableObject
     [Tooltip("Create directories if missing when saving assets.")]
     public bool autoCreateFolders = true;
 
-    [Header("Debug toggles")]
+    [Header("Log toggles")]
     public bool logUI = true;
     public bool logRepository = false;
     public bool logGenerator = true;
     public bool logMidiMusicManager = true;
+
+    [Header("Dev / QA")]
+    public bool debugDumpMidi = false;
 
     [Header("Defaults / fallbacks")]
     public Tonality defaultTonality = Tonality.Ionian;
