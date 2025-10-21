@@ -1,5 +1,6 @@
 using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 
@@ -25,6 +26,17 @@ namespace MidiGenPlay
             public TempoRange TempoRange;
             public TimeSignature TimeSignature;
             public int Measures;
+            public int Repetitions;
+
+            public override string ToString()
+            {
+                var ts = $"{TimeSignatureProperties[TimeSignature].BeatsPerMeasure}/" +
+                         $"{TimeSignatureProperties[TimeSignature].BeatUnit}";
+                var tracks = Tracks != null
+                    ? string.Join(", ", Tracks.Select((t, i) => $"[{i}:{t}]"))
+                    : "(no tracks)";
+                return $"Part '{Name}' rep={Repetitions} TS={ts} Ton={Tonality} Root={RootNote} :: {tracks}";
+            }
 
             /// <summary>
             /// A single track’s configuration
@@ -38,6 +50,18 @@ namespace MidiGenPlay
                 public TrackParameters Parameters;
 
                 public string MusicianId;
+                public int Channel = -1;
+
+                public override string ToString()
+                {
+                    var inst = Instrument != null ? Instrument.name
+                             : PercussionInstrument != null ? PercussionInstrument.name
+                             : "-";
+                    var pat = Parameters?.Pattern != null ? Parameters.Pattern.name : "-";
+                    var mus = !string.IsNullOrEmpty(MusicianId) ? MusicianId : "(unassigned)";
+                    var ch = Channel >= 0 ? Channel.ToString() : "-";
+                    return $"role={Role} mus={mus} ch={ch} inst={inst} pattern={pat}";
+                }
             }
         }
 

@@ -154,6 +154,12 @@ namespace MidiGenPlay.Composition
                 return;
             }
 
+            if (_settings?.logGenerator == true)
+            {
+                Debug.Log($"{LogTag} Start part='{part.Name}' role={cfg.Role} ch={channel} inst={InstName(cfg)} pattern={PatternName(cfg)} " +
+                          $"@tick={cursorTicks} lenTicks={partTicks}");
+            }
+
             var trackFile = composer.Compose(part, cfg, bpm, channel, ctx);
 
             TrimFileToLength(trackFile, partTicks);
@@ -166,7 +172,8 @@ namespace MidiGenPlay.Composition
             if (_settings?.logGenerator == true)
             {
                 var (tracks, notes, last) = Inspect(trackFile);
-                Debug.Log($"{LogTag} Merged [{cfg.Role}] ch={channel} tracks={tracks} notes={notes} lastTick={last}");
+                Debug.Log($"{LogTag} Merged [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' pattern='{PatternName(cfg)}' " +
+                          $"tracks={tracks} notes={notes} lastTick={last}");
             }
         }
 
@@ -297,7 +304,7 @@ namespace MidiGenPlay.Composition
                 var secs = last == null
                     ? 0.0
                     : TimeConverter.ConvertTo<MetricTimeSpan>(last.Time, tempoMap).TotalSeconds;
-                Debug.Log($"[{tag}] Track {idx++} last @tick={last?.Time} s={secs:0.###} evt={last?.Event}");
+                //Debug.Log($"[{tag}] Track {idx++} last @tick={last?.Time} s={secs:0.###} evt={last?.Event}");
             }
         }
 
@@ -320,5 +327,16 @@ namespace MidiGenPlay.Composition
             return (chunks.Count, notes, last);
         }
 
+        private static string InstName(SongConfig.PartConfig.TrackConfig cfg)
+        {
+            if (cfg?.Instrument != null) return cfg.Instrument.InstrumentName;
+            if (cfg?.PercussionInstrument != null) return cfg.PercussionInstrument.InstrumentName;
+            return "-";
+        }
+        private static string PatternName(SongConfig.PartConfig.TrackConfig cfg)
+        {
+            var p = cfg?.Parameters?.Pattern;
+            return p != null ? $"{p.GetType().Name}:{p.name}" : "-";
+        }
     }
 }

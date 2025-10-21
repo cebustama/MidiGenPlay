@@ -196,6 +196,22 @@ namespace MidiGenPlay
 
         public MidiFile GenerateSong(SongConfig song)
         {
+            // Preflight: list every track and its pattern
+            if (settings?.logGenerator == true && song?.Parts != null)
+            {
+                for (int pi = 0; pi < song.Parts.Count; pi++)
+                {
+                    var part = song.Parts[pi];
+                    Debug.Log($"{DebugTag} Part='{part.Name}' TS={TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure}/" +
+                              $"{TimeSignatureProperties[part.TimeSignature].BeatUnit} Ton={part.Tonality} Root={part.RootNote} meas={part.Measures}");
+                    for (int ti = 0; ti < (part.Tracks?.Count ?? 0); ti++)
+                    {
+                        var cfg = part.Tracks[ti];
+                        Debug.Log($"{DebugTag}   role={cfg.Role} mus={cfg.MusicianId} inst={InstName(cfg)} pattern={PatternName(cfg)}");
+                    }
+                }
+            }
+
             Debug.Log($"{DebugTag} Generating Midi for song");
 
             return _orchestrator.GenerateSong(song);
@@ -278,6 +294,19 @@ namespace MidiGenPlay
                     channelEvent.Channel = (FourBitNumber)channel;
                 }
             }
+        }
+
+        private static string InstName(SongConfig.PartConfig.TrackConfig cfg)
+        {
+            if (cfg?.Instrument != null) return cfg.Instrument.InstrumentName;
+            if (cfg?.PercussionInstrument != null) return cfg.PercussionInstrument.InstrumentName;
+            return "-";
+        }
+
+        private static string PatternName(SongConfig.PartConfig.TrackConfig cfg)
+        {
+            var p = cfg?.Parameters?.Pattern;
+            return p != null ? $"{p.GetType().Name}:{p.name}" : "-";
         }
         #endregion
     }

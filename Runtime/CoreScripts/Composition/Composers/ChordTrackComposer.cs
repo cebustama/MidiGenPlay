@@ -149,7 +149,7 @@ namespace MidiGenPlay.Composition
                 long tick = TimeConverter.ConvertFrom(cm.when, tempoMap);
                 var txt = $"chd:{channel}:{cm.roman}:{cm.symbol}:{cm.deg}:{cm.quality}";
                 mgr.Objects.Add(new TimedEvent(new TextEvent(txt), tick));
-                if (verbose) Debug.Log($"[ChordTrackComposer] tag @tick={tick} '{txt}'");
+                //if (verbose) Debug.Log($"[ChordTrackComposer] tag @tick={tick} '{txt}'");
             }
         }
 
