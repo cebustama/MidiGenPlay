@@ -4,7 +4,7 @@ using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using Melanchall.DryWetMidi.Standards;
-using MidiGenPlay.Composition;
+
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -30,6 +30,39 @@ namespace MidiGenPlay.Composition
             var kit = (MIDIPercussionInstrumentSO)cfg.PercussionInstrument;
             var data = cfg.Parameters?.Pattern as DrumPatternData;
 
+            // fully procedural drums when there's no pattern
+            if ((data == null) && kit != null)
+            {
+                if (_settings?.logGenerator == true)
+                    Debug.Log("[RhythmTrackComposer] Procedural rhythm (no DrumPatternData).");
+
+                // choose a style for this meter; fall back to generic if none
+                RhythmStyleRegistry.RegisterDefaults(); // safe no-op if already called
+                var style = RhythmStyleRegistry.Choose(
+                    part.TimeSignature,
+                    cfg.Parameters?.RhythmRecipe,
+                    (min, max) => UnityEngine.Random.Range(min, max));
+
+                MidiFile pFile = (style != null)
+                    ? style.Compose(kit, bpm, part.Measures, channel, cfg.Parameters?.RhythmRecipe)
+                    : ComposeProcedural(kit, bpm, part.TimeSignature, part.Measures, channel);
+
+                // Post-process here so all styles remain pure
+                StampBankAndPatch(pFile, kit, channel);
+                ForceAllChannel(pFile, channel);
+
+                if (_settings?.logGenerator == true)
+                {
+                    var chunks = pFile.GetTrackChunks().Count();
+                    var notes = pFile.GetNotes().Count();
+                    var last = pFile.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
+                                    .Select(te => te.Time).DefaultIfEmpty(0).Max();
+                    Debug.Log($"[RhythmTrackComposer] (procedural) tracks={chunks} " +
+                        $"notes={notes} lastTick={last}");
+                }
+                return pFile;
+            }
+
             if (data == null || kit == null)
             {
                 Debug.LogWarning("[RhythmTrackComposer] Missing pattern or percussion instrument.");
@@ -51,9 +84,86 @@ namespace MidiGenPlay.Composition
                 var notes = file.GetNotes().Count();
                 var lastTick = file.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
                                   .Select(te => te.Time).DefaultIfEmpty(0).Max();
-                Debug.Log($"[RhythmTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
+                Debug.Log($"[RhythmTrackComposer] tracks={chunks} " +
+                    $"notes={notes} lastTick={lastTick}");
             }
 
+            return file;
+        }
+
+        // simple, musical, meter-aware grid
+        private static MidiFile ComposeProcedural(
+            MIDIPercussionInstrumentSO kit,
+            int bpm,
+            MusicTheory.MusicTheory.TimeSignature ts,
+            int measures,
+            int channel)
+        {
+            var tsInfo = GetTimeSignatureDetails(ts, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var pb = new PatternBuilder().MoveToStart();
+
+            // Mappings (with safe fallbacks)
+            bool hasKick = 
+                kit.TryGetMappedNote(GeneralMidiPercussion.AcousticBassDrum, out var kick);
+            bool hasSnare = 
+                kit.TryGetMappedNote(GeneralMidiPercussion.AcousticSnare, out var snare);
+            bool hasCHH = 
+                kit.TryGetMappedNote(GeneralMidiPercussion.ClosedHiHat, out var chh);
+            bool hasOHH = 
+                kit.TryGetMappedNote(GeneralMidiPercussion.OpenHiHat, out var ohh);
+
+            // Backbeat rule: 1 = kick, ceil(beats/2)+1 = snare (clamped to beatsPerBar)
+            int backbeat = Mathf.Min(beatsPerBar, Mathf.CeilToInt(beatsPerBar / 2f) + 1);
+
+            for (int m = 0; m < Mathf.Max(1, measures); m++)
+            {
+                for (int b0 = 0; b0 < beatsPerBar; b0++)
+                {
+                    int beat = b0 + 1; // 1-based beat number
+                    double whenBeats = m * beatsPerBar + b0;
+
+                    // Hi-hat logic:
+                    // - CHH on every beat EXCEPT the final beat
+                    if (beat != beatsPerBar && hasCHH)
+                    {
+                        pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(whenBeats));
+                        pb.Note(chh, MusicalTimeSpan.Quarter, (SevenBitNumber)60);
+                    }
+                    if (beat == beatsPerBar && hasOHH)
+                    {
+                        pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(whenBeats));
+                        pb.Note(ohh, MusicalTimeSpan.Quarter, (SevenBitNumber)80);
+                    }
+                    else if (beat == beatsPerBar && hasCHH)
+                    {
+                        // if no OHH mapping, keep CHH on the last beat
+                        pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(whenBeats));
+                        pb.Note(chh, MusicalTimeSpan.Quarter, (SevenBitNumber)60);
+                    }
+
+                    // Kick on beat 1
+                    if (beat == 1 && hasKick)
+                    {
+                        pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(whenBeats));
+                        pb.Note(kick, MusicalTimeSpan.Quarter, (SevenBitNumber)96);
+                    }
+
+                    // Snare on the computed backbeat
+                    if (beat == backbeat && hasSnare)
+                    {
+                        pb.MoveToTime(MusicalTimeSpan.Quarter.Multiply(whenBeats));
+                        pb.Note(snare, MusicalTimeSpan.Quarter, (SevenBitNumber)96);
+                    }
+                }
+            }
+
+            var file = pb.Build().ToFile(tempoMap);
+
+            // Match other paths: stamp kit bank/patch & force channel
+            StampBankAndPatch(file, kit, channel);
+            ForceAllChannel(file, channel);
             return file;
         }
 
@@ -188,7 +298,7 @@ namespace MidiGenPlay.Composition
         }
 
         private static void StampBankAndPatch(
-    MidiFile file, MIDIPercussionInstrumentSO kit, int channel)
+            MidiFile file, MIDIPercussionInstrumentSO kit, int channel)
         {
             if (!int.TryParse(kit.BankName?.Trim(), out var bank))
             {

@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Fantasia
   m_EditorClassIdentifier: 
   InstrumentName: Fantasia
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 88 - Fantasia

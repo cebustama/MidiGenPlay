@@ -1,4 +1,5 @@
 using Melanchall.DryWetMidi.MusicTheory;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -73,6 +74,37 @@ namespace MidiGenPlay
         }
     }
 
+    #region Recipes
+    [Serializable]
+    public class RhythmRecipe
+    {
+        // explicit style id (e.g. set by a Rhythm card)
+        public string RhythmStyleId;
+
+        public enum HiHatDensity
+        {
+            From_Style,
+            Quarter,
+            Eighth
+        }
+        public HiHatDensity HatDensity = HiHatDensity.From_Style;
+
+        public enum HatDensityMode
+        {
+            Fixed,           // same every bar
+            AlternateByBar,  // flip each bar
+            RandomPerBar
+        }
+        public HatDensityMode HatMode = HatDensityMode.Fixed;
+    }
+
+    [Serializable]
+    public class BackingRecipe 
+    {
+        public string BackingStyleId;
+    }
+    #endregion
+
     /// <summary>
     /// Base for any role-specific data (drum patterns, chord progressions, melodies…)
     /// </summary>
@@ -80,5 +112,7 @@ namespace MidiGenPlay
     public class TrackParameters 
     {
         public PatternDataSO Pattern;
+        public RhythmRecipe RhythmRecipe;
+        public BackingRecipe BackingRecipe;
     }
 }

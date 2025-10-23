@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Bass and Lead
   m_EditorClassIdentifier: 
   InstrumentName: Bass and Lead
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 87 - Bass & Lead

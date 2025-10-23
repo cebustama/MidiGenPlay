@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Space Voice
   m_EditorClassIdentifier: 
   InstrumentName: Space Voice
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 91 - Space Voice

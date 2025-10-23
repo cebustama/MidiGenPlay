@@ -67,6 +67,12 @@ namespace MidiGenPlay.Composition
             var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
             var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
 
+            if (_settings?.logGenerator == true)
+            {
+                Debug.Log($"<color=yellow>[ChordTrack] Tonality: {part.Tonality} over {part.RootNote}  " +
+                          $"Scale notes (C4..B7 window): [{string.Join(", ", scaleNames)}]</color>");
+            }
+
             var chordMarkers = new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
             var pb = new PatternBuilder();
 

@@ -12,7 +12,8 @@ namespace MidiGenPlay
         Piano,
         AcousticGuitar,
         Strings, 
-        BrassAndWoodwind
+        BrassAndWoodwind,
+        Synth
     }
 
     [CreateAssetMenu(fileName = "NewMIDIInstrument", menuName = "MIDI/MIDI Instrument")]

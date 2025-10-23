@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Warm Pad
   m_EditorClassIdentifier: 
   InstrumentName: Warm Pad
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 89 - Warm Pad

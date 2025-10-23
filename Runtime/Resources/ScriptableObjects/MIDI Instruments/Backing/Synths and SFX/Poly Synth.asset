@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Poly Synth
   m_EditorClassIdentifier: 
   InstrumentName: Poly Synth
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 89 - Warm Pad

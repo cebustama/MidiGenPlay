@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Saw Wave
   m_EditorClassIdentifier: 
   InstrumentName: Saw Wave
-  InstrumentType: 6
+  InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
   PatchName: 81 - Saw Wave
