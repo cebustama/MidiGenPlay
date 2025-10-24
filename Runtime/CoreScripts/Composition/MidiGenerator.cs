@@ -4,6 +4,7 @@ using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -35,7 +36,8 @@ namespace MidiGenPlay
             var harmonyStrategy = new NearestDifferentChordToneHarmonyStrategy();
 
             _composers[TrackRole.Melody] = 
-                new MelodyComposerMinimal(melodyCfg, melodyStrategy);
+                //new MelodyComposerMinimal(melodyCfg, melodyStrategy);
+                new MelodyTrackComposer(settings);
             _composers[TrackRole.Lead] = _composers[TrackRole.Melody]; // same for now
 
             _composers[TrackRole.Harmony] = 
@@ -75,6 +77,7 @@ namespace MidiGenPlay
                 FindChordEventAt;
             public System.Func<SongConfig.PartConfig, ChordProgressionData> 
                 GetProgressionForPart;
+            public Action<SongConfig.PartConfig, ChordProgressionData> SetProgressionForPart;
         }
 
         #region Harmony 
@@ -156,9 +159,9 @@ namespace MidiGenPlay
                 {
                     // Choose a scale degree from possible options
                     MusicTheory.MusicTheory.ScaleDegree selectedDegree =
-                        noteData.possibleDegrees[Random.Range(0, noteData.possibleDegrees.Count)];
+                        noteData.possibleDegrees[UnityEngine.Random.Range(0, noteData.possibleDegrees.Count)];
 
-                    int octave = Random.Range(minOct, maxOct + 1);
+                    int octave = UnityEngine.Random.Range(minOct, maxOct + 1);
 
                     // Convert scale degree to actual note
                     if (!GetNoteFromScale(

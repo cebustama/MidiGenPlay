@@ -87,6 +87,8 @@ namespace MidiGenPlay.Composition
                     ShiftFile(metro, cursorTicks);
                     MergeInto(fullSong, metro);
 
+                    var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
+
                     // Per-repetition context & cache for inter-role comms
                     var producedByRole = new Dictionary<TrackRole, MidiFile>();
                     var ctx = new MidiGenerator.GenContext
@@ -100,7 +102,21 @@ namespace MidiGenPlay.Composition
                         ExtractMonophonicNotes = (mf) => mf?.GetNotes()?.OrderBy(n => n.Time).ToList()
                                                   ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
                         FindChordEventAt = (prog, tempoMap, ts, absTicks) => prog?.FindChordEventAt(tempoMap, ts, absTicks),
-                        GetProgressionForPart = (p) => FindProgressionForPart(p)
+                        GetProgressionForPart = (p) =>
+                        {
+                            if (progressionByPart.TryGetValue(p, out var pr)) return pr;
+                            return FindProgressionForPart(p); // existing authored-based lookup
+                        },
+
+                        SetProgressionForPart = (p, pr) =>
+                        {
+                            progressionByPart[p] = pr;
+                            if (_settings?.logGenerator == true && pr != null)
+                            {
+                                var seq = string.Join("  ", pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
+                                Debug.Log($"<color=yellow>{LogTag} Cached progression for part '{p.Name}': {seq}</color>");
+                            }
+                        }
                     };
 
                     // TODO: PASS 0: generate chord progressions
