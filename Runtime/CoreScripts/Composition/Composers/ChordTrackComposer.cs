@@ -159,8 +159,6 @@ namespace MidiGenPlay.Composition
             return file;
         }
 
-        // Meter-agnostic, per-bar chord on the downbeat for the whole measure.
-        // Picks a random *diatonic triad* per bar
         private MidiFile ComposeProcedural(
             MIDIInstrumentSO instrument,
             int bpm,
@@ -170,8 +168,13 @@ namespace MidiGenPlay.Composition
             int channel)
         {
             var (triads, sevenths) = BuildDiatonicSets(part.Tonality, part.RootNote);
-            if (_settings?.logGenerator == true) 
-                LogDiatonicSets(part.Tonality, part.RootNote, triads, sevenths, true);
+            if (_settings?.logGenerator == true)
+                LogDiatonicSets(part.Tonality, part.RootNote, triads, sevenths, false);
+
+            // --- weights (Ionian/Aeolian baselines + characteristic degrees) ---
+            const float baseW = 1f, rootB = 3f, domB = 1.5f, charB = 2f;
+            var degreeWeights = 
+                BuildDegreeWeights(part.Tonality, part.RootNote, baseW, rootB, domB, charB);
 
             var voicer = ctx?.ChordVoicer ?? _voicer;
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -185,13 +188,44 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<DryWetMidiNote> lastVoicing = null;
 
             var rng = ctx?.rng ?? new System.Random();
+            var picked = new List<ScaleDegree>(measures);
+
+            // Small entry/exit biases
+            const float firstBarRootBonus = 2f;
+            const float lastBarForceI = 1f; // just a flag we use to force I
 
             for (int m = 0; m < measures; m++)
             {
-                // Pick a random *triad* degree (0..6).
-                var pick = triads[rng.Next(0, triads.Count)];
-                var pcs = GetChordNoteNames(pick.root, pick.quality);
+                ScaleDegree deg;
+                if (m == measures - 1)
+                {
+                    deg = ScaleDegree.Tonic; // cadence to I
+                }
+                else
+                {
+                    // clone weights and bias first bar to I
+                    var w = (float[])degreeWeights.Clone();
+                    if (m == 0) w[(int)ScaleDegree.Tonic] += firstBarRootBonus;
 
+                    // weighted pick 0..6
+                    float total = w.Sum();
+                    float pick = (float)rng.NextDouble() * total;
+                    int idx = 0;
+                    for (; idx < 7; idx++)
+                    {
+                        if (pick <= w[idx]) break;
+                        pick -= w[idx];
+                    }
+                    if (idx >= 7) idx = 6;
+                    deg = (ScaleDegree)idx;
+                }
+                picked.Add(deg);
+
+                // Diatonic triad for this mode/degree (MVP)
+                var q = GetDiatonicTriadQuality(part.Tonality, deg);
+
+                // Chord pitch classes (names) → voice
+                var pcs = ChordPitchClasses(part.Tonality, part.RootNote, deg, q);
                 var playable =
                     (_vl != null && _vl.enableVoiceLeading && voicer != null)
                     ? voicer.VoiceChord(pcs, instrument, lastVoicing, _vl)
@@ -208,16 +242,41 @@ namespace MidiGenPlay.Composition
                 pb.MoveToTime(startTime);
                 pb.Chord(playable, duration, (SevenBitNumber)96);
 
-                chordMarkers
-                    .Add((startTime, pick.roman, pick.symbol, 
-                    ((int)pick.degree) + 1, pick.quality.ToString()));
+                var rn = ToRomanRich(deg, q);
+                var sym = GetChordSymbol(pcs[0], q);
+                chordMarkers.Add((startTime, rn, sym, ((int)deg) + 1, q.ToString()));
             }
 
             var file = pb.Build().ToFile(tempoMap);
-            StampChordMarkers(file, tempoMap, chordMarkers, channel, 
-                _settings?.logGenerator == true);
+            StampChordMarkers(file, tempoMap, chordMarkers, channel, _settings?.logGenerator == true);
             StampBankAndPatch(file, instrument, channel);
             ForceAllChannel(file, channel);
+
+            // --- logs for tuning ---
+            if (_settings?.logGenerator == true)
+            {
+                string weightsLine = string.Join("  ",
+                    Enumerable.Range(0, 7).Select(i => $"{RomanBare((ScaleDegree)i)}={degreeWeights[i]:0.##}"));
+                Debug.Log($"[ChordTrack] Degree weights: {weightsLine}");
+
+                // Rebuild degree+quality per bar, then symbols (root+quality) for the same bars
+                var dq = picked.Select(d => (deg: d, q: GetDiatonicTriadQuality(part.Tonality, d))).ToList();
+                var symbols = dq.Select(t =>
+                {
+                    var pcs = ChordPitchClasses(part.Tonality, part.RootNote, t.deg, t.q); // degree root at pcs[0]
+                    return GetChordSymbol(pcs[0], t.q);
+                }).ToList();
+
+                string seqDegrees = string.Join("  ", dq.Select(t => ToRomanRich(t.deg, t.q)));
+                string seqChords = string.Join("  ", symbols);
+                string seqCombined = string.Join("  ",
+                    dq.Select((t, i) => $"{ToRomanRich(t.deg, t.q)}[{symbols[i]}]"));
+
+                //Debug.Log($"<color=yellow>[ChordTrack] Procedural progression (degrees): {seqDegrees}</color>");
+                //Debug.Log($"<color=yellow>[ChordTrack] Procedural progression (chords):  {seqChords}</color>");
+                Debug.Log($"<color=yellow>[ChordTrack] Procedural progression:           {seqCombined}</color>");
+            }
+
             return file;
         }
 

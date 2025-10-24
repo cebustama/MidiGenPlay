@@ -379,5 +379,61 @@ namespace MidiGenPlay.MusicTheory
                 _ => actualNote.ToString() // fallback (non-diatonic/double-accidental)
             };
         }
+
+        // === Modal color helpers (major-family vs minor-family) ===
+        public static List<ScaleDegree> GetCharacteristicDegrees(Tonality mode, NoteName root)
+        {
+            // Compare major-family modes to Ionian; minor-family to Aeolian
+            var baseline = mode switch
+            {
+                Tonality.Ionian or Tonality.Lydian or Tonality.Mixolydian => Tonality.Ionian,
+                _ => Tonality.Aeolian
+            };
+
+            var refNotes = GetTonalityNoteNames(baseline, root); // diatonic steps 0..6
+            var modeNotes = GetTonalityNoteNames(mode, root);
+
+            var list = new List<ScaleDegree>(2);
+            for (int i = 0; i < 7; i++)
+            {
+                if (refNotes[i] != modeNotes[i]) // pitch-class differs at this degree
+                    list.Add((ScaleDegree)i);
+            }
+            return list;
+        }
+
+        // Build a simple weight table per degree (index 0..6)
+        public static float[] BuildDegreeWeights(
+            Tonality mode,
+            NoteName root,
+            float baseW = 1f,
+            float rootBonus = 3f,
+            float domBonus = 1.5f,
+            float charBonus = 2f)
+        {
+            var w = new float[7];
+            for (int i = 0; i < 7; i++) w[i] = baseW;
+
+            w[(int)ScaleDegree.Tonic] += rootBonus;
+            w[(int)ScaleDegree.Dominant] += domBonus;
+
+            foreach (var d in GetCharacteristicDegrees(mode, root))
+                w[(int)d] += charBonus;
+
+            return w;
+        }
+
+        // Bare roman for quick logs (no quality)
+        public static string RomanBare(ScaleDegree d) => d switch
+        {
+            ScaleDegree.Tonic => "I",
+            ScaleDegree.Supertonic => "II",
+            ScaleDegree.Mediant => "III",
+            ScaleDegree.Subdominant => "IV",
+            ScaleDegree.Dominant => "V",
+            ScaleDegree.Submediant => "VI",
+            ScaleDegree.LeadingTone => "VII",
+            _ => "?"
+        };
     }
 }
