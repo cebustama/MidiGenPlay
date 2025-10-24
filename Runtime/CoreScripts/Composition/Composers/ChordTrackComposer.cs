@@ -1,15 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
+
 using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;   // ITimeSpan
 using Melanchall.DryWetMidi.MusicTheory;
-using MidiGenPlay.Composition;
+
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
+using ChordQuality = MidiGenPlay.MusicTheory.MusicTheory.ChordQuality;
 using DryWetMidiNote = Melanchall.DryWetMidi.MusicTheory.Note;
+using ScaleDegree = MidiGenPlay.MusicTheory.MusicTheory.ScaleDegree;
 
 namespace MidiGenPlay.Composition
 {
@@ -23,6 +25,18 @@ namespace MidiGenPlay.Composition
         private readonly MidiGenPlayConfig _settings;
         private readonly IChordVoicer _voicer;
         private readonly VoiceLeadingConfig _vl;
+
+        private readonly struct DiaChord
+        {
+            public readonly ScaleDegree degree;
+            public readonly ChordQuality quality;
+            public readonly NoteName root;
+            public readonly string roman;
+            public readonly string symbol;
+            public DiaChord(ScaleDegree d, ChordQuality q, NoteName r, 
+                string rn, string sym)
+            { degree = d; quality = q; root = r; roman = rn; symbol = sym; }
+        }
 
         public ChordTrackComposer(MidiGenPlayConfig settings, IChordVoicer voicer)
         {
@@ -49,8 +63,25 @@ namespace MidiGenPlay.Composition
                           $"progression='{prog?.displayName ?? "(null)"}' evts={prog?.events?.Count ?? 0}");
             }
 
+            // degree + quality → chord pcs
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            if (_settings?.logGenerator == true)
+            {
+                var spelled = Enumerable.Range(0, 7)
+                    .Select(i => SpellNoteForDegree(scaleNames[i], part.RootNote, i))
+                    .ToArray();
+                Debug.Log($"<color=yellow>[ChordTrack] Tonality: {part.Tonality} over {part.RootNote}  " +
+                          $"Scale labels: [{string.Join(", ", spelled)}]</color>");
+            }
+
             if (prog == null || prog.events == null || prog.events.Count == 0)
-                return new MidiFile();
+            {
+                if (_settings?.logGenerator == true)
+                    Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
+                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel);
+            }
 
             // Grid info
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
@@ -62,16 +93,6 @@ namespace MidiGenPlay.Composition
             int patternMeasures = Mathf.Max(1, prog.measures);
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
-
-            // degree + quality → chord pcs
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
-
-            if (_settings?.logGenerator == true)
-            {
-                Debug.Log($"<color=yellow>[ChordTrack] Tonality: {part.Tonality} over {part.RootNote}  " +
-                          $"Scale notes (C4..B7 window): [{string.Join(", ", scaleNames)}]</color>");
-            }
 
             var chordMarkers = new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
             var pb = new PatternBuilder();
@@ -135,6 +156,68 @@ namespace MidiGenPlay.Composition
                 Debug.Log($"[ChordTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
             }
 
+            return file;
+        }
+
+        // Meter-agnostic, per-bar chord on the downbeat for the whole measure.
+        // Picks a random *diatonic triad* per bar
+        private MidiFile ComposeProcedural(
+            MIDIInstrumentSO instrument,
+            int bpm,
+            SongConfig.PartConfig part,
+            SongConfig.PartConfig.TrackConfig cfg,
+            MidiGenerator.GenContext ctx,
+            int channel)
+        {
+            var (triads, sevenths) = BuildDiatonicSets(part.Tonality, part.RootNote);
+            if (_settings?.logGenerator == true) 
+                LogDiatonicSets(part.Tonality, part.RootNote, triads, sevenths, true);
+
+            var voicer = ctx?.ChordVoicer ?? _voicer;
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+            int measures = Mathf.Max(1, part.Measures);
+
+            var pb = new PatternBuilder().MoveToStart();
+            var chordMarkers = 
+                new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
+            IReadOnlyList<DryWetMidiNote> lastVoicing = null;
+
+            var rng = ctx?.rng ?? new System.Random();
+
+            for (int m = 0; m < measures; m++)
+            {
+                // Pick a random *triad* degree (0..6).
+                var pick = triads[rng.Next(0, triads.Count)];
+                var pcs = GetChordNoteNames(pick.root, pick.quality);
+
+                var playable =
+                    (_vl != null && _vl.enableVoiceLeading && voicer != null)
+                    ? voicer.VoiceChord(pcs, instrument, lastVoicing, _vl)
+                    : RealizeChordSimple(pcs, instrument, ctx?.rng);
+
+                lastVoicing = playable;
+
+                double startBeats = m * beatsPerBar;
+                double durBeats = beatsPerBar;
+
+                var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
+                var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
+
+                pb.MoveToTime(startTime);
+                pb.Chord(playable, duration, (SevenBitNumber)96);
+
+                chordMarkers
+                    .Add((startTime, pick.roman, pick.symbol, 
+                    ((int)pick.degree) + 1, pick.quality.ToString()));
+            }
+
+            var file = pb.Build().ToFile(tempoMap);
+            StampChordMarkers(file, tempoMap, chordMarkers, channel, 
+                _settings?.logGenerator == true);
+            StampBankAndPatch(file, instrument, channel);
+            ForceAllChannel(file, channel);
             return file;
         }
 
@@ -206,6 +289,54 @@ namespace MidiGenPlay.Composition
                 chunk.Events.Insert(2, new ProgramChangeEvent((SevenBitNumber)inst.PatchIndex)
                 { Channel = (FourBitNumber)channel, DeltaTime = 1 });
             }
+        }
+
+        private static (List<DiaChord> triads, List<DiaChord> sevenths) BuildDiatonicSets(
+            Tonality mode, NoteName rootNote)
+        {
+            // Scale degrees → scale note names (root mapped per degree)
+            var scale = GetScaleFromTonality(mode, rootNote);
+            var scaleNames = 
+                GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            var tri = new List<DiaChord>(7);
+            var sev = new List<DiaChord>(7);
+            for (int i = 0; i < 7; i++)
+            {
+                var deg = (ScaleDegree)i;
+
+                var tq = GetDiatonicTriadQuality(mode, deg);
+                var tRoot = scaleNames[i];
+                tri.Add(new DiaChord(deg, tq, tRoot, ToRomanRich(deg, tq),
+                    GetChordSymbolSpelledForDegree(rootNote, i, tRoot, tq)));
+
+                var sq = GetDiatonicSeventhQuality(mode, deg);
+                var sRoot = scaleNames[i];
+                sev.Add(new DiaChord(deg, sq, sRoot, ToRomanRich(deg, sq),
+                    GetChordSymbolSpelledForDegree(rootNote, i, sRoot, sq)));
+            }
+            return (tri, sev);
+        }
+
+        private static void LogDiatonicSets(
+            Tonality mode,
+            NoteName rootNote,
+            List<DiaChord> tri,
+            List<DiaChord> sev,
+            bool showSymbols = false)
+        {
+            string triLine = showSymbols
+                ? string.Join("  ", tri.Select(t => t.symbol))
+                : string.Join("  ", tri.Select(t => t.roman));
+
+            string sevLine = showSymbols
+                ? string.Join("  ", sev.Select(s => s.symbol))
+                : string.Join("  ", sev.Select(s => s.roman));
+
+            Debug.Log($"<color=yellow>[ChordTrack] " +
+                $"Diatonic triads in {mode}/{rootNote}: {triLine}</color>");
+            Debug.Log($"<color=yellow>[ChordTrack] " +
+                $"Diatonic sevenths in {mode}/{rootNote}: {sevLine}</color>");
         }
     }
 }

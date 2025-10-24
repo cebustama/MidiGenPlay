@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+﻿using Melanchall.DryWetMidi.MusicTheory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -321,6 +321,63 @@ namespace MidiGenPlay.MusicTheory
 
             // chord pitch classes (names) for that degree+quality
             return GetChordNoteNames(degreeRoot, quality);
+        }
+
+        // --- Enharmonic spelling helpers (labels) ---
+
+        public static int PitchClass(NoteName n) => ((int)n) % 12;
+
+        private static int NaturalPcForLetter(char L) => L switch
+        {
+            'C' => 0,
+            'D' => 2,
+            'E' => 4,
+            'F' => 5,
+            'G' => 7,
+            'A' => 9,
+            'B' => 11,
+            _ => 0
+        };
+
+        public static char LetterOf(NoteName nn) => nn switch
+        {
+            NoteName.C or NoteName.CSharp => 'C',
+            NoteName.D or NoteName.DSharp => 'D',
+            NoteName.E => 'E',
+            NoteName.F or NoteName.FSharp => 'F',
+            NoteName.G or NoteName.GSharp => 'G',
+            NoteName.A or NoteName.ASharp => 'A',
+            NoteName.B => 'B',
+            _ => 'C'
+        };
+
+        public static char LetterForDegree(NoteName keyRoot, int degreeIndex)
+        {
+            const string cycle = "CDEFGAB";
+            int rootIdx = cycle.IndexOf(LetterOf(keyRoot));
+            if (rootIdx < 0) rootIdx = 0;
+            return cycle[(rootIdx + (degreeIndex % 7) + 7) % 7];
+        }
+
+        /// Label a diatonic note for a given degree using ♭/♯ as needed.
+        /// Example (C Phrygian): degree 1→'D', actual pc=1 => "D♭"
+        public static string SpellNoteForDegree(
+            NoteName actualNote,
+            NoteName keyRoot,
+            int degreeIndex)
+        {
+            char L = LetterForDegree(keyRoot, degreeIndex);
+            int nat = NaturalPcForLetter(L);
+            int pc = PitchClass(actualNote);
+            int delta = (pc - nat + 12) % 12; // 0,1,11 in diatonic contexts
+
+            return delta switch
+            {
+                0 => L.ToString(),
+                1 => $"{L}♯",
+                11 => $"{L}♭",
+                _ => actualNote.ToString() // fallback (non-diatonic/double-accidental)
+            };
         }
     }
 }

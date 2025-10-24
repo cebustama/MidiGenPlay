@@ -198,5 +198,34 @@ namespace MidiGenPlay.MusicTheory
                 _ => r
             };
         }
+
+        public static string GetChordSymbolSpelledForDegree(
+            Melanchall.DryWetMidi.MusicTheory.NoteName keyRoot,
+            int degreeIndex,
+            Melanchall.DryWetMidi.MusicTheory.NoteName chordRoot,
+            ChordQuality q)
+        {
+            // Root label with context (e.g., D♭, E♭, A♭...)
+            string r = MusicTheory.SpellNoteForDegree(chordRoot, keyRoot, degreeIndex);
+
+            // Same suffix rules as GetChordSymbol
+            return q switch
+            {
+                ChordQuality.Major => r,
+                ChordQuality.Minor => r + "m",
+                ChordQuality.Diminished => r + "dim",
+                ChordQuality.Augmented => r + "aug",
+
+                ChordQuality.Major7 => r + "maj7",
+                ChordQuality.Minor7 => r + "m7",
+                ChordQuality.Dominant7 => r + "7",
+                ChordQuality.HalfDiminished7 => r + "ø7",
+                ChordQuality.Diminished7 => r + "°7",
+
+                ChordQuality.Sus2 => r + "sus2",
+                ChordQuality.Sus4 => r + "sus4",
+                _ => r
+            };
+        }
     }
 }
