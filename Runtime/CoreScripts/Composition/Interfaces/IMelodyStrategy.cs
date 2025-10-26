@@ -4,8 +4,9 @@ namespace MidiGenPlay.Composition
 {
     public enum MelodyStrategyId
     {
-        NearestChordTone,
-        ScaleFlow
+        NearestChordTone    = 0,
+        ScaleFlow           = 1,
+
         // extend as new implementations created
     }
 

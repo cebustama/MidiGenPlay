@@ -21,16 +21,16 @@ namespace MidiGenPlay.Composition
         private const string LogTag = "<color=#4fe>[SongOrchestrator]</color>";
 
         private readonly MidiGenPlayConfig _settings;
-        private readonly IReadOnlyDictionary<TrackRole, ITrackComposer> _composers;
+        private readonly IReadOnlyDictionary<TrackRole, ITrackComposerFactory> _factories;
         private readonly IChordVoicer _voicer; // forwarded into GenContext
 
         public SongOrchestrator(
             MidiGenPlayConfig settings,
-            IReadOnlyDictionary<TrackRole, ITrackComposer> composers,
+            IReadOnlyDictionary<TrackRole, ITrackComposerFactory> factories,
             IChordVoicer voicer = null)
         {
             _settings = settings;
-            _composers = composers ?? throw new ArgumentNullException(nameof(composers));
+            _factories = factories ?? throw new ArgumentNullException(nameof(factories));
             _voicer = voicer;
         }
 
@@ -164,15 +164,24 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx,
             IDictionary<TrackRole, MidiFile> producedByRole)
         {
-            if (!_composers.TryGetValue(cfg.Role, out var composer))
+            if (!_factories.TryGetValue(cfg.Role, out var factory))
             {
-                Debug.LogWarning($"{LogTag} No composer for role {cfg.Role}");
+                Debug.LogWarning($"{LogTag} No composer factory for role {cfg.Role}");
+                return;
+            }
+
+            // Ask the factory to build the right composer for THIS track
+            var composer = factory.CreateFor(part, cfg, ctx);
+            if (composer == null)
+            {
+                Debug.LogWarning($"{LogTag} Factory returned null composer for role {cfg.Role}");
                 return;
             }
 
             if (_settings?.logGenerator == true)
             {
-                Debug.Log($"{LogTag} Start part='{part.Name}' role={cfg.Role} ch={channel} inst={InstName(cfg)} pattern={PatternName(cfg)} " +
+                Debug.Log($"{LogTag} Start part='{part.Name}' role={cfg.Role} " +
+                    $"ch={channel} inst={InstName(cfg)} pattern={PatternName(cfg)} " +
                           $"@tick={cursorTicks} lenTicks={partTicks}");
             }
 

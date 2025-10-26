@@ -22,47 +22,51 @@ namespace MidiGenPlay
 
         private MidiGenPlayConfig settings;
         private readonly ISongOrchestrator _orchestrator;
-        private readonly Dictionary<TrackRole, ITrackComposer> _composers = new();
+        private readonly Dictionary<TrackRole, ITrackComposerFactory> _factories = new();
         private readonly IChordVoicer _voicer;
 
         public MidiGenerator(MidiGenPlayConfig config, IChordVoicer voicer = null)
         {
             settings = config;
-
             _voicer = voicer;
+
+            // Pull global configs from MidiGenPlayConfig
+            // (TODO: swap these out based on Cards/Musicians)
             var melodyCfg = settings.melodicLeading;
             var harmonyCfg = settings.harmonicLeading;
 
-            // TODO: How to pick from Cards/Musicians
-            var melodyStrategy1 = new NearestChordToneMelodyStrategy();
-            var melodyStrategy2 = new ScaleFlowMelodyStrategy();
-
-
+            // Pick which strategies are "default" for THIS generation run.
+            // (TODO: swap these out based on Cards/Musicians)
+            var melodyStrategy = new ScaleFlowMelodyStrategy(); // or NearestChordToneMelodyStrategy()
             var harmonyStrategy = new NearestDifferentChordToneHarmonyStrategy();
 
-            _composers[TrackRole.Melody] = 
-                //new MelodyComposerMinimal(melodyCfg, melodyStrategy);
-                new MelodyTrackComposer(settings, melodyCfg, melodyStrategy2);
-            _composers[TrackRole.Lead] = _composers[TrackRole.Melody]; // same for now
 
-            _composers[TrackRole.Harmony] = 
-                new HarmonyComposerMinimal(harmonyCfg, harmonyStrategy);
+            // Register factories per role
+            _factories[TrackRole.Melody] =
+                new MelodyTrackComposerFactory(settings, melodyCfg, melodyStrategy);
 
-            _composers[TrackRole.Backing] =
-                new ChordTrackComposer(settings, voicer);
+            // Lead reuses same melodic behavior for now
+            _factories[TrackRole.Lead] =
+                _factories[TrackRole.Melody];
 
-            _composers[TrackRole.Rhythm] =
-                new RhythmTrackComposer(settings);
+            _factories[TrackRole.Harmony] =
+                new HarmonyTrackComposerFactory(harmonyCfg, harmonyStrategy);
 
-            _composers[TrackRole.Bassline] = 
-                new BassTrackComposer(settings, randomChordTone: false);
+            _factories[TrackRole.Backing] =
+                new ChordTrackComposerFactory(settings, _voicer);
 
-            _orchestrator = new SongOrchestrator(settings, _composers, _voicer);
+            _factories[TrackRole.Rhythm] =
+                new RhythmTrackComposerFactory(settings);
+
+            _factories[TrackRole.Bassline] =
+                new BassTrackComposerFactory(settings, randomChordTone: false);
+
+            _orchestrator = new SongOrchestrator(settings, _factories, _voicer);
 
             if (settings != null && settings.logGenerator)
             {
-                var roles = string.Join(", ", _composers.Keys.Select(r => r.ToString()));
-                Debug.Log($"{DebugTag} Composer registry: [{roles}]  " +
+                var roles = string.Join(", ", _factories.Keys.Select(r => r.ToString()));
+                Debug.Log($"{DebugTag} ComposerFactory registry: [{roles}]  " +
                     $"| Voicer={(voicer != null ? voicer.GetType().Name : "null")}");
             }
         }

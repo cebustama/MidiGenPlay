@@ -1,4 +1,5 @@
 using Melanchall.DryWetMidi.MusicTheory;
+using MidiGenPlay.Composition;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -112,7 +113,11 @@ namespace MidiGenPlay
     public class TrackParameters 
     {
         public PatternDataSO Pattern;
+
         public RhythmRecipe RhythmRecipe;
         public BackingRecipe BackingRecipe;
+
+        public MelodicLeadingConfig melodicLeadingOverride;
+        public MelodyStrategyId melodyStrategyId;
     }
 }
