@@ -32,12 +32,17 @@ namespace MidiGenPlay
             _voicer = voicer;
             var melodyCfg = settings.melodicLeading;
             var harmonyCfg = settings.harmonicLeading;
-            var melodyStrategy = new NearestChordToneMelodyStrategy();
+
+            // TODO: How to pick from Cards/Musicians
+            var melodyStrategy1 = new NearestChordToneMelodyStrategy();
+            var melodyStrategy2 = new ScaleFlowMelodyStrategy();
+
+
             var harmonyStrategy = new NearestDifferentChordToneHarmonyStrategy();
 
             _composers[TrackRole.Melody] = 
                 //new MelodyComposerMinimal(melodyCfg, melodyStrategy);
-                new MelodyTrackComposer(settings);
+                new MelodyTrackComposer(settings, melodyCfg, melodyStrategy2);
             _composers[TrackRole.Lead] = _composers[TrackRole.Melody]; // same for now
 
             _composers[TrackRole.Harmony] = 
@@ -79,6 +84,25 @@ namespace MidiGenPlay
                 GetProgressionForPart;
             public Action<SongConfig.PartConfig, ChordProgressionData> SetProgressionForPart;
         }
+
+        #region Melody
+        public static class MelodyStrategyFactory
+        {
+            public static IMelodyStrategy Create(MelodyStrategyId id)
+            {
+                switch (id)
+                {
+                    case MelodyStrategyId.NearestChordTone:
+                        return new NearestChordToneMelodyStrategy();
+                    case MelodyStrategyId.ScaleFlow:
+                        return new ScaleFlowMelodyStrategy();
+                    // extend as new melody strategies implemented
+                    default:
+                        return new ScaleFlowMelodyStrategy();
+                }
+            }
+        }
+        #endregion
 
         #region Harmony 
         public enum HarmonyIntervalMode { ChordMember, ScaleDegree, SemitoneOffset }

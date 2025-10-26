@@ -15,8 +15,26 @@ namespace MidiGenPlay.Composition
     public class MelodyTrackComposer : ITrackComposer
     {
         private readonly MidiGenPlayConfig _settings;
+        private readonly MelodicLeadingConfig _cfg;
+        private readonly IMelodyStrategy _strategy;
 
-        public MelodyTrackComposer(MidiGenPlayConfig settings) => _settings = settings;
+        private struct Placement
+        {
+            public double whenBeat;
+            public double durBeats;
+            public Placement(double w, double d) { whenBeat = w; durBeats = d; }
+        }
+
+        public MelodyTrackComposer(
+            MidiGenPlayConfig settings,
+            MelodicLeadingConfig cfg,
+            IMelodyStrategy strategy = null)
+        {
+            _settings = settings;
+            _cfg = cfg;
+            // Fallback to something sane if caller doesn't inject a strategy yet
+            _strategy = strategy ?? new NearestChordToneMelodyStrategy();
+        }
 
         public MidiFile Compose(
             SongConfig.PartConfig part,
@@ -50,8 +68,8 @@ namespace MidiGenPlay.Composition
                 Debug.Log($"[MelodyTrackComposer] Using cached/authored progression: {seq}");
             }
 
-            // Minimal per-beat melody using the active chord’s tones.
-            return ComposePerBeatMelody(instrument, bpm, part, prog, channel, ctx);
+            //return ComposePerBeatMelody(instrument, bpm, part, prog, channel, ctx);
+            return ComposeMelodyFromProgression(instrument, bpm, part, prog, channel, ctx);
         }
 
         /// <summary>
@@ -137,6 +155,198 @@ namespace MidiGenPlay.Composition
             }
 
             return file;
+        }
+
+        private MidiFile ComposeMelodyFromProgression(
+            MIDIInstrumentSO instrument,
+            int bpm,
+            SongConfig.PartConfig part,
+            ChordProgressionData prog,
+            int channel,
+            MidiGenerator.GenContext ctx)
+        {
+            var rng = ctx?.rng ?? new System.Random();
+
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var pb = new PatternBuilder().MoveToStart();
+
+            // timing info
+            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+            // NOTE: events in prog are given in "steps" (startStep, lengthSteps)
+
+            // prepare scale mapping so we can turn degree -> root note name
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+            var scaleNames =
+                GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            // Sort chord events in time
+            var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
+                        .OrderBy(e => e.startStep)
+                        .ToList();
+
+            if (evts.Count == 0)
+                return new MidiFile();
+
+            Melanchall.DryWetMidi.MusicTheory.Note lastMelody = null;
+            int chordIndex = 0;
+
+            foreach (var ce in evts)
+            {
+                // 1. Chord info
+                var degreeRoot = scaleNames[(int)ce.degree];
+                var chordPitchClasses = GetChordNoteNames(degreeRoot, ce.quality); // NoteName[]
+
+                // 2. Chord timing in beats
+                double chordStartBeats = ce.startStep / (double)stepsPerBeat;
+                double chordBeats = Mathf.Max(1, ce.lengthSteps) / (double)stepsPerBeat;
+
+                // 3. How many melody notes do we want over this chord span?
+                int noteCount = ChooseNoteCountForSpan(chordBeats, beatsPerBar, chordIndex, rng);
+
+                // 4. Where do those notes land and how long do they last?
+                var placements = EnumeratePlacements(chordStartBeats, chordBeats, noteCount);
+
+                // 5. For each planned note: ask the melody strategy for pitch, then write
+                foreach (var pl in placements)
+                {
+                    var scalePCs = scaleNames;
+                    var picked = _strategy.PickNext(
+                        chordPitchClasses,
+                        scalePCs,
+                        lastMelody,
+                        instrument,
+                        _cfg,
+                        rng,
+                        new PhraseState() // TODO: implement melodic phrases
+                    );
+
+                    if (picked == null)
+                    {
+                        // rest
+                        lastMelody = null;
+                        continue;
+                    }
+
+                    // Build timespans
+                    var startTs = MusicalTimeSpan.Quarter.Multiply(pl.whenBeat);
+                    var durTs = MusicalTimeSpan.Quarter.Multiply(pl.durBeats);
+
+                    pb.MoveToTime(startTs);
+                    // TODO: velocity shaping / accents per phrase
+                    pb.Note(picked, durTs, (SevenBitNumber)96);
+
+                    lastMelody = picked;
+                }
+
+                chordIndex++;
+            }
+
+            var file = pb.Build().ToFile(tempoMap);
+
+            // Stamp program/bank and set the MIDI channel
+            StampBankAndPatch(file, instrument, channel);
+            ForceAllChannel(file, channel);
+
+            if (_settings?.logGenerator == true)
+            {
+                var (tracks, notes, lastTick) = Inspect(file);
+                Debug.Log($"[MelodyTrackComposer] tracks={tracks} notes={notes} lastTick={lastTick}");
+            }
+
+            return file;
+        }
+
+        private int ChooseNoteCountForSpan(
+            double beatsInThisChord,
+            int beatsPerBar,
+            int chordIndex,
+            System.Random rng)
+        {
+            // Base density: notes per bar (what designer hears in their head)
+            float basePerBar;
+
+            switch (_cfg.noteDensityMode)
+            {
+                case MelodicLeadingConfig.NoteDensityMode.Fixed:
+                    basePerBar = _cfg.notesPerChord;
+                    break;
+
+                case MelodicLeadingConfig.NoteDensityMode.RangeRandom:
+                    basePerBar = rng.Next(_cfg.minNotesPerChord, _cfg.maxNotesPerChord + 1);
+                    break;
+
+                case MelodicLeadingConfig.NoteDensityMode.Alternate:
+                    // simple even/odd flip: busy / sparse / busy / sparse...
+                    bool busy = (chordIndex % 2 == 0);
+                    basePerBar = busy ? _cfg.maxNotesPerChord : _cfg.minNotesPerChord;
+                    break;
+
+                default:
+                    basePerBar = _cfg.notesPerChord;
+                    break;
+            }
+
+            // Scale note count by how long THIS chord lasts, in bars.
+            double barsSpanned = beatsInThisChord / (double)beatsPerBar;
+            double rawCount = basePerBar * barsSpanned;
+
+            // clamp to at least 1 so we always play something
+            int finalCount = Mathf.Max(1, Mathf.RoundToInt((float)rawCount));
+            return finalCount;
+        }
+
+        private List<Placement> EnumeratePlacements(
+            double chordStartBeat,
+            double chordBeats,
+            int noteCount)
+        {
+            var list = new List<Placement>(noteCount);
+
+            // guard
+            if (noteCount <= 0)
+                return list;
+
+            switch (_cfg.lengthMode)
+            {
+                case MelodicLeadingConfig.LengthMode.TieAcrossChanges:
+                    // One long note covering the whole chord span.
+                    list.Add(new Placement(chordStartBeat, chordBeats));
+                    break;
+
+                case MelodicLeadingConfig.LengthMode.FixedSubdivisions:
+                    {
+                        // Force a grid (e.g. 8ths, 16ths).
+                        // We'll just emit "noteCount" slots evenly across chordBeats,
+                        // but each slot's duration snaps to (chordBeats / fixedSubdivisions)
+                        double step = chordBeats / _cfg.fixedSubdivisions;
+                        for (int i = 0; i < noteCount; i++)
+                        {
+                            double w = chordStartBeat + i * step;
+                            double d = step;
+                            list.Add(new Placement(w, d));
+                        }
+                        break;
+                    }
+
+                case MelodicLeadingConfig.LengthMode.FillChord:
+                default:
+                    {
+                        // Evenly slice the chord duration among noteCount
+                        double slot = chordBeats / noteCount;
+                        for (int i = 0; i < noteCount; i++)
+                        {
+                            double w = chordStartBeat + i * slot;
+                            double d = slot;
+                            list.Add(new Placement(w, d));
+                        }
+                        break;
+                    }
+            }
+
+            return list;
         }
 
         /// <summary>
