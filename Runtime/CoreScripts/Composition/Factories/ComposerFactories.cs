@@ -110,11 +110,12 @@ namespace MidiGenPlay.Composition
             // --- 3. Debug trace so we can see what's happening in play mode ---
             if (_settings != null && _settings.logGenerator)
             {
-                Debug.Log(
+                Debug.Log($"<color=yellow>"+
                     $"[Factory/Melody] part='{part?.Name}' mus={trackCfg?.MusicianId} " +
                     $"role={trackCfg?.Role} " +
                     $"cfg='{finalConfig?.name ?? "null"}' " +
-                    $"strategy='{finalStrategy?.GetType().Name ?? "null"}'");
+                    $"strategy='{finalStrategy?.GetType().Name ?? "null"}'" +
+                    $"</color>");
             }
 
             // --- 4. Build the actual composer with these choices ---

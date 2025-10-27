@@ -1,3 +1,4 @@
+using MidiGenPlay.Composition;
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "MidiGenPlay/Harmony Leading Config")]
