@@ -49,6 +49,9 @@ namespace MidiGenPlay.Composition
                 return new MidiFile();
             }
 
+            // Tonality profile for this part (Dorian, Mixolydian, Pentatonic, etc.)
+            var profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
+
             // Get an existing progression or build+store one
             var prog = ctx?.GetProgressionForPart?.Invoke(part)
                     ?? (cfg.Parameters?.Pattern as ChordProgressionData);
@@ -69,7 +72,7 @@ namespace MidiGenPlay.Composition
             }
 
             //return ComposePerBeatMelody(instrument, bpm, part, prog, channel, ctx);
-            return ComposeMelodyFromProgression(instrument, bpm, part, prog, channel, ctx);
+            return ComposeMelodyFromProgression(instrument, bpm, part, prog, channel, ctx, profile);
         }
 
         /// <summary>
@@ -83,7 +86,8 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part,
             ChordProgressionData prog,
             int channel,
-            MidiGenerator.GenContext ctx)
+            MidiGenerator.GenContext ctx,
+            TonalityProfileSO profile)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -163,7 +167,8 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part,
             ChordProgressionData prog,
             int channel,
-            MidiGenerator.GenContext ctx)
+            MidiGenerator.GenContext ctx,
+            TonalityProfileSO profile)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -173,14 +178,21 @@ namespace MidiGenPlay.Composition
             // timing info
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
             // NOTE: events in prog are given in "steps" (startStep, lengthSteps)
+            int stepsPerBeat = Mathf.Max(1, prog.subdivisions); 
 
-            // prepare scale mapping so we can turn degree -> root note name
+            // scale notes for the current part tonality
             var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
             var scaleNames =
                 GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            // Build NoteName -> degreeIndex lookup (0..6)
+            var degreeLookup = new Dictionary<NoteName, int>();
+            for (int i = 0; i < scaleNames.Length && i < 7; i++)
+            {
+                if (!degreeLookup.ContainsKey(scaleNames[i]))
+                    degreeLookup[scaleNames[i]] = i;
+            }
 
             // Sort chord events in time
             var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
@@ -190,7 +202,7 @@ namespace MidiGenPlay.Composition
             if (evts.Count == 0)
                 return new MidiFile();
 
-            Melanchall.DryWetMidi.MusicTheory.Note lastMelody = null;
+            DryWetMidiNote lastMelody = null;
             int chordIndex = 0;
 
             foreach (var ce in evts)
@@ -210,18 +222,33 @@ namespace MidiGenPlay.Composition
                 var placements = EnumeratePlacements(chordStartBeats, chordBeats, noteCount);
 
                 // 5. For each planned note: ask the melody strategy for pitch, then write
+                int localNoteIdx = 0;
                 foreach (var pl in placements)
                 {
-                    var scalePCs = scaleNames;
+                    // Phrase hint: strong beat if we line up with chord start
+                    bool strong = Mathf.Approximately((float)pl.whenBeat, (float)chordStartBeats);
+                    var phraseState = new PhraseState
+                    {
+                        PhraseIndex = chordIndex, // TODO Not necessarily phrase-per-chord
+                        NoteIndexInPhrase = localNoteIdx,
+                        PhraseStartNote = lastMelody,
+                        PhrasePeakNote = lastMelody,
+                        IsStrongBeat = strong
+                    };
+
                     var picked = _strategy.PickNext(
                         chordPitchClasses,
-                        scalePCs,
+                        scaleNames,
+                        degreeLookup,
                         lastMelody,
                         instrument,
                         _cfg,
                         rng,
-                        new PhraseState() // TODO: implement melodic phrases
+                        phraseState,
+                        profile
                     );
+
+                    localNoteIdx++;
 
                     if (picked == null)
                     {
@@ -230,7 +257,7 @@ namespace MidiGenPlay.Composition
                         continue;
                     }
 
-                    // Build timespans
+                    // Map placement in beats -> DryWetMidi time
                     var startTs = MusicalTimeSpan.Quarter.Multiply(pl.whenBeat);
                     var durTs = MusicalTimeSpan.Quarter.Multiply(pl.durBeats);
 
@@ -267,7 +294,6 @@ namespace MidiGenPlay.Composition
         {
             // Base density: notes per bar (what designer hears in their head)
             float basePerBar;
-
             switch (_cfg.noteDensityMode)
             {
                 case MelodicLeadingConfig.NoteDensityMode.Fixed:
