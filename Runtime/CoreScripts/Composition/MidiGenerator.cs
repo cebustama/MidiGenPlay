@@ -87,6 +87,8 @@ namespace MidiGenPlay
             public System.Func<SongConfig.PartConfig, ChordProgressionData> 
                 GetProgressionForPart;
             public Action<SongConfig.PartConfig, ChordProgressionData> SetProgressionForPart;
+            public Func<SongConfig.PartConfig, TonalityProfileSO> 
+                GetTonalityProfileForPart;
         }
 
         #region Melody

@@ -56,7 +56,7 @@ namespace MidiGenPlay.Composition
             if (prog == null)
             {
                 var rng = ctx?.rng ?? new System.Random();
-                prog = ChordTrackComposer.BuildProceduralProgression(part, rng);
+                prog = ChordTrackComposer.BuildProceduralProgression(part, ctx, rng);
                 ctx?.SetProgressionForPart?.Invoke(part, prog);
                 if (_settings?.logGenerator == true)
                     Debug.Log($"[MelodyTrackComposer] " +

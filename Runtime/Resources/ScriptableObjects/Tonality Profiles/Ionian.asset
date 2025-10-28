@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 46d5794b0ce19dc4f9504d187e721faf, type: 3}
+  m_Name: Ionian
+  m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.Composition.TonalityProfileSO
+  profileId: ionian
+  displayName: Ionian / Major
+  tonality: 0
+  characteristicDegrees: 
+  baseDegreeWeights:
+  - 1
+  - 0.8
+  - 0.8
+  - 1.2
+  - 1.5
+  - 0.8
+  - 0.5
+  tonicBonus: 3
+  supportDegree: 4
+  supportBonus: 1.5
+  characteristicBonus: 2
+  firstBarTonicBonus: 2
+  forceCadenceToTonic: 1
+  vampCandidates:
+  - degrees: 000000000300000004000000
+    weight: 1
+    minBars: 2
+    maxBars: 4
+  - degrees: 010000000400000000000000
+    weight: 0.6
+    minBars: 2
+    maxBars: 4

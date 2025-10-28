@@ -38,6 +38,12 @@ namespace MidiGenPlay.Composition
             { degree = d; quality = q; root = r; roman = rn; symbol = sym; }
         }
 
+        private struct VampRuntime
+        {
+            public List<int> degreesSequence;
+            public int barsRemaining;
+        }
+
         public ChordTrackComposer(MidiGenPlayConfig settings, IChordVoicer voicer)
         {
             _settings = settings;
@@ -175,16 +181,17 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// Procedural path: builds a per-bar chord progression using weighted modal rules,
-        /// stores it in the GenContext, then renders it to a MIDI file.
+        /// Procedural path: builds a per-bar chord progression using modal rules
+        /// (TonalityProfileSO if available), caches it in GenContext so other tracks
+        /// can reuse it, then renders it.
         /// </summary>
-        /// <param name="instrument">Target GM/MPTK instrument for chord playback.</param>
-        /// <param name="bpm">Tempo used to compute durations for chord events.</param>
-        /// <param name="part">Part providing tonality, root, meter, and length.</param>
-        /// <param name="cfg">Track config (used for logging/voicing range).</param>
-        /// <param name="ctx">Context (rng, voicer, SetProgressionForPart).</param>
-        /// <param name="channel">MIDI channel (0..15) for this track.</param>
-        /// <returns>MIDI file with the procedurally generated backing track.</returns>
+        /// <param name="instrument">Instrument to voice the chords on.</param>
+        /// <param name="bpm">Tempo for this part repetition.</param>
+        /// <param name="part">Part info (tonality, measures, time signature).</param>
+        /// <param name="cfg">Track config (mostly for logging / range).</param>
+        /// <param name="ctx">Per-repetition context (rng, voicer, progression cache).</param>
+        /// <param name="channel">MIDI channel for this track.</param>
+        /// <returns>MIDI file containing the rendered procedural backing track.</returns>
         private MidiFile ComposeProcedural(
             MIDIInstrumentSO instrument,
             int bpm,
@@ -195,15 +202,18 @@ namespace MidiGenPlay.Composition
         {
             var rng = ctx?.rng ?? new System.Random();
 
-            // Build progression and stash it in context (so bass/melody/harmony can reuse it)
-            var prog = BuildProceduralProgression(part, rng);
-            ctx?.SetProgressionForPart?.Invoke(part, prog); // harmless if null
+            // Build (or profile-drive) a progression.
+            var prog = BuildProceduralProgression(part, ctx, rng);
+            // Cache progression in GenContext so bass / melody / harmony can reuse.
+            ctx?.SetProgressionForPart?.Invoke(part, prog);
 
-            // Optional logs for tuning (reuse your existing lines if you like)
-            if (_settings?.logGenerator == true)
+            // Debug log
+            if (_settings?.logGenerator == true && prog != null && prog.events != null)
             {
-                var degs = prog.events.Select(e => ToRomanRich(e.degree, e.quality));
-                Debug.Log($"[ChordTrack] Built procedural progression: {string.Join("  ", degs)}");
+                var romanSeq = prog.events.Select(e => ToRomanRich(e.degree, e.quality));
+                // TODO: Include chosen chords (degree + quality)
+                Debug.Log($"[ChordTrack] Built procedural progression for part '{part.Name}': " +
+                          string.Join("  ", romanSeq));
             }
 
             // Render using the same path as authored progressions
@@ -363,28 +373,44 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// Builds a one-chord-per-measure ChordProgressionData using weighted
-        /// modal rules (I/V emphasis + characteristic degrees) and diatonic triads.
-        /// Intended for reuse by other composers (bass/melody/harmony).
+        /// Build a procedural chord progression for this part.
+        /// - One chord per bar (downbeat, lasts the whole bar)
+        /// - Returns a runtime ChordProgressionData ScriptableObject
+        /// - If a TonalityProfileSO exists for this part's tonality, we use it
+        ///   (characteristic degrees, vamp candidates, cadence rules, etc).
+        ///   Otherwise we fall back to generic modal weighting.
         /// </summary>
-        /// <param name="part">Part (tonality/root, meter, measures, tempo range).</param>
-        /// <param name="rng">RNG used for weighted selection.</param>
-        /// <param name="baseW">Base weight for every degree.</param>
-        /// <param name="rootB">Extra weight for I.</param>
-        /// <param name="domB">Extra weight for V.</param>
-        /// <param name="charB">Extra weight for mode-characteristic degrees.</param>
-        /// <param name="defaultVelocity">Velocity for all chords.</param>
-        /// <returns>Runtime ChordProgressionData with events in step units.</returns>
+        /// <param name="part">Song part (tonality, meter, measures, tempo range).</param>
+        /// <param name="ctx">Generation context. We query ctx.GetTonalityProfileForPart(part).</param>
+        /// <param name="rng">RNG to use for weighted degree picks.</param>
+        /// <param name="baseW">Base weight for every scale degree when using fallback mode.</param>
+        /// <param name="rootB">Extra weight for I in fallback mode.</param>
+        /// <param name="domB">Extra weight for V in fallback mode.</param>
+        /// <param name="charB">Extra weight for "characteristic" degrees in fallback mode.</param>
+        /// <param name="defaultVelocity">Velocity to stamp on each chord event.</param>
+        /// <returns>Runtime ChordProgressionData with events expressed in step units.</returns>
         public static ChordProgressionData BuildProceduralProgression(
-            SongConfig.PartConfig part,
+            SongConfig.PartConfig part, MidiGenerator.GenContext ctx,
             System.Random rng,
             float baseW = 1f, float rootB = 3f, float domB = 1.5f, float charB = 2f,
             int defaultVelocity = 96)
         {
+            TonalityProfileSO profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
+            if (profile != null)
+            {
+                // Use the profile-aware path
+                return BuildProceduralProgressionWithProfile(
+                    part,
+                    profile,
+                    rng,
+                    defaultVelocity
+                );
+            }
+
             // Build degree weights (Ionian baseline for major family, Aeolian for minor family)
             var weights = BuildDegreeWeights(part.Tonality, part.RootNote, baseW, rootB, domB, charB);
 
-            // Grid
+            // Meter grid info
             var ts = GetTimeSignatureDetails(part.TimeSignature, GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen));
             int beatsPerBar = ts.BeatsPerMeasure;
             int measures = Mathf.Max(1, part.Measures);
@@ -392,50 +418,224 @@ namespace MidiGenPlay.Composition
             int stepsPerMeasure = beatsPerBar * subdivisions;
             int totalSteps = stepsPerMeasure * measures;
 
-            // Build anchors: one start per bar
+            // Anchor array: true where a new chord event starts
             var anchors = new bool[totalSteps];
             for (int m = 0; m < measures; m++) anchors[m * stepsPerMeasure] = true;
 
-            // Pick degrees per bar (weighted) + force last to I
-            var degrees = new List<(ScaleDegree deg, ChordQuality q)>(measures);
-            for (int m = 0; m < measures; m++)
+            // Degree + quality for each bar
+            var pickedPerBar = new List<(ScaleDegree deg, ChordQuality q)>(measures);
+            for (int bar = 0; bar < measures; bar++)
             {
-                ScaleDegree d;
-                if (m == measures - 1)
+                ScaleDegree chosenDeg;
+                if (bar == measures - 1)
                 {
-                    d = ScaleDegree.Tonic;
+                    // Final bar cadences to I
+                    chosenDeg = ScaleDegree.Tonic;
                 }
                 else
                 {
-                    var w = (float[])weights.Clone();
-                    if (m == 0) w[(int)ScaleDegree.Tonic] += 2f; // small entrance bias
+                    // Weighted pick
+                    var localWeights = (float[])weights.Clone();
 
-                    float total = w.Sum();
+                    // Intro bias to I on bar 0
+                    if (bar == 0)
+                        localWeights[(int)ScaleDegree.Tonic] += 2f;
+
+                    // Roulette wheel
+                    float total = localWeights.Sum();
                     float pick = (float)rng.NextDouble() * total;
                     int idx = 0;
                     for (; idx < 7; idx++)
                     {
-                        if (pick <= w[idx]) break;
-                        pick -= w[idx];
+                        if (pick <= localWeights[idx]) break;
+                        pick -= localWeights[idx];
                     }
                     if (idx >= 7) idx = 6;
-                    d = (ScaleDegree)idx;
+
+                    chosenDeg = (ScaleDegree)idx;
                 }
 
-                var q = GetDiatonicTriadQuality(part.Tonality, d);
-                degrees.Add((d, q));
+                var q = GetDiatonicTriadQuality(part.Tonality, chosenDeg);
+                pickedPerBar.Add((chosenDeg, q));
             }
 
-            // Materialize ChordProgressionData (runtime)
+            // Materialize ChordProgressionData
             var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
             prog.measures = measures;
             prog.subdivisions = subdivisions;
             prog.events = new List<ChordProgressionData.ChordEvent>();
 
-            // Use the provided helper to convert anchors+degrees into events with lengths
-            prog.RebuildFromAnchors(anchors, degrees, defaultVelocity);
+            // walk 'anchors' and 'pickedPerBar' and produces proper startStep/lengthSteps/etc.
+            prog.RebuildFromAnchors(anchors, pickedPerBar, defaultVelocity);
 
             return prog;
+        }
+
+        private static ChordProgressionData BuildProceduralProgressionWithProfile(
+            SongConfig.PartConfig part,
+            TonalityProfileSO profile,
+            System.Random rng,
+            int defaultVelocity = 96)
+        {
+            // 1. Derive base per-degree weights (size 7)
+            // Scale degrees (0..6, 0 = I, 1 = II, ..., 6 = VII)
+            var weights = new float[7];
+            for (int i = 0; i < 7; i++)
+            {
+                float w = 1f;
+                if (profile.baseDegreeWeights != null 
+                    && i < profile.baseDegreeWeights.Count 
+                    && profile.baseDegreeWeights[i] > 0f)
+                    w = profile.baseDegreeWeights[i];
+
+                if (i == 0) // tonic
+                    w += profile.tonicBonus;
+
+                if (i == profile.supportDegree)
+                    w += profile.supportBonus;
+
+                if (profile.characteristicDegrees != null 
+                    && profile.characteristicDegrees.Contains(i))
+                    w += profile.characteristicBonus;
+
+                weights[i] = w;
+            }
+
+            // 2. Decide if we’re going to use a vamp or just free-pick
+            //    (choose a vampCandidate by weight, or null if none)
+            var chosen = ChooseVamp(profile.vampCandidates, rng); // returns (degrees[], barsToUse) or null
+
+            // Wrap tuple in a mutable struct we can edit in-place.
+            VampRuntime vampRuntime;
+            bool useVamp = false;
+            if (chosen.HasValue)
+            {
+                vampRuntime = new VampRuntime
+                {
+                    degreesSequence = chosen.Value.degreesSequence,
+                    barsRemaining = chosen.Value.barsRemaining
+                };
+                useVamp = true;
+            }
+            else
+            {
+                vampRuntime = new VampRuntime
+                {
+                    degreesSequence = null,
+                    barsRemaining = 0
+                };
+            }
+
+
+            var ts = GetTimeSignatureDetails(
+                part.TimeSignature,
+                // TODO: BPM per part to avoid timing issues
+                GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen)
+            );
+
+            // TODO: Encapsulate obtaining these variables as tuple (bpb, m, sd, spm, ts)
+            int beatsPerBar = ts.BeatsPerMeasure;
+            int measures = Mathf.Max(1, part.Measures);
+            int subdivisions = 1;
+            int stepsPerMeasure = beatsPerBar * subdivisions;
+            int totalSteps = stepsPerMeasure * measures;
+
+            var anchors = new bool[totalSteps];
+            for (int m = 0; m < measures; m++) anchors[m * stepsPerMeasure] = true;
+
+            var pickedDegrees = new List<(ScaleDegree deg, ChordQuality q)>(measures);
+
+            int bar = 0;
+            while (bar < measures)
+            {
+                // --- Vamp branch ---
+                if (useVamp && vampRuntime.barsRemaining > 0)
+                {
+                    // iterate the vamp's degree sequence across bars
+                    for (int i = 0; 
+                        i < vampRuntime.degreesSequence.Count && bar < measures; 
+                        i++, bar++)
+                    {
+                        int degIdx = vampRuntime.degreesSequence[i];
+
+                        // force cadence on last bar if profile says so
+                        if (profile.forceCadenceToTonic && bar == measures - 1)
+                            degIdx = 0;
+
+                        var sd = (ScaleDegree)degIdx;
+                        var qual = GetDiatonicTriadQuality(part.Tonality, sd);
+                        pickedDegrees.Add((sd, qual));
+                    }
+
+                    vampRuntime.barsRemaining--;
+                    continue;
+                }
+
+                // --- Free-pick branch ---
+                // Build localWeights from profile weights each bar
+                var localWeights = (float[])weights.Clone();
+
+                // EXTRA tonic boost on first bar
+                if (bar == 0)
+                    localWeights[0] += profile.firstBarTonicBonus;
+
+                // last bar force tonic if requested
+                int chosenIdx;
+                if (profile.forceCadenceToTonic && bar == measures - 1)
+                {
+                    chosenIdx = 0;
+                }
+                else
+                {
+                    float total = localWeights.Sum();
+                    float pick = (float)rng.NextDouble() * total;
+                    chosenIdx = 0;
+                    for (; chosenIdx < 7; chosenIdx++)
+                    {
+                        if (pick <= localWeights[chosenIdx]) break;
+                        pick -= localWeights[chosenIdx];
+                    }
+                    if (chosenIdx >= 7) chosenIdx = 6;
+                }
+
+                var sdChosen = (ScaleDegree)chosenIdx;
+                var qChosen = GetDiatonicTriadQuality(part.Tonality, sdChosen);
+                pickedDegrees.Add((sdChosen, qChosen));
+                bar++;
+            }
+
+            // build progression asset in-memory
+            var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
+            prog.measures = measures;
+            prog.subdivisions = subdivisions;
+            prog.events = new List<ChordProgressionData.ChordEvent>();
+            prog.RebuildFromAnchors(anchors, pickedDegrees, defaultVelocity);
+
+            return prog;
+        }
+
+        private static (List<int> degreesSequence, int barsRemaining)? ChooseVamp(
+            List<TonalityProfileSO.VampDefinition> vamps,
+            System.Random rng)
+        {
+            if (vamps == null || vamps.Count == 0) return null;
+
+            float total = vamps.Sum(v => v.weight);
+            if (total <= 0f) return null;
+
+            float pick = (float)rng.NextDouble() * total;
+            TonalityProfileSO.VampDefinition chosen = vamps[0];
+            foreach (var v in vamps)
+            {
+                if (pick <= v.weight) { chosen = v; break; }
+                pick -= v.weight;
+            }
+
+            int bars = Mathf.Clamp(
+                rng.Next(chosen.minBars, chosen.maxBars + 1),
+                1, 64);
+
+            return (degreesSequence: chosen.degrees, barsRemaining: bars);
         }
 
         /// <summary>

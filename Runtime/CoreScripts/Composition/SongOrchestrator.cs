@@ -91,6 +91,8 @@ namespace MidiGenPlay.Composition
 
                     // Per-repetition context & cache for inter-role comms
                     var producedByRole = new Dictionary<TrackRole, MidiFile>();
+
+                    // --- GENERATION CONTEXT ---
                     var ctx = new MidiGenerator.GenContext
                     {
                         rng = new System.Random(_settings.defaultSeed + entry.PartIndex * 397 ^ rep),
@@ -102,12 +104,13 @@ namespace MidiGenPlay.Composition
                         ExtractMonophonicNotes = (mf) => mf?.GetNotes()?.OrderBy(n => n.Time).ToList()
                                                   ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
                         FindChordEventAt = (prog, tempoMap, ts, absTicks) => prog?.FindChordEventAt(tempoMap, ts, absTicks),
+                        
+                        // Progression cache
                         GetProgressionForPart = (p) =>
                         {
                             if (progressionByPart.TryGetValue(p, out var pr)) return pr;
                             return FindProgressionForPart(p); // existing authored-based lookup
                         },
-
                         SetProgressionForPart = (p, pr) =>
                         {
                             progressionByPart[p] = pr;
@@ -116,6 +119,15 @@ namespace MidiGenPlay.Composition
                                 var seq = string.Join("  ", pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
                                 Debug.Log($"<color=yellow>{LogTag} Cached progression for part '{p.Name}': {seq}</color>");
                             }
+                        },
+
+                        // Tonality cache
+                        GetTonalityProfileForPart = (p) =>
+                        {
+                            // delegate to settings
+                            return _settings != null
+                                ? _settings.GetProfileForTonality(p.Tonality)
+                                : null;
                         }
                     };
 

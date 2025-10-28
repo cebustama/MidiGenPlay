@@ -54,6 +54,9 @@ public class MidiGenPlayConfig : ScriptableObject
     public MelodicLeadingConfig melodicLeading;
     public HarmonicLeadingConfig harmonicLeading;
 
+    [Header("Tonality / Modal Profiles")]
+    public TonalityProfileSO[] tonalityProfiles;
+
     // --------- LOCAL resources helper properties ----------
     public string ResourcesChordsPath => $"{resourcesPatternsRoot}/Chords";
     public string ResourcesDrumsPath => $"{resourcesPatternsRoot}/Drums";
@@ -83,6 +86,22 @@ public class MidiGenPlayConfig : ScriptableObject
         if (string.IsNullOrEmpty(root)) return null;
         root = root.TrimEnd('/', '\\');
         return $"{root}/{child}";
+    }
+
+    /// <summary>
+    /// Return the TonalityProfileSO that matches a given Tonality,
+    /// or null if we don't have one.
+    /// </summary>
+    public TonalityProfileSO GetProfileForTonality(Tonality ton)
+    {
+        if (tonalityProfiles == null) return null;
+        for (int i = 0; i < tonalityProfiles.Length; i++)
+        {
+            var p = tonalityProfiles[i];
+            if (p != null && p.tonality == ton)
+                return p;
+        }
+        return null;
     }
 #endif
 
