@@ -51,7 +51,7 @@ namespace MidiGenPlay.Composition
             NoteName[] chordPitchClasses,
             NoteName[] scalePitchClasses)
         {
-            switch (cfg.source)
+            switch (cfg.noteSource)
             {
                 case MelodicLeadingConfig.NoteSource.ChordTonesOnly:
                     return chordPitchClasses;
@@ -118,7 +118,7 @@ namespace MidiGenPlay.Composition
             MelodicLeadingConfig cfg,
             HashSet<NoteName> chordSet)
         {
-            if (cfg.source == MelodicLeadingConfig.NoteSource.ScaleOnly)
+            if (cfg.noteSource == MelodicLeadingConfig.NoteSource.ScaleOnly)
                 return 0;
 
             // In ChordTonesOnly and PreferChordTonesAllowScale we do care:
@@ -183,7 +183,7 @@ namespace MidiGenPlay.Composition
                            0.25;
 
             // Chord-tone bump if chord tones should be preferred
-            if (cfg.source != MelodicLeadingConfig.NoteSource.ScaleOnly &&
+            if (cfg.noteSource != MelodicLeadingConfig.NoteSource.ScaleOnly &&
                 chordSet.Contains(candidate.NoteName))
             {
                 wBase *= 2.0;

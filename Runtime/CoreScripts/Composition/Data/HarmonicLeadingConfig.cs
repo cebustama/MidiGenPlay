@@ -23,8 +23,4 @@ public class HarmonicLeadingConfig : ScriptableObject
     [Header("Register & Separation")]
     [Range(1, 24)] public int minDistanceFromMelody = 3;   // avoid unison
     [Range(1, 36)] public int maxDistanceFromMelody = 14;
-
-    [Header("Length policy")]
-    public MelodicLeadingConfig.LengthMode lengthMode = MelodicLeadingConfig.LengthMode.FillChord;
-    [Range(1, 8)] public int fixedSubdivisions = 1;
 }

@@ -21,13 +21,6 @@ namespace MidiGenPlay.Composition
         private PhrasePlanner _phrasePlanner;
         private PhrasePlanner.PhraseMemory _phraseMemory; // running memory
 
-        private struct Placement
-        {
-            public double whenBeat;
-            public double durBeats;
-            public Placement(double w, double d) { whenBeat = w; durBeats = d; }
-        }
-
         public MelodyTrackComposer(
             MidiGenPlayConfig settings,
             MelodicLeadingConfig cfg,
@@ -181,122 +174,6 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx,
             TonalityProfileSO profile)
         {
-            /*
-            var rng = ctx?.rng ?? new System.Random();
-
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var pb = new PatternBuilder().MoveToStart();
-
-            // timing info
-            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-            // NOTE: events in prog are given in "steps" (startStep, lengthSteps)
-            int stepsPerBeat = Mathf.Max(1, prog.subdivisions); 
-
-            // scale notes for the current part tonality
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames =
-                GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
-
-            // Build NoteName -> degreeIndex lookup (0..6)
-            var degreeLookup = new Dictionary<NoteName, int>();
-            for (int i = 0; i < scaleNames.Length && i < 7; i++)
-            {
-                if (!degreeLookup.ContainsKey(scaleNames[i]))
-                    degreeLookup[scaleNames[i]] = i;
-            }
-
-            // Sort chord events in time
-            var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
-                        .OrderBy(e => e.startStep)
-                        .ToList();
-
-            if (evts.Count == 0)
-                return new MidiFile();
-
-            DryWetMidiNote lastMelody = null;
-            int chordIndex = 0;
-
-            foreach (var ce in evts)
-            {
-                // 1. Chord info
-                var degreeRoot = scaleNames[(int)ce.degree];
-                var chordPitchClasses = GetChordNoteNames(degreeRoot, ce.quality); // NoteName[]
-
-                // 2. Chord timing in beats
-                double chordStartBeats = ce.startStep / (double)stepsPerBeat;
-                double chordBeats = Mathf.Max(1, ce.lengthSteps) / (double)stepsPerBeat;
-
-                // 3. How many melody notes do we want over this chord span?
-                int noteCount = ChooseNoteCountForSpan(chordBeats, beatsPerBar, chordIndex, rng);
-
-                // 4. Where do those notes land and how long do they last?
-                var placements = EnumeratePlacements(chordStartBeats, chordBeats, noteCount);
-
-                // 5. For each planned note: ask the melody strategy for pitch, then write
-                int localNoteIdx = 0;
-                foreach (var pl in placements)
-                {
-                    // Phrase hint: strong beat if we line up with chord start
-                    bool strong = Mathf.Approximately((float)pl.whenBeat, (float)chordStartBeats);
-                    var phraseState = new PhrasePlanner.PhraseState
-                    {
-                        PhraseIndex = chordIndex, // TODO Not necessarily phrase-per-chord
-                        NoteIndexInPhrase = localNoteIdx,
-                        PhraseStartNote = lastMelody,
-                        PhrasePeakNote = lastMelody,
-                        IsStrongBeat = strong
-                    };
-
-                    var picked = _strategy.PickNext(
-                        chordPitchClasses,
-                        scaleNames,
-                        degreeLookup,
-                        lastMelody,
-                        instrument,
-                        _cfg,
-                        rng,
-                        phraseState,
-                        profile
-                    );
-
-                    localNoteIdx++;
-
-                    if (picked == null)
-                    {
-                        // rest
-                        lastMelody = null;
-                        continue;
-                    }
-
-                    // Map placement in beats -> DryWetMidi time
-                    var startTs = MusicalTimeSpan.Quarter.Multiply(pl.whenBeat);
-                    var durTs = MusicalTimeSpan.Quarter.Multiply(pl.durBeats);
-
-                    pb.MoveToTime(startTs);
-                    // TODO: velocity shaping / accents per phrase
-                    pb.Note(picked, durTs, (SevenBitNumber)96);
-
-                    lastMelody = picked;
-                }
-
-                chordIndex++;
-            }
-
-            var file = pb.Build().ToFile(tempoMap);
-
-            // Stamp program/bank and set the MIDI channel
-            StampBankAndPatch(file, instrument, channel);
-            ForceAllChannel(file, channel);
-
-            if (_settings?.logGenerator == true)
-            {
-                var (tracks, notes, lastTick) = Inspect(file);
-                Debug.Log($"[MelodyTrackComposer] tracks={tracks} notes={notes} lastTick={lastTick}");
-            }
-
-            return file;*/
-
             var rng = ctx?.rng ?? new System.Random();
 
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -442,8 +319,12 @@ namespace MidiGenPlay.Composition
                     }
                 }
 
-                // sync memory from planner so next chord can respond/alternate contour
+                // pull the planner's structural memory (phraseId, contourDir)
                 _phraseMemory = _phrasePlanner.GetMemory();
+                // inject the melodic memory we know (lastPhraseEndNote)
+                _phraseMemory.lastPhraseEndNote = lastMelody;
+                // push it back so planner can see it next chord
+                _phrasePlanner.SetMemory(_phraseMemory);
             }
 
             // --- 5. Finalize MIDI file ---
@@ -460,95 +341,6 @@ namespace MidiGenPlay.Composition
             }
 
             return file;
-        }
-
-        private int ChooseNoteCountForSpan(
-            double beatsInThisChord,
-            int beatsPerBar,
-            int chordIndex,
-            System.Random rng)
-        {
-            // Base density: notes per bar (what designer hears in their head)
-            float basePerBar;
-            switch (_cfg.noteDensityMode)
-            {
-                case MelodicLeadingConfig.NoteDensityMode.Fixed:
-                    basePerBar = _cfg.notesPerChord;
-                    break;
-
-                case MelodicLeadingConfig.NoteDensityMode.RangeRandom:
-                    basePerBar = rng.Next(_cfg.minNotesPerChord, _cfg.maxNotesPerChord + 1);
-                    break;
-
-                case MelodicLeadingConfig.NoteDensityMode.Alternate:
-                    // simple even/odd flip: busy / sparse / busy / sparse...
-                    bool busy = (chordIndex % 2 == 0);
-                    basePerBar = busy ? _cfg.maxNotesPerChord : _cfg.minNotesPerChord;
-                    break;
-
-                default:
-                    basePerBar = _cfg.notesPerChord;
-                    break;
-            }
-
-            // Scale note count by how long THIS chord lasts, in bars.
-            double barsSpanned = beatsInThisChord / (double)beatsPerBar;
-            double rawCount = basePerBar * barsSpanned;
-
-            // clamp to at least 1 so we always play something
-            int finalCount = Mathf.Max(1, Mathf.RoundToInt((float)rawCount));
-            return finalCount;
-        }
-
-        private List<Placement> EnumeratePlacements(
-            double chordStartBeat,
-            double chordBeats,
-            int noteCount)
-        {
-            var list = new List<Placement>(noteCount);
-
-            // guard
-            if (noteCount <= 0)
-                return list;
-
-            switch (_cfg.lengthMode)
-            {
-                case MelodicLeadingConfig.LengthMode.TieAcrossChanges:
-                    // One long note covering the whole chord span.
-                    list.Add(new Placement(chordStartBeat, chordBeats));
-                    break;
-
-                case MelodicLeadingConfig.LengthMode.FixedSubdivisions:
-                    {
-                        // Force a grid (e.g. 8ths, 16ths).
-                        // We'll just emit "noteCount" slots evenly across chordBeats,
-                        // but each slot's duration snaps to (chordBeats / fixedSubdivisions)
-                        double step = chordBeats / _cfg.fixedSubdivisions;
-                        for (int i = 0; i < noteCount; i++)
-                        {
-                            double w = chordStartBeat + i * step;
-                            double d = step;
-                            list.Add(new Placement(w, d));
-                        }
-                        break;
-                    }
-
-                case MelodicLeadingConfig.LengthMode.FillChord:
-                default:
-                    {
-                        // Evenly slice the chord duration among noteCount
-                        double slot = chordBeats / noteCount;
-                        for (int i = 0; i < noteCount; i++)
-                        {
-                            double w = chordStartBeat + i * slot;
-                            double d = slot;
-                            list.Add(new Placement(w, d));
-                        }
-                        break;
-                    }
-            }
-
-            return list;
         }
 
         /// <summary>
