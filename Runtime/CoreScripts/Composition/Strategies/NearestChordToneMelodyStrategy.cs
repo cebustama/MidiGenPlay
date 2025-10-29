@@ -24,7 +24,7 @@ namespace MidiGenPlay.Composition
             MIDIInstrumentSO inst,
             MelodicLeadingConfig cfg,
             System.Random rng,
-            PhraseState phrase,
+            PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile)
         {
             // 1. candidate pitch classes (per NoteSource)

@@ -13,15 +13,6 @@ namespace MidiGenPlay.Composition
         // extend as new implementations created
     }
 
-    public struct PhraseState
-    {
-        public int PhraseIndex;      // 0,1,2...
-        public int NoteIndexInPhrase;
-        public Note PhraseStartNote;
-        public Note PhrasePeakNote;
-        public bool IsStrongBeat;    // optional rhythmic accent hint
-    }
-
     // TODO:  Cadence / target awareness
     // “In 2 beats we’re going to hit the I chord, aim toward its 3rd…”
     // foresight into upcoming chords or the remaining duration of the current chord.
@@ -41,7 +32,7 @@ namespace MidiGenPlay.Composition
             MIDIInstrumentSO instrument,            // min/max octaves etc.
             MelodicLeadingConfig cfg,               // melodic constraints/taste
             System.Random rng,                      // deterministic RNG if needed
-            PhraseState phrase,
+            PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile               // modal/tonality profile (may be null)
         );                 
     }
@@ -173,7 +164,7 @@ namespace MidiGenPlay.Composition
             Note candidate,
             Note last,
             MelodicLeadingConfig cfg,
-            PhraseState phrase,
+            PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,
             Dictionary<NoteName, int> degreeLookup,
             HashSet<NoteName> chordSet,
