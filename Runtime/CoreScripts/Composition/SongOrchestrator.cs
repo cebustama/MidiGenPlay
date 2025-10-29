@@ -88,9 +88,10 @@ namespace MidiGenPlay.Composition
                     MergeInto(fullSong, metro);
 
                     var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
-
-                    // Per-repetition context & cache for inter-role comms
                     var producedByRole = new Dictionary<TrackRole, MidiFile>();
+                    var melodyByPartAndMusician = 
+                        new Dictionary<SongConfig.PartConfig, 
+                        Dictionary<string, List<MidiGenerator.GuideNote>>>();
 
                     // --- GENERATION CONTEXT ---
                     var ctx = new MidiGenerator.GenContext
@@ -111,6 +112,7 @@ namespace MidiGenPlay.Composition
                             if (progressionByPart.TryGetValue(p, out var pr)) return pr;
                             return FindProgressionForPart(p); // existing authored-based lookup
                         },
+
                         SetProgressionForPart = (p, pr) =>
                         {
                             progressionByPart[p] = pr;
@@ -128,6 +130,61 @@ namespace MidiGenPlay.Composition
                             return _settings != null
                                 ? _settings.GetProfileForTonality(p.Tonality)
                                 : null;
+                        },
+
+                        // Melodies cache
+                        GetMelodyForPartMusician = (p, musicianId) =>
+                        {
+                            if (melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
+                            {
+                                if (!string.IsNullOrEmpty(musicianId) &&
+                                    dictForPart.TryGetValue(musicianId, out var guideNotes))
+                                {
+                                    return guideNotes;
+                                }
+                            }
+                            return null;
+                        },
+
+                        SetMelodyForPartMusician = (p, musicianId, guideNotes) =>
+                        {
+                            if (string.IsNullOrEmpty(musicianId) || guideNotes == null)
+                                return;
+
+                            if (!melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
+                            {
+                                dictForPart = 
+                                    new Dictionary<string, List<MidiGenerator.GuideNote>>();
+                                melodyByPartAndMusician[p] = dictForPart;
+                            }
+
+                            dictForPart[musicianId] = guideNotes;
+
+                            if (_settings?.logGenerator == true)
+                            {
+                                Debug.Log($"<color=yellow>{LogTag} Cached melody for part '{p.Name}' " +
+                                          $"musician='{musicianId}' notes={guideNotes.Count}</color>");
+                            }
+                        },
+
+                        GetFirstMelodyMusicianIdForPart = (p) =>
+                        {
+                            if (melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
+                            {
+                                // pick first musicianId that actually has notes
+                                foreach (var kvp in dictForPart)
+                                {
+                                    var musId = kvp.Key;
+                                    var notes = kvp.Value;
+                                    if (!string.IsNullOrEmpty(musId) &&
+                                        notes != null &&
+                                        notes.Count > 0)
+                                    {
+                                        return musId;
+                                    }
+                                }
+                            }
+                            return null;
                         }
                     };
 

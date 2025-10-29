@@ -50,7 +50,7 @@ namespace MidiGenPlay
                 _factories[TrackRole.Melody];
 
             _factories[TrackRole.Harmony] =
-                new HarmonyTrackComposerFactory(harmonyCfg, harmonyStrategy);
+                new HarmonyTrackComposerFactory(settings, harmonyCfg, harmonyStrategy);
 
             _factories[TrackRole.Backing] =
                 new ChordTrackComposerFactory(settings, _voicer);
@@ -78,17 +78,26 @@ namespace MidiGenPlay
             public VoiceLeadingConfig chordVoicingPreset;
             public MIDIInstrumentSO DefaultMelodicInstrument;
 
-            public System.Func<SongConfig.PartConfig, TrackRole, MidiFile> 
+            public Func<SongConfig.PartConfig, TrackRole, MidiFile> 
                 GetTrackForRole;
-            public System.Func<MidiFile, List<Melanchall.DryWetMidi.Interaction.Note>> 
+            public Func<MidiFile, List<Melanchall.DryWetMidi.Interaction.Note>> 
                 ExtractMonophonicNotes;
-            public System.Func<ChordProgressionData, TempoMap, MusicTheory.MusicTheory.TimeSignature, long, ChordProgressionData.ChordEvent> 
+            public Func<ChordProgressionData, TempoMap, MusicTheory.MusicTheory.TimeSignature, long, ChordProgressionData.ChordEvent> 
                 FindChordEventAt;
-            public System.Func<SongConfig.PartConfig, ChordProgressionData> 
+            // Progression
+            public Func<SongConfig.PartConfig, ChordProgressionData> 
                 GetProgressionForPart;
             public Action<SongConfig.PartConfig, ChordProgressionData> SetProgressionForPart;
+            // Tonalities
             public Func<SongConfig.PartConfig, TonalityProfileSO> 
                 GetTonalityProfileForPart;
+            // Melodies
+            public Func<SongConfig.PartConfig, string, List<GuideNote>>
+                GetMelodyForPartMusician;
+            public Action<SongConfig.PartConfig, string, List<GuideNote>>
+                SetMelodyForPartMusician;
+            public Func<SongConfig.PartConfig, string> 
+                GetFirstMelodyMusicianIdForPart;
         }
 
         #region Melody
@@ -108,38 +117,28 @@ namespace MidiGenPlay
                 }
             }
         }
-        #endregion
 
-        #region Harmony 
-        public enum HarmonyIntervalMode { ChordMember, ScaleDegree, SemitoneOffset }
-        public enum HarmonyInterval { Unison, Third, Fifth, Sixth, Octave }
-
-        public sealed class HarmonyOptions
-        {
-            public HarmonyIntervalMode mode = HarmonyIntervalMode.ChordMember; // minimal uses this
-            public HarmonyInterval interval = HarmonyInterval.Third;           // not used yet
-            public int semitoneOffset = 0;                                     // not used yet
-            public bool preferAbove = true;                                    // not used yet
-            public bool clampToRange = true;
-        }
-
-        // Minimal melodic voice-leading options (TODO move to a ScriptableObject)
-        [System.Serializable]
-        public sealed class MelodicLeadingOptions
-        {
-            public bool enabled = true;
-            public int maxLeapSemitones = 12;     // soft cap; we still pick “nearest”
-            public bool preferStepwise = true;    // used in tie-breaks
-            public bool preferAbove = false;      // tie-break: bias upwards
-            public bool clampToRange = true;
-        }
-
-        // Internal guide note to reuse across tracks in a part
-        private struct GuideNote
+        public struct GuideNote
         {
             public double startBeats;
             public double durBeats;
             public DryWetMidiNote note; // absolute pitch
+        }
+        #endregion
+
+        #region Harmony 
+
+        public static class HarmonyStrategyFactory
+        {
+            public static IHarmonyStrategy Create(HarmonyStrategyId id)
+            {
+                switch (id)
+                {
+                    case HarmonyStrategyId.NearestChordTone:
+                    default:
+                        return new NearestChordToneHarmonyStrategy();
+                }
+            }
         }
 
         #endregion

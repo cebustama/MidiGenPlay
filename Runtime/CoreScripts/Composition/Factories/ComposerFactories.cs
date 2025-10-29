@@ -87,8 +87,8 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx)
         {
             // --- 1. Start from global defaults ---
-            var finalConfig = _melodicConfigDefault;
-            var finalStrategy = _strategyDefault;
+            var finalMelConfig = _melodicConfigDefault;
+            var finalMelStrategy = _strategyDefault;
 
             // --- 2. Peek at per-track overrides (TrackParameters) ---
             var p = trackCfg?.Parameters;
@@ -96,7 +96,7 @@ namespace MidiGenPlay.Composition
             // 2a. Config override (voicing / density / motion)
             if (p != null && p.melodicLeadingOverride != null)
             {
-                finalConfig = p.melodicLeadingOverride;
+                finalMelConfig = p.melodicLeadingOverride;
             }
 
             // 2b. Strategy override (how to pick notes)
@@ -104,7 +104,7 @@ namespace MidiGenPlay.Composition
             {
                 // melodyStrategyId is an enum on TrackParameters.
                 // We map it to an IMelodyStrategy using MidiGenerator.MelodyStrategyFactory.
-                finalStrategy = MidiGenerator.MelodyStrategyFactory.Create(p.melodyStrategyId);
+                finalMelStrategy = MidiGenerator.MelodyStrategyFactory.Create(p.melodyStrategyId);
             }
 
             // --- 3. Debug trace so we can see what's happening in play mode ---
@@ -113,13 +113,13 @@ namespace MidiGenPlay.Composition
                 Debug.Log($"<color=yellow>"+
                     $"[Factory/Melody] part='{part?.Name}' mus={trackCfg?.MusicianId} " +
                     $"role={trackCfg?.Role} " +
-                    $"cfg='{finalConfig?.name ?? "null"}' " +
-                    $"strategy='{finalStrategy?.GetType().Name ?? "null"}'" +
+                    $"cfg='{finalMelConfig?.name ?? "null"}' " +
+                    $"strategy='{finalMelStrategy?.GetType().Name ?? "null"}'" +
                     $"</color>");
             }
 
             // --- 4. Build the actual composer with these choices ---
-            return new MelodyTrackComposer(_settings, finalConfig, finalStrategy);
+            return new MelodyTrackComposer(_settings, finalMelConfig, finalMelStrategy);
         }
     }
 
@@ -129,15 +129,17 @@ namespace MidiGenPlay.Composition
     /// </summary>
     public sealed class HarmonyTrackComposerFactory : ITrackComposerFactory
     {
-        private readonly HarmonicLeadingConfig _harmonicCfg;
-        private readonly IHarmonyStrategy _strategy;
+        private readonly MidiGenPlayConfig _settings;
+        private readonly HarmonicLeadingConfig _harmonicCfgDefault;
+        private readonly IHarmonyStrategy _strategyDefault;
 
         public HarmonyTrackComposerFactory(
+            MidiGenPlayConfig settings,
             HarmonicLeadingConfig harmonicCfg,
             IHarmonyStrategy strategy)
         {
-            _harmonicCfg = harmonicCfg ?? throw new ArgumentNullException(nameof(harmonicCfg));
-            _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
+            _harmonicCfgDefault = harmonicCfg ?? throw new ArgumentNullException(nameof(harmonicCfg));
+            _strategyDefault = strategy ?? throw new ArgumentNullException(nameof(strategy));
         }
 
         public ITrackComposer CreateFor(
@@ -145,7 +147,45 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig.TrackConfig trackCfg,
             MidiGenerator.GenContext ctx)
         {
-            return new HarmonyComposerMinimal(_harmonicCfg, _strategy);
+            // --- 1. Start from global defaults we were constructed with ---
+            var finalHarmCfg = _harmonicCfgDefault;
+            var finalHarStrategy = _strategyDefault;
+
+            // --- 2. Look for per-track overrides from TrackParameters ---
+            var p = trackCfg?.Parameters;
+
+            // Config override (register placement, interval relation rules, etc)
+            if (p != null && p.harmonicLeadingOverride != null)
+            {
+                finalHarmCfg = p.harmonicLeadingOverride;
+            }
+
+            // Strategy override (how harmony notes are chosen relative to melody/chord)
+            if (p != null)
+            {
+                // harmonyStrategyId should be an enum on TrackParameters
+                // and HarmonyStrategyFactory maps that enum to an IHarmonyStrategy.
+                finalHarStrategy = MidiGenerator.HarmonyStrategyFactory.Create(p.harmonyStrategyId);
+            }
+
+            // --- 3. Helpful debug so we can inspect what's happening in play mode ---
+            if (_settings != null && _settings.logGenerator)
+            {
+                Debug.Log(
+                    $"<color=yellow>" +
+                    $"[Factory/Harmony] part='{part?.Name}' mus={trackCfg?.MusicianId} " +
+                    $"role={trackCfg?.Role} " +
+                    $"cfg='{finalHarmCfg?.name ?? "null"}' " +
+                    $"strategy='{finalHarStrategy?.GetType().Name ?? "null"}'" +
+                    $"</color>"
+                );
+            }
+
+            // --- 4. Build and return the concrete composer for this track ---
+            // HarmonyTrackComposer is our harmony generator that:
+            // - looks up the melody (leader) for this musician/part from ctx
+            // - uses finalHarmCfg + finalHarStrategy to generate the harmony line
+            return new HarmonyTrackComposer(_settings, finalHarmCfg, finalHarStrategy);
         }
     }
 

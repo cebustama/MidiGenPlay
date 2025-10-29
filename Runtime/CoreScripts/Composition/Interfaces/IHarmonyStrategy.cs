@@ -2,6 +2,11 @@ using Melanchall.DryWetMidi.MusicTheory;
 
 namespace MidiGenPlay.Composition
 {
+    public enum HarmonyStrategyId
+    {
+        NearestChordTone = 0,
+    }
+
     /// Pick the harmony note given chord tones, the concurrent melody note, and last harmony.
     public interface IHarmonyStrategy
     {

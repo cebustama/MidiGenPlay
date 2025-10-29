@@ -119,5 +119,8 @@ namespace MidiGenPlay
 
         public MelodicLeadingConfig melodicLeadingOverride;
         public MelodyStrategyId melodyStrategyId;
+
+        public HarmonicLeadingConfig harmonicLeadingOverride;
+        public HarmonyStrategyId harmonyStrategyId;
     }
 }

@@ -76,99 +76,14 @@ namespace MidiGenPlay.Composition
             }
 
             //return ComposePerBeatMelody(instrument, bpm, part, prog, channel, ctx);
-            return ComposeMelodyFromProgression(instrument, bpm, part, prog, channel, ctx, profile);
-        }
-
-        /// <summary>
-        /// Generates one note per beat using the active chord's tones.
-        /// - Repeats the progression to fill the part.
-        /// - Picks a chord tone per beat (root, third, fifth cycling).
-        /// </summary>
-        private MidiFile ComposePerBeatMelody(
-            MIDIInstrumentSO instrument,
-            int bpm,
-            SongConfig.PartConfig part,
-            ChordProgressionData prog,
-            int channel,
-            MidiGenerator.GenContext ctx,
-            TonalityProfileSO profile)
-        {
-            var rng = ctx?.rng ?? new System.Random();
-
-            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
-            int stepsPerMeasure = beatsPerBar * stepsPerBeat;
-
-            int patternMeasures = Mathf.Max(1, prog.measures);
-            int patternTotalSteps = patternMeasures * stepsPerMeasure;
-
-            int partMeasures = Mathf.Max(1, part.Measures);
-            int totalBeats = partMeasures * beatsPerBar;
-
-            var pb = new PatternBuilder().MoveToStart();
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-
-            // Scale degree roots for mapping event.degree -> concrete root note
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames = 
-                GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
-
-            // pre-sort events by startStep to speed up simple lookups
-            var evts = (prog.events ?? 
-                new List<ChordProgressionData.ChordEvent>()).OrderBy(e => e.startStep).ToList();
-            if (evts.Count == 0) return new MidiFile(); // safety
-
-            int toneCycle = 0;
-
-            for (int b = 0; b < totalBeats; b++)
-            {
-                int stepInCycle = ((b * stepsPerBeat) % Mathf.Max(1, patternTotalSteps));
-
-                var e = FindEventAtStep(evts, stepInCycle, patternTotalSteps);
-                if (e == null) continue;
-
-                // Get chord notes
-                var degreeRoot = scaleNames[(int)e.degree];
-                var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
-
-                // pick one tone in a simple cycle (root/3rd/5th[/7th])
-                var pickIdx = toneCycle % chordPcs.Length;
-                toneCycle++;
-
-                // map to a playable octave range for the melodic instrument
-                var note = ChooseMelodicRegister(chordPcs[pickIdx], instrument, rng);
-
-                double whenBeats = b; // one note exactly on each beat
-                var when = MusicalTimeSpan.Quarter.Multiply(whenBeats);
-                var dur = MusicalTimeSpan.Quarter; // 1 beat
-
-                pb.MoveToTime(when);
-                // TODO: Randomize velocity within range
-                pb.Note(note, dur, (SevenBitNumber)96);
-            }
-
-            var pattern = pb.Build();
-            var file = pattern.ToFile(tempoMap);
-
-            // match the other composers: set patch/bank & force channel
-            StampBankAndPatch(file, instrument, channel);
-            ForceAllChannel(file, channel);
-
-            if (_settings?.logGenerator == true)
-            {
-                var (tracks, notes, last) = Inspect(file);
-                Debug.Log($"[MelodyTrackComposer] tracks={tracks} notes={notes} lastTick={last}");
-            }
-
-            return file;
+            return ComposeMelodyFromProgression(instrument, bpm, part, cfg, prog, channel, ctx, profile);
         }
 
         private MidiFile ComposeMelodyFromProgression(
             MIDIInstrumentSO instrument,
             int bpm,
             SongConfig.PartConfig part,
+            SongConfig.PartConfig.TrackConfig trackCfg,
             ChordProgressionData prog,
             int channel,
             MidiGenerator.GenContext ctx,
@@ -211,6 +126,7 @@ namespace MidiGenPlay.Composition
 
             // remember the previous melodic note across phrases
             DryWetMidiNote lastMelody = null;
+            var capturedMelody = new List<MidiGenerator.GuideNote>();
 
             // walk chord-by-chord (currently 1 phrase per chord span)
             for (int chordIndex = 0; chordIndex < evts.Count; chordIndex++)
@@ -308,6 +224,14 @@ namespace MidiGenPlay.Composition
                     pb.MoveToTime(startTs);
                     pb.Note(picked, durTs, velocity7);
 
+                    // Add entry to GuideNotes list
+                    capturedMelody.Add(new MidiGenerator.GuideNote
+                    {
+                        startBeats = slot.whenBeat,
+                        durBeats = slot.durBeats,
+                        note = picked
+                    });
+
                     // remember for next slot
                     lastMelody = picked;
 
@@ -338,6 +262,99 @@ namespace MidiGenPlay.Composition
                 var (tracks, notes, lastTick) = Inspect(file);
                 Debug.Log($"[MelodyTrackComposer] " +
                     $"tracks={tracks} notes={notes} lastTick={lastTick}");
+            }
+
+            // push melody into context cache
+            if (ctx != null && ctx.SetMelodyForPartMusician != null)
+            {
+                var musicianId = trackCfg?.MusicianId;
+                ctx.SetMelodyForPartMusician(part, musicianId, capturedMelody);
+            }
+
+            return file;
+        }
+
+        /// <summary>
+        /// Generates one note per beat using the active chord's tones.
+        /// - Repeats the progression to fill the part.
+        /// - Picks a chord tone per beat (root, third, fifth cycling).
+        /// </summary>
+        private MidiFile ComposePerBeatMelody(
+            MIDIInstrumentSO instrument,
+            int bpm,
+            SongConfig.PartConfig part,
+            ChordProgressionData prog,
+            int channel,
+            MidiGenerator.GenContext ctx,
+            TonalityProfileSO profile)
+        {
+            var rng = ctx?.rng ?? new System.Random();
+
+            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+            int stepsPerMeasure = beatsPerBar * stepsPerBeat;
+
+            int patternMeasures = Mathf.Max(1, prog.measures);
+            int patternTotalSteps = patternMeasures * stepsPerMeasure;
+
+            int partMeasures = Mathf.Max(1, part.Measures);
+            int totalBeats = partMeasures * beatsPerBar;
+
+            var pb = new PatternBuilder().MoveToStart();
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+
+            // Scale degree roots for mapping event.degree -> concrete root note
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+            var scaleNames =
+                GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            // pre-sort events by startStep to speed up simple lookups
+            var evts = (prog.events ??
+                new List<ChordProgressionData.ChordEvent>()).OrderBy(e => e.startStep).ToList();
+            if (evts.Count == 0) return new MidiFile(); // safety
+
+            int toneCycle = 0;
+
+            for (int b = 0; b < totalBeats; b++)
+            {
+                int stepInCycle = ((b * stepsPerBeat) % Mathf.Max(1, patternTotalSteps));
+
+                var e = FindEventAtStep(evts, stepInCycle, patternTotalSteps);
+                if (e == null) continue;
+
+                // Get chord notes
+                var degreeRoot = scaleNames[(int)e.degree];
+                var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
+
+                // pick one tone in a simple cycle (root/3rd/5th[/7th])
+                var pickIdx = toneCycle % chordPcs.Length;
+                toneCycle++;
+
+                // map to a playable octave range for the melodic instrument
+                var note = ChooseMelodicRegister(chordPcs[pickIdx], instrument, rng);
+
+                double whenBeats = b; // one note exactly on each beat
+                var when = MusicalTimeSpan.Quarter.Multiply(whenBeats);
+                var dur = MusicalTimeSpan.Quarter; // 1 beat
+
+                pb.MoveToTime(when);
+                // TODO: Randomize velocity within range
+                pb.Note(note, dur, (SevenBitNumber)96);
+            }
+
+            var pattern = pb.Build();
+            var file = pattern.ToFile(tempoMap);
+
+            // match the other composers: set patch/bank & force channel
+            StampBankAndPatch(file, instrument, channel);
+            ForceAllChannel(file, channel);
+
+            if (_settings?.logGenerator == true)
+            {
+                var (tracks, notes, last) = Inspect(file);
+                Debug.Log($"[MelodyTrackComposer] tracks={tracks} notes={notes} lastTick={last}");
             }
 
             return file;
