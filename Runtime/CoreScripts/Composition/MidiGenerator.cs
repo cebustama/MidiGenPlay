@@ -25,6 +25,8 @@ namespace MidiGenPlay
         private readonly Dictionary<TrackRole, ITrackComposerFactory> _factories = new();
         private readonly IChordVoicer _voicer;
 
+        public ISongOrchestrator Orchestrator => _orchestrator;
+
         public MidiGenerator(MidiGenPlayConfig config, IChordVoicer voicer = null)
         {
             settings = config;
