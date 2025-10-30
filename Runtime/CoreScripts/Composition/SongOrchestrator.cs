@@ -237,6 +237,167 @@ namespace MidiGenPlay.Composition
             return fullSong;
         }
 
+        public PartRender GenerateSinglePart(
+            SongConfig.PartConfig part,
+            IReadOnlyList<TrackRole> rolesForChannels)
+        {
+            if (part == null || part.Tracks == null || part.Tracks.Count == 0)
+                return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
+
+            var full = new MidiFile();
+            var metaChunk = new TrackChunk();
+            full.Chunks.Add(metaChunk);
+            var metaMgr = metaChunk.ManageTimedEvents();
+
+            // --- Tempo / TS / timing ---
+            int bpm = GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+
+            int tsNum = TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure;
+            int tsDen = TimeSignatureProperties[part.TimeSignature].BeatUnit;
+
+            // Stamp TS & tempo at tick 0
+            metaMgr.Objects.Add(new TimedEvent(new TimeSignatureEvent((byte)tsNum, (byte)tsDen, 24, 8), 0));
+            int usPerQuarter = Mathf.RoundToInt(60000000f / Mathf.Max(1, bpm));
+            metaMgr.Objects.Add(new TimedEvent(new SetTempoEvent(usPerQuarter), 0));
+
+            long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, tempoMap);
+            long ticksPerMeasure = ticksPerBeat * tsNum;
+            long partTicks = ticksPerMeasure * Math.Max(1, part.Measures);
+
+            var metro = GenerateMetronomeTrackFile(
+                part.TimeSignature, bpm, part.Measures, bankNumber: 1, presetNumber: 0);
+            // no shift needed (single-part render starts at 0)
+            MergeInto(full, metro);
+
+            // Channel allocation must mirror the session channel layout
+            var channelMap = BuildChannelMap((rolesForChannels ?? Array.Empty<TrackRole>()).ToList());
+
+            // --- Per-part caches (identical concept to GenerateSong) ---
+            var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
+            var melodyByPartAndMusician = new Dictionary<SongConfig.PartConfig, Dictionary<string, List<MidiGenerator.GuideNote>>>();
+            var producedByRole = new Dictionary<TrackRole, MidiFile>();
+
+            // --- GenContext (same delegates as GenerateSong) ---
+            var ctx = new MidiGenerator.GenContext
+            {
+                rng = new System.Random(_settings.defaultSeed),
+                ChordVoicer = _voicer,
+                chordVoicingPreset = _settings.voiceLeading,
+                DefaultMelodicInstrument = part.Tracks.FirstOrDefault(t => t.Instrument != null)?.Instrument,
+
+                GetTrackForRole = (p, role) => producedByRole.TryGetValue(role, out var f) ? f : null,
+
+                ExtractMonophonicNotes = (mf) =>
+                    mf?.GetNotes()?.OrderBy(n => n.Time).ToList()
+                    ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
+
+                FindChordEventAt = (prog, tmap, ts, absTicks) => prog?.FindChordEventAt(tmap, ts, absTicks),
+
+                // chord progression cache
+                GetProgressionForPart = (p) =>
+                {
+                    if (progressionByPart.TryGetValue(p, out var pr)) return pr;
+                    return FindProgressionForPart(p);
+                },
+                SetProgressionForPart = (p, pr) =>
+                {
+                    progressionByPart[p] = pr;
+                    if (_settings?.logGenerator == true && pr != null)
+                    {
+                        var seq = string.Join("  ", pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
+                        Debug.Log($"<color=yellow>{LogTag} Cached progression for part '{p.Name}': {seq}</color>");
+                    }
+                },
+
+                // tonality profile lookup delegated to settings
+                GetTonalityProfileForPart = (p) =>
+                {
+                    return _settings != null ? _settings.GetProfileForTonality(p.Tonality) : null;
+                },
+
+                // melody cache (per part, per musician)
+                GetMelodyForPartMusician = (p, musicianId) =>
+                {
+                    if (melodyByPartAndMusician.TryGetValue(p, out var dictForPart) &&
+                        !string.IsNullOrEmpty(musicianId) &&
+                        dictForPart.TryGetValue(musicianId, out var guideNotes))
+                        return guideNotes;
+                    return null;
+                },
+                SetMelodyForPartMusician = (p, musicianId, guideNotes) =>
+                {
+                    if (string.IsNullOrEmpty(musicianId) || guideNotes == null) return;
+
+                    if (!melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
+                    {
+                        dictForPart = new Dictionary<string, List<MidiGenerator.GuideNote>>();
+                        melodyByPartAndMusician[p] = dictForPart;
+                    }
+                    dictForPart[musicianId] = guideNotes;
+
+                    if (_settings?.logGenerator == true)
+                        Debug.Log($"<color=yellow>{LogTag} Cached melody for part '{p.Name}' " +
+                                  $"musician='{musicianId}' notes={guideNotes.Count}</color>");
+                },
+                GetFirstMelodyMusicianIdForPart = (p) =>
+                {
+                    if (melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
+                    {
+                        foreach (var kvp in dictForPart)
+                        {
+                            var musId = kvp.Key;
+                            var notes = kvp.Value;
+                            if (!string.IsNullOrEmpty(musId) && notes != null && notes.Count > 0)
+                                return musId;
+                        }
+                    }
+                    return null;
+                }
+            };
+
+            // --- Generate tracks in two passes (identical rule as GenerateSong) ---
+            // Pass 1: everything except Harmony
+            for (int i = 0; i < part.Tracks.Count; i++)
+            {
+                var cfg = part.Tracks[i];
+                if (cfg.Role == TrackRole.Harmony) continue;
+                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
+            }
+
+            // Pass 2: Harmony (needs lead/melody available in ctx)
+            for (int i = 0; i < part.Tracks.Count; i++)
+            {
+                var cfg = part.Tracks[i];
+                if (cfg.Role != TrackRole.Harmony) continue;
+                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
+            }
+
+            // Safety boundary at exact end of the part
+            long endTick = partTicks; // cursorTicks = 0 in single-part
+            metaMgr.Objects.Add(new TimedEvent(
+                new ControlChangeEvent(
+                    (SevenBitNumber)(byte)ControlName.AllSoundOff, (SevenBitNumber)0)
+                { Channel = (FourBitNumber)MidiGenerator.MetronomeChannel }, endTick));
+
+            // --- Collect stems by musicianId (TagTrackWithMusician happens in GenerateOne) ---
+            var stems = new Dictionary<string, MidiFile>();
+            foreach (var chunk in full.GetTrackChunks())
+            {
+                var tag = chunk.Events.OfType<TextEvent>()
+                            .FirstOrDefault(te => te.Text != null && te.Text.StartsWith("mus:"));
+                if (tag != null)
+                {
+                    var musId = tag.Text.Substring(4);
+                    var stemFile = new MidiFile(new TrackChunk(chunk.Events.ToArray()));
+                    stems[musId] = stemFile;
+                }
+            }
+
+            metaMgr.Dispose();
+            return new PartRender { merged = full, stemsByMusician = stems, partTicks = partTicks, bpm = bpm };
+        }
+
         private void GenerateOne(
             MidiFile fullSong,
             SongConfig.PartConfig part,
@@ -284,97 +445,6 @@ namespace MidiGenPlay.Composition
                 Debug.Log($"{LogTag} Merged [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' pattern='{PatternName(cfg)}' " +
                           $"tracks={tracks} notes={notes} lastTick={last}");
             }
-        }
-
-        /// <summary>
-        /// Generate a single part (one repetition) and also return per-musician stems.
-        /// 'rolesForChannels' should mirror the global channel ordering for this jam.
-        /// </summary>
-        public PartRender GenerateSinglePart(
-            SongConfig.PartConfig part,
-            IReadOnlyList<TrackRole> rolesForChannels)
-        {
-            var full = new MidiFile();
-            var metaChunk = new TrackChunk();
-            full.Chunks.Add(metaChunk);
-            var metaMgr = metaChunk.ManageTimedEvents();
-
-            // Pick BPM deterministically from the part’s range
-            int bpm = MusicTheory.MusicTheory.GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
-            var tempo = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-
-            // Channel allocation for this part must match the session’s channel layout
-            var channelMap = BuildChannelMap(rolesForChannels?.ToList() ?? new List<TrackRole>());
-
-            // TS/Tempo at 0
-            int tsNum = MusicTheory.MusicTheory.TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure;
-            int tsDen = MusicTheory.MusicTheory.TimeSignatureProperties[part.TimeSignature].BeatUnit;
-            metaMgr.Objects.Add(new TimedEvent(new TimeSignatureEvent((byte)tsNum, (byte)tsDen, 24, 8), 0));
-            int usPerQuarter = Mathf.RoundToInt(60000000f / Mathf.Max(1, bpm));
-            metaMgr.Objects.Add(new TimedEvent(new SetTempoEvent(usPerQuarter), 0));
-
-            int beatsPerBar = tsNum;
-            long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, tempo);
-            long ticksPerMeasure = ticksPerBeat * beatsPerBar;
-            long partTicks = ticksPerMeasure * Math.Max(1, part.Measures);
-
-            // Accumulate stems per role + musician
-            var producedByRole = new Dictionary<TrackRole, MidiFile>();
-
-            // Context mirrors the one used in GenerateSong(...)
-            var ctx = new MidiGenerator.GenContext
-            {
-                rng = new System.Random(_settings.defaultSeed),
-                ChordVoicer = _voicer,
-                chordVoicingPreset = _settings.voiceLeading,
-                DefaultMelodicInstrument = part.Tracks.FirstOrDefault(t => t.Instrument != null)?.Instrument,
-                GetTrackForRole = (p, role) => producedByRole.TryGetValue(role, out var f) ? f : null,
-                ExtractMonophonicNotes = mf => mf?.GetNotes()?.OrderBy(n => n.Time).ToList()
-                                         ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
-                FindChordEventAt = (prog, tempoMap, ts, absTicks) => prog?.FindChordEventAt(tempoMap, ts, absTicks),
-                //GetProgressionForPart = (p) => _settings?.GetAnyChordProgressionFor(p), // or your existing lookup
-                SetProgressionForPart = (p, pr) => { /* optional cache */ },
-                GetTonalityProfileForPart = (p) => _settings?.GetProfileForTonality(p.Tonality),
-                GetMelodyForPartMusician = (p, id) => null,
-                SetMelodyForPartMusician = (p, id, g) => { },
-                GetFirstMelodyMusicianIdForPart = (p) => null,
-            };
-
-            // PASS 1: all except Harmony
-            for (int i = 0; i < part.Tracks.Count; i++)
-            {
-                var cfg = part.Tracks[i];
-                if (cfg.Role == TrackRole.Harmony) continue;
-                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
-            }
-
-            // PASS 2: Harmony
-            for (int i = 0; i < part.Tracks.Count; i++)
-            {
-                var cfg = part.Tracks[i];
-                if (cfg.Role != TrackRole.Harmony) continue;
-                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
-            }
-
-            // Collect stems by musicianId (TagTrackWithMusician already runs in GenerateOne)
-            var stems = new Dictionary<string, MidiFile>();
-            int ti = 0;
-            foreach (var chunk in full.GetTrackChunks())
-            {
-                // Find "mus:{id}" tag
-                var tag = chunk.Events.OfType<TextEvent>()
-                            .FirstOrDefault(te => te.Text != null && te.Text.StartsWith("mus:"));
-                if (tag != null)
-                {
-                    var musId = tag.Text.Substring(4);
-                    var stemFile = new MidiFile(new TrackChunk(chunk.Events.ToArray()));
-                    stems[musId] = stemFile;
-                }
-                ti++;
-            }
-
-            metaMgr.Dispose();
-            return new PartRender { merged = full, stemsByMusician = stems, partTicks = partTicks, bpm = bpm };
         }
 
         // ---------- Helpers (assembly concerns) ----------
