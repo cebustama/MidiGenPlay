@@ -14,6 +14,7 @@ namespace MidiGenPlay.Composition
     {
         public MidiFile merged;
         public Dictionary<string, MidiFile> stemsByMusician = new();
+        public Dictionary<string, MIDIInstrumentSO> instrumentByMusician = new();
         public long partTicks;
         public int bpm;
     }
@@ -383,6 +384,7 @@ namespace MidiGenPlay.Composition
             // --- Generate tracks in two passes ---
             // TODO: Encapsulate passes with cfg.Role as argument
             // Pass 1: everything except Harmony
+            /*
             for (int i = 0; i < part.Tracks.Count; i++)
             {
                 var cfg = part.Tracks[i];
@@ -437,7 +439,47 @@ namespace MidiGenPlay.Composition
                 if (cfg.Role == TrackRole.Harmony)
                     GenerateOne(full, part, cfg, channelMap[i], bpm, 
                         partTicks, 0, ctx, producedByRole, trackRng);
+            }*/
+
+            var render = new PartRender { merged = full, partTicks = partTicks, bpm = bpm };
+
+            // Local helper: run one generation “pass” controlled by a role predicate
+            void GeneratePass(Func<TrackRole, bool> rolePredicate)
+            {
+                for (int i = 0; i < part.Tracks.Count; i++)
+                {
+                    var cfg = part.Tracks[i];
+                    if (!rolePredicate(cfg.Role)) continue;
+
+                    // Honor pinned instrument, if any
+                    if (instrumentOverrides != null
+                        && !string.IsNullOrEmpty(cfg.MusicianId)
+                        && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
+                        && inst != null)
+                    {
+                        if (_settings?.logGenerator == true)
+                            Debug.Log($"{LogTag} [Override] Using pinned instrument '{inst.InstrumentName}' for mus='{cfg.MusicianId}' role={cfg.Role}.");
+                        cfg.Instrument = inst; // composer must honor this
+                    }
+
+                    // Deterministic per-track RNG
+                    var trackSeed = StableHash32($"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
+                    var trackRng = new System.Random(trackSeed);
+
+                    GenerateOne(full, part, cfg, channelMap[i], bpm,
+                        partTicks, cursorTicks: 0, ctx, producedByRole, trackRng);
+
+                    // Report back the actually-used instrument so caller can pin it
+                    if (!string.IsNullOrEmpty(cfg.MusicianId) && cfg.Instrument != null)
+                        render.instrumentByMusician[cfg.MusicianId] = cfg.Instrument;
+                }
             }
+
+            // PASS 1: everything except Harmony
+            GeneratePass(role => role != TrackRole.Harmony);
+
+            // PASS 2: only Harmony
+            GeneratePass(role => role == TrackRole.Harmony);
 
             // Safety boundary at exact end of the part
             long endTick = partTicks; // cursorTicks = 0 in single-part
@@ -447,7 +489,7 @@ namespace MidiGenPlay.Composition
                 { Channel = (FourBitNumber)MidiGenerator.MetronomeChannel }, endTick));
 
             // --- Collect stems by musicianId (TagTrackWithMusician happens in GenerateOne) ---
-            var stems = new Dictionary<string, MidiFile>();
+            render.stemsByMusician = new Dictionary<string, MidiFile>();
             foreach (var chunk in full.GetTrackChunks())
             {
                 var tag = chunk.Events.OfType<TextEvent>()
@@ -456,12 +498,14 @@ namespace MidiGenPlay.Composition
                 {
                     var musId = tag.Text.Substring(4);
                     var stemFile = new MidiFile(new TrackChunk(chunk.Events.ToArray()));
-                    stems[musId] = stemFile;
+                    render.stemsByMusician[musId] = stemFile;
                 }
             }
 
             metaMgr.Dispose();
-            return new PartRender { merged = full, stemsByMusician = stems, partTicks = partTicks, bpm = bpm };
+            if (_settings?.logGenerator == true) LogTrackEnds(full, $"Part[{partIndex}]");
+
+            return render;
         }
 
         private void GenerateOne(
