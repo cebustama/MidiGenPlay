@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using static MidiGenPlay.Composition.SongOrchestrator;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay.Composition
@@ -25,7 +24,10 @@ namespace MidiGenPlay.Composition
 
         PartRender GenerateSinglePart(
             SongConfig.PartConfig part,
-            IReadOnlyList<TrackRole> rolesForChannels);
+            IReadOnlyList<TrackRole> rolesForChannels,
+            int partIndex, 
+            int? bpmOverride,
+            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null);
     }
 
     /// Coordinates parts/repetitions, meta events, metronome, composer calls, trimming, shifting, and merging.
@@ -36,8 +38,6 @@ namespace MidiGenPlay.Composition
         private readonly MidiGenPlayConfig _settings;
         private readonly IReadOnlyDictionary<TrackRole, ITrackComposerFactory> _factories;
         private readonly IChordVoicer _voicer; // forwarded into GenContext
-
-        
 
         public SongOrchestrator(
             MidiGenPlayConfig settings,
@@ -210,7 +210,15 @@ namespace MidiGenPlay.Composition
                     {
                         var cfg = part.Tracks[i];
                         if (cfg.Role == TrackRole.Harmony) continue;
-                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm, partTicks, cursorTicks, ctx, producedByRole);
+
+                        // NEW: deterministically seed a RNG for THIS track in THIS rep
+                        var trackSeed = StableHash32(
+                            $"{_settings.defaultSeed}|p={entry.PartIndex}|rep={rep}|r={cfg.Role}|m={cfg.MusicianId}");
+                        var trackRng = new System.Random(trackSeed);
+
+                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
+                            partTicks, cursorTicks, ctx, producedByRole, trackRng);
+
                     }
 
                     // PASS 2: Harmony
@@ -218,7 +226,13 @@ namespace MidiGenPlay.Composition
                     {
                         var cfg = part.Tracks[i];
                         if (cfg.Role != TrackRole.Harmony) continue;
-                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm, partTicks, cursorTicks, ctx, producedByRole);
+
+                        var trackSeed = StableHash32(
+                            $"{_settings.defaultSeed}|p={entry.PartIndex}|rep={rep}|r={cfg.Role}|m={cfg.MusicianId}");
+                        var trackRng = new System.Random(trackSeed);
+
+                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
+                            partTicks, cursorTicks, ctx, producedByRole, trackRng);
                     }
 
                     // Boundary event at exact end (safety)
@@ -239,7 +253,10 @@ namespace MidiGenPlay.Composition
 
         public PartRender GenerateSinglePart(
             SongConfig.PartConfig part,
-            IReadOnlyList<TrackRole> rolesForChannels)
+            IReadOnlyList<TrackRole> rolesForChannels,
+            int partIndex,
+            int? bpmOverride = null,
+            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null)
         {
             if (part == null || part.Tracks == null || part.Tracks.Count == 0)
                 return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
@@ -250,7 +267,12 @@ namespace MidiGenPlay.Composition
             var metaMgr = metaChunk.ManageTimedEvents();
 
             // --- Tempo / TS / timing ---
-            int bpm = GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+            int bpm = bpmOverride ?? GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+            if (_settings?.logGenerator == true)
+            {
+                Debug.Log($"{LogTag} [BPM] Part='{part.Name}' idx={partIndex} " +
+                          $"chosenBPM={bpm} (override={(bpmOverride.HasValue ? "yes" : "no")})");
+            }
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
 
             int tsNum = TimeSignatureProperties[part.TimeSignature].BeatsPerMeasure;
@@ -270,18 +292,16 @@ namespace MidiGenPlay.Composition
             // no shift needed (single-part render starts at 0)
             MergeInto(full, metro);
 
-            // Channel allocation must mirror the session channel layout
-            var channelMap = BuildChannelMap((rolesForChannels ?? Array.Empty<TrackRole>()).ToList());
-
             // --- Per-part caches (identical concept to GenerateSong) ---
             var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
             var melodyByPartAndMusician = new Dictionary<SongConfig.PartConfig, Dictionary<string, List<MidiGenerator.GuideNote>>>();
             var producedByRole = new Dictionary<TrackRole, MidiFile>();
 
             // --- GenContext (same delegates as GenerateSong) ---
+            var partSeed = _settings.defaultSeed + partIndex * 397;
             var ctx = new MidiGenerator.GenContext
             {
-                rng = new System.Random(_settings.defaultSeed),
+                rng = new System.Random(partSeed),
                 ChordVoicer = _voicer,
                 chordVoicingPreset = _settings.voiceLeading,
                 DefaultMelodicInstrument = part.Tracks.FirstOrDefault(t => t.Instrument != null)?.Instrument,
@@ -356,21 +376,67 @@ namespace MidiGenPlay.Composition
                 }
             };
 
-            // --- Generate tracks in two passes (identical rule as GenerateSong) ---
+            // Channel allocation must mirror the session channel layout
+            var channelMap = 
+                BuildChannelMap((rolesForChannels ?? Array.Empty<TrackRole>()).ToList());
+
+            // --- Generate tracks in two passes ---
+            // TODO: Encapsulate passes with cfg.Role as argument
             // Pass 1: everything except Harmony
             for (int i = 0; i < part.Tracks.Count; i++)
             {
                 var cfg = part.Tracks[i];
-                if (cfg.Role == TrackRole.Harmony) continue;
-                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
+
+                // Get cached instrument
+                if (instrumentOverrides != null
+                    && !string.IsNullOrEmpty(cfg.MusicianId)
+                    && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
+                    && inst != null)
+                {
+                    if (_settings?.logGenerator == true)
+                        Debug.Log($"{LogTag} [Override] Using pinned " +
+                            $"instrument '{inst.InstrumentName}' for " +
+                            $"mus='{cfg.MusicianId}' " +
+                            $"role={cfg.Role}.");
+
+                    cfg.Instrument = inst; // composer must honor this
+                }
+
+                // Track-specific deterministic seed so adding a new track doesn't shift others
+                var trackSeed = StableHash32(
+                    $"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
+                var trackRng = new System.Random(trackSeed);
+
+                GenerateOne(full, part, cfg, channelMap[i], bpm, 
+                    partTicks, 0, ctx, producedByRole, trackRng);
             }
 
             // Pass 2: Harmony (needs lead/melody available in ctx)
             for (int i = 0; i < part.Tracks.Count; i++)
             {
                 var cfg = part.Tracks[i];
-                if (cfg.Role != TrackRole.Harmony) continue;
-                GenerateOne(full, part, cfg, channelMap[i], bpm, partTicks, 0, ctx, producedByRole);
+
+                if (instrumentOverrides != null
+                    && !string.IsNullOrEmpty(cfg.MusicianId)
+                    && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
+                    && inst != null)
+                {
+                    if (_settings?.logGenerator == true)
+                        Debug.Log($"{LogTag} [Override] Using pinned " +
+                            $"instrument '{inst.InstrumentName}' for " +
+                            $"mus='{cfg.MusicianId}' " +
+                            $"role={cfg.Role}.");
+
+                    cfg.Instrument = inst; // composer must honor this
+                }
+
+                var trackSeed = StableHash32(
+                    $"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
+                var trackRng = new System.Random(trackSeed);
+
+                if (cfg.Role == TrackRole.Harmony)
+                    GenerateOne(full, part, cfg, channelMap[i], bpm, 
+                        partTicks, 0, ctx, producedByRole, trackRng);
             }
 
             // Safety boundary at exact end of the part
@@ -407,7 +473,8 @@ namespace MidiGenPlay.Composition
             long partTicks,
             long cursorTicks,
             MidiGenerator.GenContext ctx,
-            IDictionary<TrackRole, MidiFile> producedByRole)
+            IDictionary<TrackRole, MidiFile> producedByRole,
+            System.Random rng)
         {
             if (!_factories.TryGetValue(cfg.Role, out var factory))
             {
@@ -430,7 +497,12 @@ namespace MidiGenPlay.Composition
                           $"@tick={cursorTicks} lenTicks={partTicks}");
             }
 
+            var prev = ctx.rng;
+            if (rng != null) ctx.rng = rng;
+
             var trackFile = composer.Compose(part, cfg, bpm, channel, ctx);
+
+            if (rng != null) ctx.rng = prev;
 
             TrimFileToLength(trackFile, partTicks);
             TagTrackWithMusician(trackFile, cfg.MusicianId);
@@ -607,6 +679,20 @@ namespace MidiGenPlay.Composition
         {
             var p = cfg?.Parameters?.Pattern;
             return p != null ? $"{p.GetType().Name}:{p.name}" : "-";
+        }
+
+        private static int StableHash32(string s)
+        {
+            unchecked
+            {
+                uint hash = 2166136261;          // FNV-1a 32-bit
+                for (int i = 0; i < s.Length; i++)
+                {
+                    hash ^= s[i];
+                    hash *= 16777619;
+                }
+                return (int)hash;
+            }
         }
     }
 }
