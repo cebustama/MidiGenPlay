@@ -1,7 +1,8 @@
-using Melanchall.DryWetMidi.MusicTheory;
+Ôªøusing Melanchall.DryWetMidi.MusicTheory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace MidiGenPlay.Composition
 {
@@ -9,13 +10,26 @@ namespace MidiGenPlay.Composition
     {
         NearestChordTone    = 0,
         ScaleFlow           = 1,
+        AscendingClimb      = 2,
 
         // extend as new implementations created
+        // add case in MidiGenerator.MelodyStrategyFactory
     }
 
     // TODO:  Cadence / target awareness
-    // ìIn 2 beats weíre going to hit the I chord, aim toward its 3rdÖî
+    // ‚ÄúIn 2 beats we‚Äôre going to hit the I chord, aim toward its 3rd‚Ä¶‚Äù
     // foresight into upcoming chords or the remaining duration of the current chord.
+
+    public struct MelodyPartState
+    {
+        public int ChordIndex;          // 0..TotalChords-1
+        public int TotalChords;         // number of chord spans in this part
+        public bool IsFinalSlotOfPart;  // true only for the very last playable slot of the part
+        public double PartStartBeat;    // usually 0
+        public double PartTotalBeats;   // measures * beatsPerBar
+        public NoteName TonicPC;        // convenience (scale degree 0 for current tonality)
+    }
+
 
     // TODO: accents/velocity
     // return a tiny struct { Note note; int velocity; float legatoFactor; } instead of just Note.
@@ -33,7 +47,8 @@ namespace MidiGenPlay.Composition
             MelodicLeadingConfig cfg,               // melodic constraints/taste
             System.Random rng,                      // deterministic RNG if needed
             PhrasePlanner.PhraseState phrase,
-            TonalityProfileSO profile               // modal/tonality profile (may be null)
+            TonalityProfileSO profile,               // modal/tonality profile (may be null)
+            MelodyPartState part
         );                 
     }
 
@@ -45,7 +60,16 @@ namespace MidiGenPlay.Composition
     /// </summary>
     public static class MelodyStrategyCommon
     {
-        /// Build the pitch-class pool according to cfg.source.
+        /// <summary>
+        /// Builds the pitch-class pool (NoteName set) according to the configured note source.
+        /// </summary>
+        /// <param name="cfg">Melodic config specifying where pitches may come from.</param>
+        /// <param name="chordPitchClasses">Current chord's pitch classes (e.g., {C, E, G}).</param>
+        /// <param name="scalePitchClasses">Current tonality's modal scale (7 pitch classes).</param>
+        /// <returns>
+        /// An enumerable of pitch classes: chord-only, scale-only, or union (distinct),
+        /// depending on <see cref="MelodicLeadingConfig.NoteSource"/>.
+        /// </returns>
         public static IEnumerable<NoteName> BuildPitchClassPool(
             MelodicLeadingConfig cfg,
             NoteName[] chordPitchClasses,
@@ -67,7 +91,12 @@ namespace MidiGenPlay.Composition
             }
         }
 
-        /// Expand pitch classes (NoteName) into concrete notes across the instrument range.
+        /// <summary>
+        /// Expands pitch classes to concrete candidate notes across the instrument's octave range.
+        /// </summary>
+        /// <param name="pitchClasses">Pitch classes to expand (e.g., {C, E, G}).</param>
+        /// <param name="inst">Instrument definition (min/max octaves, etc.).</param>
+        /// <returns>List of concrete <see cref="Note"/> candidates within the instrument range.</returns>
         public static List<Note> ExpandToInstrumentRange(
             IEnumerable<NoteName> pitchClasses,
             MIDIInstrumentSO inst)
@@ -80,8 +109,14 @@ namespace MidiGenPlay.Composition
                 .ToList();
         }
 
-        /// Return true if this note's pitch class is one of the "characteristic" scale degrees
-        /// defined by the active TonalityProfileSO (Dorian's 6, Mixolydian's b7, etc.).
+        /// <summary>
+        /// Tests whether a note's pitch class corresponds to a "characteristic" degree
+        /// of the active mode/tonality (e.g., Dorian's natural 6, Mixolydian's ‚ô≠7).
+        /// </summary>
+        /// <param name="n">Candidate note to test.</param>
+        /// <param name="profile">Tonality profile describing characteristic degrees.</param>
+        /// <param name="degreeLookup">Maps <see cref="NoteName"/> to scale degree index (0..6).</param>
+        /// <returns>True if the note's degree is in <c>profile.characteristicDegrees</c>.</returns>
         public static bool IsCharacteristic(
             Note n,
             TonalityProfileSO profile,
@@ -98,7 +133,12 @@ namespace MidiGenPlay.Composition
             return profile.characteristicDegrees.Contains(idx);
         }
 
-        /// True if this note is on degree 0 (tonic) in the current scale.
+        /// <summary>
+        /// Tests whether a note sits on the tonic scale degree (degree 0).
+        /// </summary>
+        /// <param name="n">Note to test.</param>
+        /// <param name="degreeLookup">Maps <see cref="NoteName"/> to scale degree index (0..6).</param>
+        /// <returns>True if the note is the tonic degree in the current scale.</returns>
         public static bool IsTonicDegree(
             Note n,
             Dictionary<NoteName, int> degreeLookup)
@@ -110,9 +150,16 @@ namespace MidiGenPlay.Composition
             return idx == 0;
         }
 
-        /// For strategies that want chord tones first 
-        /// (ChordTonesOnly or PreferChordTonesAllowScale),
-        /// return 0 for chord tones, 1 for others. For ScaleOnly, always 0.
+        /// <summary>
+        /// Returns a simple priority flag for chord-tone preference.
+        /// </summary>
+        /// <param name="n">Candidate note.</param>
+        /// <param name="cfg">Melodic config (inspects <c>noteSource</c>).</param>
+        /// <param name="chordSet">Set of chord pitch classes.</param>
+        /// <returns>
+        /// 0 for "preferred" (chord tone) and 1 for "non-preferred", when chord tones are relevant;
+        /// 0 for all when <c>ScaleOnly</c>.
+        /// </returns>
         public static int ChordPriority(
             Note n,
             MelodicLeadingConfig cfg,
@@ -125,10 +172,17 @@ namespace MidiGenPlay.Composition
             return chordSet.Contains(n.NoteName) ? 0 : 1;
         }
 
-        /// For first-note placement:
-        /// - prefer chord tones (if allowed by cfg.source),
-        /// - then prefer characteristic notes,
-        /// - then prefer mid register.
+        /// <summary>
+        /// Orders first-note candidates to produce a musical opening:
+        /// chord tones first (if allowed), then modal color tones, then mid-register proximity.
+        /// </summary>
+        /// <param name="candidates">Concrete note candidates.</param>
+        /// <param name="inst">Instrument range (used to compute a register center).</param>
+        /// <param name="cfg">Melodic config (source policy).</param>
+        /// <param name="profile">Tonality profile (characteristic degrees).</param>
+        /// <param name="degreeLookup">Maps <see cref="NoteName"/> to scale degree index (0..6).</param>
+        /// <param name="chordSet">Set of chord pitch classes.</param>
+        /// <returns>Ordered list of candidates: best first.</returns>
         public static List<Note> OrderFirstNoteCandidates(
             List<Note> candidates,
             MIDIInstrumentSO inst,
@@ -157,9 +211,21 @@ namespace MidiGenPlay.Composition
             return ordered;
         }
 
-        /// Compute a weight for a candidate note given the last note, phrase info,
-        /// modal profile, and melodic constraints.
-        /// Used by "flow / weighted-random" style strategies.
+        /// <summary>
+        /// Computes a motion-based weight for a candidate note given the last note,
+        /// phrase context, modal profile, and melodic constraints.
+        /// Favor stepwise motion, chord tones (when allowed), and characteristic tones.
+        /// Penalize large leaps and exact repeats (unless allowed by probability).
+        /// </summary>
+        /// <param name="candidate">Candidate note to score.</param>
+        /// <param name="last">Previously played melody note (may be null for first note).</param>
+        /// <param name="cfg">Melodic constraints (step limits, repeat chance, etc.).</param>
+        /// <param name="phrase">Phrase context (accents, cadence, etc.).</param>
+        /// <param name="profile">Tonality profile (characteristic degrees, cadence policy).</param>
+        /// <param name="degreeLookup">Maps <see cref="NoteName"/> to scale degree index (0..6).</param>
+        /// <param name="chordSet">Set of chord pitch classes.</param>
+        /// <param name="rng">Deterministic RNG used for repeat gating.</param>
+        /// <returns>A non-negative weight (0 can be used to exclude a candidate).</returns>
         public static double ComputeMotionWeight(
             Note candidate,
             Note last,
@@ -195,8 +261,7 @@ namespace MidiGenPlay.Composition
                 wBase *= 2.0;
             }
 
-            // If we're on a strong beat and this profile wants to cadence to tonic,
-            // gently prefer the tonic scale degree.
+            // Gentle cadence bias to tonic on strong beats (if profile requests it)
             if (phrase.IsStrongBeat &&
                 profile != null &&
                 profile.forceCadenceToTonic &&
@@ -214,7 +279,6 @@ namespace MidiGenPlay.Composition
             // Avoid exact repeats unless chanceRepeatNote succeeds
             if (distSemis == 0)
             {
-                // deterministic instead of UnityEngine.Random.value
                 double roll = rng.NextDouble();
                 wBase = (roll <= cfg.chanceRepeatNote) ? 1.0 : 0.0;
             }
@@ -222,15 +286,21 @@ namespace MidiGenPlay.Composition
             return wBase;
         }
 
-        /// Given weighted candidates, do a weighted random pick.
-        /// If everything is ~0, fall back to nearest-by-distance.
+        /// <summary>
+        /// Picks a note using weighted random selection.
+        /// If all weights are ~zero, falls back to the nearest-by-distance from <paramref name="last"/>.
+        /// </summary>
+        /// <param name="candidates">Candidate notes to pick from.</param>
+        /// <param name="weights">Weight per candidate (same order as <paramref name="candidates"/>).</param>
+        /// <param name="last">Previously played note (used by the fallback distance heuristic).</param>
+        /// <param name="rng">Deterministic RNG.</param>
+        /// <returns>The selected candidate note.</returns>
         public static Note PickWeightedRandom(
             List<Note> candidates,
             List<double> weights,
             Note last,
             System.Random rng)
         {
-            // sum weights
             double total = 0.0;
             for (int i = 0; i < weights.Count; i++)
                 total += weights[i];
@@ -259,9 +329,46 @@ namespace MidiGenPlay.Composition
             return candidates.Last();
         }
 
+        /// <summary>
+        /// Returns the absolute MIDI semitone number of a note (0..127).
+        /// </summary>
+        /// <param name="n">Note to convert.</param>
+        /// <returns>Integer MIDI note number (semitones from C-1).</returns>
         public static int Semis(Note n)
         {
             return (int)(byte)n.NoteNumber;
         }
+
+        /// <summary>
+        /// Compute a cadence target on the tonic some number of octaves above a reference.
+        /// If the exact +octaves target is out of range, returns the highest tonic in range.
+        /// </summary>
+        public static Note ComputeTargetTonicAbove(
+            NoteName tonicPc,
+            MIDIInstrumentSO inst,
+            Note referenceOrNull,
+            int octavesUp)
+        {
+            // If we have a reference tonic, try exact +N octaves above it.
+            if (referenceOrNull != null && referenceOrNull.NoteName == tonicPc)
+            {
+                int refSemis = Semis(referenceOrNull);
+                int targetSemis = refSemis + 12 * Mathf.Max(1, octavesUp);
+
+                // clamp to instrument range for this PC
+                int minOct = inst.octaveMin;
+                int maxOct = inst.octaveMax;
+                int minSemis = Semis(Note.Get(tonicPc, minOct));
+                int maxSemis = Semis(Note.Get(tonicPc, maxOct));
+
+                targetSemis = Mathf.Clamp(targetSemis, minSemis, maxSemis);
+                int tgtOct = Mathf.Clamp(targetSemis / 12, minOct, maxOct);
+                return Note.Get(tonicPc, tgtOct);
+            }
+
+            // Otherwise just return the highest tonic inside the instrument range.
+            return Note.Get(tonicPc, inst.octaveMax);
+        }
     }
+
 }

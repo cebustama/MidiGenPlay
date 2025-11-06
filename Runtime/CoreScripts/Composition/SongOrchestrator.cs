@@ -14,7 +14,8 @@ namespace MidiGenPlay.Composition
     {
         public MidiFile merged;
         public Dictionary<string, MidiFile> stemsByMusician = new();
-        public Dictionary<string, MIDIInstrumentSO> instrumentByMusician = new();
+        public Dictionary<string, MIDIInstrumentSO> melInstByMusician = new();
+        public Dictionary<string, MIDIPercussionInstrumentSO> percInstByMusician = new();
         public long partTicks;
         public int bpm;
     }
@@ -471,7 +472,7 @@ namespace MidiGenPlay.Composition
 
                     // Report back the actually-used instrument so caller can pin it
                     if (!string.IsNullOrEmpty(cfg.MusicianId) && cfg.Instrument != null)
-                        render.instrumentByMusician[cfg.MusicianId] = cfg.Instrument;
+                        render.melInstByMusician[cfg.MusicianId] = cfg.Instrument;
                 }
             }
 

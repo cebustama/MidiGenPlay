@@ -108,6 +108,10 @@ namespace MidiGenPlay.Composition
                                 .Select(n => n.NoteName)
                                 .ToArray();
 
+            int partMeasures = Mathf.Max(1, part.Measures);
+            double partTotalBeats = partMeasures * beatsPerBar;
+            var tonicPc = scaleNames[0]; // degree-0 pitch class (tonic)
+
             // NoteName -> 0..6 scale degree index in this tonality
             var degreeLookup = new Dictionary<NoteName, int>();
             for (int i = 0; i < scaleNames.Length && i < 7; i++)
@@ -156,15 +160,18 @@ namespace MidiGenPlay.Composition
                 DryWetMidiNote phraseFirstNote = null;
                 DryWetMidiNote phrasePeakNote = null;
 
+                bool IsFinalSlotOfPart(PhrasePlanner.PhraseSlot s)
+                {
+                    bool lastChord = (chordIndex == evts.Count - 1);
+                    bool lastSlot = (s.slotIndexInPhrase == s.totalSlotsInPhrase - 1);
+                    return lastChord && lastSlot;
+                }
+
                 // --- 4. For each planned slot, pick pitch (or rest) and emit MIDI ---
                 foreach (var slot in phraseSlots)
                 {
                     // Rest slot: don't ask the strategy, just "breathe"
-                    if (!slot.playNote)
-                    {
-                        lastMelody = null;
-                        continue;
-                    }
+                    if (!slot.playNote) { lastMelody = null; continue; }
 
                     // Build the PhraseState for this slot (what the strategy sees):
                     var phraseState = new PhrasePlanner.PhraseState
@@ -180,6 +187,18 @@ namespace MidiGenPlay.Composition
                         PhrasePeakNote = phrasePeakNote
                     };
 
+                    // Part-level context
+                    var partState = new MelodyPartState
+                    {
+                        ChordIndex = chordIndex,
+                        TotalChords = evts.Count,
+                        IsFinalSlotOfPart = IsFinalSlotOfPart(slot),
+                        PartStartBeat = 0.0,
+                        PartTotalBeats = partTotalBeats,
+                        TonicPC = tonicPc
+                    };
+
+
                     // Ask melodic strategy for the actual pitch to play here.
                     // (May return null for "no note", but usually not.)
                     var picked = _strategy.PickNext(
@@ -191,7 +210,8 @@ namespace MidiGenPlay.Composition
                         _cfg,                   // player personality
                         rng,                    // deterministic random
                         phraseState,            // phrase context
-                        profile                 // tonality profile (Dorian, etc.)
+                        profile,                 // tonality profile (Dorian, etc.)
+                        partState
                     );
 
                     if (picked == null)

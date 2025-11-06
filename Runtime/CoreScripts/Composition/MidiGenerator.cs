@@ -113,6 +113,8 @@ namespace MidiGenPlay
                         return new NearestChordToneMelodyStrategy();
                     case MelodyStrategyId.ScaleFlow:
                         return new ScaleFlowMelodyStrategy();
+                    case MelodyStrategyId.AscendingClimb:
+                        return new AscendingClimbMelodyStrategy();
                     // extend as new melody strategies implemented
                     default:
                         return new ScaleFlowMelodyStrategy();

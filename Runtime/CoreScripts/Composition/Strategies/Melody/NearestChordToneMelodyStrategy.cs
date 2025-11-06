@@ -25,7 +25,8 @@ namespace MidiGenPlay.Composition
             MelodicLeadingConfig cfg,
             System.Random rng,
             PhrasePlanner.PhraseState phrase,
-            TonalityProfileSO profile)
+            TonalityProfileSO profile,
+            MelodyPartState part)
         {
             // 1. candidate pitch classes (per NoteSource)
             var poolPCs = MelodyStrategyCommon.BuildPitchClassPool(
