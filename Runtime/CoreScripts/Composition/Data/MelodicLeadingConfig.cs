@@ -1,3 +1,4 @@
+using MidiGenPlay.Composition.Phrases;
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
@@ -43,5 +44,8 @@ namespace MidiGenPlay.Composition
         [Range(0.1f, 1f)] public float burstSubdivisionBeats = 0.25f;
         [Range(2, 8)] public int burstNoteCountMin = 3;
         [Range(2, 8)] public int burstNoteCountMax = 5;
+
+        [Header("Phrase Palette")]
+        public PhrasePaletteSO phrasePalette;
     }
 }
