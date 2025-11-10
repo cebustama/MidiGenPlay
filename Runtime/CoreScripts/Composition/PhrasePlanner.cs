@@ -1,4 +1,5 @@
 using Melanchall.DryWetMidi.MusicTheory;
+using MidiGenPlay.Composition.Phrases;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -133,8 +134,69 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             TonalityProfileSO profile)
         {
-            PhraseArchetype arch = ChooseArchetype(rng);
+            // 1) Try palette-driven path (if a palette is present in config)
+            var palette = _cfg.phrasePalette;
+            if (palette != null 
+                && palette.archetypes != null 
+                && palette.archetypes.Count > 0)
+            {
+                int contourDirArch = PickContourDirection(rng, palette.defaultContourBias);
+                var picked = WeightedPick(palette.archetypes, rng);
 
+                List<PhraseSlot> slotsArch;
+                if (picked != null)
+                {
+                    // call the ScriptableObject archetype (data-driven)
+                    slotsArch = picked.Build(
+                        chordStartBeat,
+                        chordBeats,
+                        beatsPerBar,
+                        chordIndex,
+                        contourDirArch,
+                        rng,
+                        profile,
+                        _cfg
+                    );
+                }
+                else
+                {
+                    // extremely defensive fallback if palette was empty at runtime
+                    slotsArch = new List<PhraseSlot>(0);
+                }
+
+                FinalizePhraseSlots(slotsArch, contourDirArch);
+                _memory.lastPhraseId = chordIndex;
+                _memory.lastContourDir = contourDirArch;
+
+                if (useLogs)
+                {
+                    var archName = picked != null ? picked.name : "Palette(null)";
+                    var header =    $"<color=yellow>" +
+                                    $"[PhrasePlanner] arch={archName} chordIdx={chordIndex} " +
+                                    $"start={chordStartBeat:0.00} " +
+                                    $"beats={chordBeats:0.00} slots={slotsArch.Count}" +
+                                    $"</color>";
+                    Debug.Log(header);
+                    for (int i = 0; i < slotsArch.Count; i++)
+                    {
+                        var s = slotsArch[i];
+                        string dirTxt = s.desiredContourDir > 0 ? "+1" :
+                                        s.desiredContourDir < 0 ? "-1" : "0";
+                        Debug.Log(
+                            $"   [{i}] t={s.whenBeat:0.00} dur={s.durBeats:0.00} " +
+                            $"play={(s.playNote ? 1 : 0)} acc={(s.isAccent ? 1 : 0)} " +
+                            $"end={(s.isPhraseEnd ? 1 : 0)} dir={dirTxt} " +
+                            $"phraseId={s.phraseId} " +
+                            $"idx={s.slotIndexInPhrase}/{s.totalSlotsInPhrase}"
+                        );
+                    }
+                }
+
+                return slotsArch;
+            }
+
+            // 2) Fallback to hard-coded logic
+            PhraseArchetype arch = ChooseArchetype(rng);
             int contourDir = PickContourDirection(rng);
 
             // build slots for this phrase according to the archetype.
@@ -225,6 +287,17 @@ namespace MidiGenPlay.Composition
             return dir;
         }
 
+        private int PickContourDirection(System.Random rng, int bias /* -1..+1 */)
+        {
+            // If caller gives a bias, respect it (non-zero).
+            if (bias != 0) return bias;
+
+            // Otherwise keep current alternating behavior.
+            int dir = _memory.lastContourDir;
+            if (dir == 0) dir = 1; else dir = -dir;
+            return dir;
+        }
+
         /// <summary>
         /// Dispatch to one of the concrete phrase-shape builders
         /// (EvenFlow / BurstThenHold / SustainLeadIn).
@@ -294,18 +367,50 @@ namespace MidiGenPlay.Composition
             _memory = mem;
         }
 
+        private PhraseArchetypeSO WeightedPick(
+            List<PhrasePaletteSO.WeightedArchetype> list, System.Random rng)
+        {
+            if (list == null || list.Count == 0) return null;
+
+            float sum = 0f;
+            foreach (var e in list) 
+                if (e?.archetype != null) 
+                    sum += Mathf.Max(0f, e.weight);
+
+            if (sum <= 0f)
+            {
+                // find first non-null archetype
+                foreach (var e in list) if (e?.archetype != null) return e.archetype;
+                return null;
+            }
+
+            double roll = rng.NextDouble() * sum;
+            foreach (var e in list)
+            {
+                if (e?.archetype == null) continue;
+                roll -= Mathf.Max(0f, e.weight);
+                if (roll <= 0.0) return e.archetype;
+            }
+
+            // fallback (should be unreachable)
+            for (int i = list.Count - 1; i >= 0; --i)
+                if (list[i]?.archetype != null) return list[i].archetype;
+
+            return null;
+        }
+
         #region Build Methods
 
-        /// <summary>
-        /// EvenFlow:
-        /// - Subdivide the chord span evenly into N slots (N is randomized within
-        ///   [minSlotsPerPhrase, maxSlotsPerPhrase]).
-        /// - Each slot gets consistent duration.
-        /// - Some mid-phrase slots may become rests.
-        /// - First slot is accented, last slot is marked as a phrase end / landing.
-        ///
-        /// Basically a more expressive version of the "robot subdivision"
-        /// </summary>
+            /// <summary>
+            /// EvenFlow:
+            /// - Subdivide the chord span evenly into N slots (N is randomized within
+            ///   [minSlotsPerPhrase, maxSlotsPerPhrase]).
+            /// - Each slot gets consistent duration.
+            /// - Some mid-phrase slots may become rests.
+            /// - First slot is accented, last slot is marked as a phrase end / landing.
+            ///
+            /// Basically a more expressive version of the "robot subdivision"
+            /// </summary>
         private List<PhraseSlot> BuildEvenFlow(
             double startBeat,
             double spanBeats,
@@ -509,5 +614,7 @@ namespace MidiGenPlay.Composition
         }
 
         #endregion
+
+
     }
 }
