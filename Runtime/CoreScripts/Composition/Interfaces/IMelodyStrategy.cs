@@ -329,6 +329,7 @@ namespace MidiGenPlay.Composition
             return candidates.Last();
         }
 
+        /*
         /// <summary>
         /// Returns the absolute MIDI semitone number of a note (0..127).
         /// </summary>
@@ -337,6 +338,49 @@ namespace MidiGenPlay.Composition
         public static int Semis(Note n)
         {
             return (int)(byte)n.NoteNumber;
+        }*/
+
+        /// <summary>
+        /// Returns the absolute semitone number for a DryWetMIDI <see cref="Note"/>.
+        /// C0 = 0, C#0 = 1, ..., B0 = 11, C1 = 12, and so on.
+        /// Returns -1 if <paramref name="n"/> is null.
+        /// </summary>
+        public static int Semis(Note n)
+        {
+            if (n == null) return -1;
+            // DryWetMIDI NoteName enum is ordered C=0..B=11.
+            return n.Octave * 12 + (int)n.NoteName;
+        }
+
+        /// <summary>
+        /// Transposes the given note by a number of semitones (can be negative).
+        /// Uses DryWetMIDI's built-in transposition via <c>note + semitones</c>.
+        /// </summary>
+        /// <param name="n">Source note (may be null).</param>
+        /// <param name="semitones">Positive or negative number of semitone steps.</param>
+        /// <returns>The transposed note, or null if input was null.</returns>
+        public static Note Transpose(Note n, int semitones)
+        {
+            if (n == null)
+                return null;
+
+            return n + semitones; // Uses DryWetMIDI's operator overload
+        }
+
+        /// <summary>
+        /// Moves the note up by <paramref name="semitones"/> semitones (default = 1).
+        /// </summary>
+        public static Note NudgeUp(Note n, int semitones = 1)
+        {
+            return Transpose(n, Math.Max(1, semitones));
+        }
+
+        /// <summary>
+        /// Moves the note down by <paramref name="semitones"/> semitones (default = 1).
+        /// </summary>
+        public static Note NudgeDown(Note n, int semitones = 1)
+        {
+            return Transpose(n, -Math.Max(1, semitones));
         }
 
         /// <summary>
@@ -368,6 +412,22 @@ namespace MidiGenPlay.Composition
 
             // Otherwise just return the highest tonic inside the instrument range.
             return Note.Get(tonicPc, inst.octaveMax);
+        }
+
+        // Proper mathematical modulo that handles negatives.
+        private static int Mod(int a, int m)
+        {
+            int r = a % m;
+            return r < 0 ? r + m : r;
+        }
+
+        // Floor-based integer division (mirrors Math.Floor(a / m) for ints).
+        private static int FloorDiv(int a, int m)
+        {
+            int q = a / m;
+            int r = a % m;
+            // If remainder has opposite sign to divisor, subtract 1 to floor.
+            return (r != 0 && ((r < 0) ^ (m < 0))) ? q - 1 : q;
         }
     }
 

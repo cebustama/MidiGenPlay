@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 516e03f80d7c40841863fe482ed26e8e, type: 3}
+  m_Name: Melodic Style - Test 1
+  m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.Composition.MelodicStyleSO
+  baseStrategy: 1
+  usePerPhraseOverrides: 1
+  perPhraseDirectives:
+  - weight: 0.5
+    contour: 1
+    repeatDirective:
+      notesToRepeat: 0
+      transposeSemitones: 0
+  - weight: 0.3
+    contour: 0
+    repeatDirective:
+      notesToRepeat: 0
+      transposeSemitones: 0
+  - weight: 0.2
+    contour: 0
+    repeatDirective:
+      notesToRepeat: 0
+      transposeSemitones: 0
+  swingAmount: 0
+  humanize: 0
