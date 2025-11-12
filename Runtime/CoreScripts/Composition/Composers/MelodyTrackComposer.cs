@@ -18,6 +18,9 @@ namespace MidiGenPlay.Composition
         private readonly MelodicLeadingConfig _cfg;
         private readonly IMelodyStrategy _strategy;
 
+        private IMelodyStrategy _baseStrategy;      // replaces direct _strategy usage
+        private MelodicStyleSO _melodicStyle;       // optional, from MelodyCardConfigSO
+
         private PhrasePlanner _phrasePlanner;
         private PhrasePlanner.PhraseMemory _phraseMemory; // running memory
 
@@ -28,7 +31,7 @@ namespace MidiGenPlay.Composition
         {
             _settings = settings;
             _cfg = cfg;
-            _strategy = strategy ?? new NearestChordToneMelodyStrategy();
+            _baseStrategy = strategy ?? new NearestChordToneMelodyStrategy();
 
             _phraseMemory = new PhrasePlanner.PhraseMemory
             {
@@ -79,6 +82,250 @@ namespace MidiGenPlay.Composition
             return ComposeMelodyFromProgression(instrument, bpm, part, cfg, prog, channel, ctx, profile);
         }
 
+        private MidiFile ComposeMelodyFromProgression(
+            MIDIInstrumentSO instrument,
+            int bpm,
+            SongConfig.PartConfig part,
+            SongConfig.PartConfig.TrackConfig trackCfg,
+            ChordProgressionData prog,
+            int channel,
+            MidiGenerator.GenContext ctx,
+            TonalityProfileSO profile)
+        {
+            // -------------------------------
+            // 0) Resolve authoring from card
+            // -------------------------------
+            // Typed base in TrackParameters.Style; melody bundle derives from it.
+            var cardCfg = trackCfg?.Parameters?.Style as MelodyCardConfigSO; // may be null
+            // Build effective leading (leading override wins; else constructor _cfg)
+            var effectiveLeading = cardCfg?.leadingOverride != null ? cardCfg.leadingOverride : _cfg;
+
+            // If palette override is provided, clone the leading (avoid mutating assets) and swap its palette.
+            if (cardCfg?.phrasePaletteOverride != null)
+            {
+                var clone = ScriptableObject.Instantiate(effectiveLeading);
+                clone.phrasePalette = cardCfg.phrasePaletteOverride;
+                effectiveLeading = clone;
+            }
+
+            // Make the planner use the effective leading (so the palette is honored)
+            _phrasePlanner = new PhrasePlanner(effectiveLeading, _phraseMemory);
+
+            // Per-part base strategy from style (if any); otherwise keep constructor default
+            var baseForThisPart = _baseStrategy;
+            _melodicStyle = cardCfg?.style;
+            if (_melodicStyle != null)
+                baseForThisPart = ResolveStrategy(_melodicStyle.baseStrategy);
+
+            // RNG, timeline, etc.
+            var rng = ctx?.rng ?? new System.Random();
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var pb = new PatternBuilder().MoveToStart();
+
+            // === Global timing info for the part ===
+            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            // Progression timing resolution:
+            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+
+            // === Tonal / scale info ===
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7)
+                                .Select(n => n.NoteName)
+                                .ToArray();
+
+
+            int partMeasures = Mathf.Max(1, part.Measures);
+            double partTotalBeats = partMeasures * beatsPerBar;
+            var tonicPc = scaleNames[0]; // degree-0 pitch class (tonic)
+
+            // NoteName -> 0..6 scale degree index in this tonality
+            var degreeLookup = new Dictionary<NoteName, int>();
+            for (int i = 0; i < scaleNames.Length && i < 7; i++)
+                if (!degreeLookup.ContainsKey(scaleNames[i])) degreeLookup[scaleNames[i]] = i;
+
+            // === Sort chord progression events in time ===
+            var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
+                        .OrderBy(e => e.startStep)
+                        .ToList();
+            if (evts.Count == 0) return new MidiFile(); // nothing to do
+
+            DryWetMidiNote lastMelody = null;
+            var capturedMelody = new List<MidiGenerator.GuideNote>();
+
+            // Local helper: weighted pick of per-phrase directives
+            WeightedPhraseDirective PickDirective(
+                List<WeightedPhraseDirective> list, System.Random r)
+            {
+                if (list == null || list.Count == 0) return null;
+                float sum = 0f; foreach (var w in list) sum += Mathf.Max(0f, w.weight);
+                float target = (float)(r.NextDouble() * Mathf.Max(sum, 0.0001f));
+                foreach (var w in list) 
+                { 
+                    target -= Mathf.Max(0f, w.weight); 
+                    if (target <= 0f) return w; 
+                }
+                return list[list.Count - 1];
+            }
+
+            // walk chord-by-chord (currently 1 phrase per chord span)
+            for (int chordIndex = 0; chordIndex < evts.Count; chordIndex++)
+            {
+                var ce = evts[chordIndex];
+
+                // --- 1. Harmonic context: chord pitch classes for this span ---
+                var degreeRoot = scaleNames[(int)ce.degree];
+                var chordPitchClasses = GetChordNoteNames(degreeRoot, ce.quality);
+
+                // --- 2. Convert chord event timing (steps) -> beats ---
+                double chordStartBeats = ce.startStep / (double)stepsPerBeat;
+                double chordBeats = Mathf.Max(1, ce.lengthSteps) / (double)stepsPerBeat;
+
+                // --- 3. Ask the PhrasePlanner to create expressive phrase slots ---
+                var phraseSlots = _phrasePlanner.PlanPhraseSlotsForSpan(
+                    chordStartBeats, chordBeats, beatsPerBar, chordIndex, rng, profile);
+
+                // Choose the active strategy for THIS phrase (style can override per-phrase)
+                IMelodyStrategy activeStrategy = baseForThisPart;
+                var contour = ContourConstraint.None;
+                RepeatLastNotesDirective repeat = null;
+
+                if (_melodicStyle != null && _melodicStyle.usePerPhraseOverrides
+                    && _melodicStyle.perPhraseDirectives != null
+                    && _melodicStyle.perPhraseDirectives.Count > 0)
+                {
+                    var pickedDir = PickDirective(_melodicStyle.perPhraseDirectives, rng);
+                    if (pickedDir != null)
+                    {
+                        if (pickedDir.overrideStrategy.HasValue)
+                            activeStrategy = ResolveStrategy(pickedDir.overrideStrategy.Value);
+
+                        contour = pickedDir.contour;
+                        repeat = pickedDir.repeatDirective;
+                    }
+                }
+
+                // Wrap in constraint decorator only if needed
+                if (contour != ContourConstraint.None || repeat != null)
+                    activeStrategy = 
+                        new ConstrainedMelodyStrategy(activeStrategy, contour, repeat);
+
+                // track info about this phrase so we can fill in PhraseState:
+                DryWetMidiNote phraseFirstNote = null;
+                DryWetMidiNote phrasePeakNote = null;
+
+                bool IsFinalSlotOfPart(PhrasePlanner.PhraseSlot s)
+                {
+                    bool lastChord = (chordIndex == evts.Count - 1);
+                    bool lastSlot = (s.slotIndexInPhrase == s.totalSlotsInPhrase - 1);
+                    return lastChord && lastSlot;
+                }
+
+                // --- 4. For each planned slot, pick pitch (or rest) and emit MIDI ---
+                foreach (var slot in phraseSlots)
+                {
+                    if (!slot.playNote) { lastMelody = null; continue; }
+
+                    // Build the PhraseState for this slot (what the strategy sees):
+                    var phraseState = new PhrasePlanner.PhraseState
+                    {
+                        PhraseIndex = slot.phraseId,
+                        NoteIndexInPhrase = slot.slotIndexInPhrase,
+                        TotalNotesInPhrase = slot.totalSlotsInPhrase,
+                        IsStrongBeat = slot.isAccent,
+                        IsPhraseEnd = slot.isPhraseEnd,
+                        DesiredContourDir = slot.desiredContourDir,
+                        PhraseStartNote = phraseFirstNote,
+                        PhrasePeakNote = phrasePeakNote
+                    };
+
+                    // Part-level context
+                    var partState = new MelodyPartState
+                    {
+                        ChordIndex = chordIndex,
+                        TotalChords = evts.Count,
+                        IsFinalSlotOfPart = IsFinalSlotOfPart(slot),
+                        PartStartBeat = 0.0,
+                        PartTotalBeats = partTotalBeats,
+                        TonicPC = tonicPc
+                    };
+
+                    // Ask the chosen strategy for the pitch here
+                    // (Style → Strategy → Constraints)
+                    var picked = activeStrategy.PickNext(
+                        chordPitchClasses,
+                        scaleNames,
+                        degreeLookup,
+                        lastMelody,
+                        instrument,
+                        effectiveLeading,
+                        rng,
+                        phraseState,
+                        profile,
+                        partState);
+
+                    if (picked == null) { lastMelody = null; continue; }
+
+                    // Track phrase-first and phrase-peak for future slots this phrase
+                    if (phraseFirstNote == null) phraseFirstNote = picked;
+                    if (phrasePeakNote == null ||
+                        MelodyStrategyCommon.Semis(picked) > 
+                        MelodyStrategyCommon.Semis(phrasePeakNote))
+                    {
+                        phrasePeakNote = picked;
+                    }
+
+                    int velocityVal = ChooseVelocityForSlot(slot, picked, profile, rng);
+                    var velocity7 = (SevenBitNumber)Mathf.Clamp(velocityVal, 1, 127);
+
+                    var startTs = MusicalTimeSpan.Quarter.Multiply(slot.whenBeat);
+                    var durTs = MusicalTimeSpan.Quarter.Multiply(slot.durBeats);
+
+                    pb.MoveToTime(startTs);
+                    pb.Note(picked, durTs, velocity7);
+
+                    capturedMelody.Add(new MidiGenerator.GuideNote
+                    {
+                        startBeats = slot.whenBeat,
+                        durBeats = slot.durBeats,
+                        note = picked
+                    });
+
+                    lastMelody = picked;
+                    if (slot.isPhraseEnd)
+                        _phraseMemory.lastPhraseEndNote = picked;
+                }
+
+                // sync planner memory across chords
+                _phraseMemory = _phrasePlanner.GetMemory();
+                _phraseMemory.lastPhraseEndNote = lastMelody;
+                _phrasePlanner.SetMemory(_phraseMemory);
+            }
+
+            // --- finalize MIDI ---
+            var file = pb.Build().ToFile(tempoMap);
+            StampBankAndPatch(file, instrument, channel);
+            ForceAllChannel(file, channel);
+
+            if (_settings?.logGenerator == true)
+            {
+                var (tracks, notes, lastTick) = Inspect(file);
+                Debug.Log($"[MelodyTrackComposer] " +
+                    $"tracks={tracks} notes={notes} lastTick={lastTick}");
+            }
+
+            // cache guide notes for other systems
+            if (ctx != null && ctx.SetMelodyForPartMusician != null)
+            {
+                var musicianId = trackCfg?.MusicianId;
+                ctx.SetMelodyForPartMusician(part, musicianId, capturedMelody);
+            }
+
+            return file;
+        }
+
+        /*
         private MidiFile ComposeMelodyFromProgression(
             MIDIInstrumentSO instrument,
             int bpm,
@@ -293,6 +540,7 @@ namespace MidiGenPlay.Composition
 
             return file;
         }
+        */
 
         /// <summary>
         /// Generates one note per beat using the active chord's tones.
@@ -485,6 +733,28 @@ namespace MidiGenPlay.Composition
             }
 
             return RandomBetween(_cfg.normalVelMin, _cfg.normalVelMax);
+        }
+
+        // Helpers
+        private IMelodyStrategy ResolveStrategy(MelodyStrategyId id)
+        {
+            switch (id)
+            {
+                case MelodyStrategyId.NearestChordTone: return new NearestChordToneMelodyStrategy();
+                case MelodyStrategyId.AscendingClimb: return new AscendingClimbMelodyStrategy();
+                case MelodyStrategyId.ScaleFlow:
+                default: return new ScaleFlowMelodyStrategy();
+            }
+        }
+
+        private WeightedPhraseDirective WeightedPickDirective(
+            System.Collections.Generic.List<WeightedPhraseDirective> list, System.Random rng)
+        {
+            if (list == null || list.Count == 0) return null;
+            float sum = 0f; foreach (var w in list) sum += Mathf.Max(0f, w.weight);
+            float r = (float)(rng.NextDouble() * Mathf.Max(0.0001f, sum));
+            foreach (var w in list) { r -= Mathf.Max(0f, w.weight); if (r <= 0f) return w; }
+            return list[list.Count - 1];
         }
     }
 }

@@ -117,6 +117,9 @@ namespace MidiGenPlay
         public RhythmRecipe RhythmRecipe;
         public BackingRecipe BackingRecipe;
 
+        public TrackStyleBundleSO Style;
+
+        // === Legacy (still honored as a fallback; can deprecate later) ===
         public MelodicLeadingConfig melodicLeadingOverride;
         public MelodyStrategyId melodyStrategyId;
 
