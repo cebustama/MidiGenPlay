@@ -1,4 +1,5 @@
 using MidiGenPlay.Composition.Phrases;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
@@ -29,5 +30,15 @@ namespace MidiGenPlay.Composition
         [Range(40, 127)] public int accentVelMax = 120;
         [Range(40, 127)] public int phraseEndVelMin = 95;
         [Range(40, 127)] public int phraseEndVelMax = 110;
+
+        [Header("Pitch Preferences (optional)")]
+        [Tooltip("If true and the list is not empty, " +
+            "restrict candidate notes to these scale degrees (0 = tonic, 1 = 2nd, ...). " +
+                 "Leave disabled or list empty to allow all degrees.")]
+        public bool restrictToScaleDegrees = false;
+
+        [Tooltip("Allowed scale degrees relative to the current tonality (0..6). " +
+                 "Only used if restrictToScaleDegrees is true.")]
+        public List<int> allowedScaleDegrees = new List<int>();
     }
 }

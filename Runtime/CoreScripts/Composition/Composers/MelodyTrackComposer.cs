@@ -108,6 +108,16 @@ namespace MidiGenPlay.Composition
                 effectiveLeading = clone;
             }
 
+            // Resolve leading allowed degrees
+            HashSet<int> allowedDegrees = null;
+            if (effectiveLeading != null &&
+                effectiveLeading.restrictToScaleDegrees &&
+                effectiveLeading.allowedScaleDegrees != null &&
+                effectiveLeading.allowedScaleDegrees.Count > 0)
+            {
+                allowedDegrees = new HashSet<int>(effectiveLeading.allowedScaleDegrees);
+            }
+
             // Make the planner use the effective leading (so the palette is honored)
             _phrasePlanner = new PhrasePlanner(effectiveLeading, _phraseMemory);
 
@@ -263,7 +273,8 @@ namespace MidiGenPlay.Composition
                         rng,
                         phraseState,
                         profile,
-                        partState);
+                        partState,
+                        allowedDegrees);
 
                     if (picked == null) { lastMelody = null; continue; }
 
@@ -276,8 +287,40 @@ namespace MidiGenPlay.Composition
                         phrasePeakNote = picked;
                     }
 
-                    int velocityVal = ChooseVelocityForSlot(slot, picked, profile, rng);
+                    int velocityVal = 
+                        ChooseVelocityForSlot(slot, picked, profile, rng, effectiveLeading);
                     var velocity7 = (SevenBitNumber)Mathf.Clamp(velocityVal, 1, 127);
+
+                    // --- DEBUG: per-note inspection ---
+                    if (_settings?.logGenerator == true)
+                    {
+                        // Is this note a chord tone?
+                        bool isChordTone = chordPitchClasses.Contains(picked.NoteName);
+
+                        // Scale degree (0..6) if available, -1 otherwise
+                        int degreeIdx = -1;
+                        if (degreeLookup != null && degreeLookup.TryGetValue(picked.NoteName, out var idx))
+                            degreeIdx = idx;
+
+                        // Step in semitones from previous melody note (0 if none)
+                        int stepFromLast = 0;
+                        if (lastMelody != null)
+                        {
+                            stepFromLast = Mathf.Abs(
+                                MelodyStrategyCommon.Semis(picked) -
+                                MelodyStrategyCommon.Semis(lastMelody));
+                        }
+
+                        Debug.Log(
+                            $"[MelodySlot] chord={chordIndex} " +
+                            $"beat={slot.whenBeat:F2} dur={slot.durBeats:F2} " +
+                            $"note={picked} degree={degreeIdx} " +
+                            $"chordTone={isChordTone} step={stepFromLast} " +
+                            $"vel={velocityVal} accent={slot.isAccent} " +
+                            $"phraseEnd={slot.isPhraseEnd} " +
+                            $"phraseId={slot.phraseId} slot={slot.slotIndexInPhrase}/{slot.totalSlotsInPhrase}");
+                    }
+                    // --- end DEBUG ---
 
                     var startTs = MusicalTimeSpan.Quarter.Multiply(slot.whenBeat);
                     var durTs = MusicalTimeSpan.Quarter.Multiply(slot.durBeats);
@@ -709,8 +752,12 @@ namespace MidiGenPlay.Composition
             PhrasePlanner.PhraseSlot slot,
             Melanchall.DryWetMidi.MusicTheory.Note picked,
             TonalityProfileSO profile,
-            System.Random rng)
+            System.Random rng,
+            MelodicLeadingConfig leading)
         {
+            // Use effectiveLeading if provided, otherwise fall back to constructor _cfg
+            var cfg = leading != null ? leading : _cfg;
+
             // Basic first-pass:
             // - if accent: use accentVel range
             // - else if phrase end: phraseEndVel range
@@ -724,15 +771,15 @@ namespace MidiGenPlay.Composition
 
             if (slot.isAccent)
             {
-                return RandomBetween(_cfg.accentVelMin, _cfg.accentVelMax);
+                return RandomBetween(cfg.accentVelMin, cfg.accentVelMax);
             }
 
             if (slot.isPhraseEnd)
             {
-                return RandomBetween(_cfg.phraseEndVelMin, _cfg.phraseEndVelMax);
+                return RandomBetween(cfg.phraseEndVelMin, cfg.phraseEndVelMax);
             }
 
-            return RandomBetween(_cfg.normalVelMin, _cfg.normalVelMax);
+            return RandomBetween(cfg.normalVelMin, cfg.normalVelMax);
         }
 
         // Helpers

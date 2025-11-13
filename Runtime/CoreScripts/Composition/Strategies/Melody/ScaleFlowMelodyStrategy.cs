@@ -6,20 +6,18 @@ using UnityEngine;
 
 namespace MidiGenPlay.Composition
 {
-    /// Modal/scalar strategy:
-    /// - Prefers stepwise moves (±1 / ±2 scale steps).
-    /// - Weights chord tones higher, but allows scale tones.
-    /// - Uses weighted randomness so it doesn't get stuck on the single nearest.
+    /// <summary>
+    /// Modal / scalar “flow” strategy.
+    /// - Builds candidates from chord/scale + NoteSource and optional allowed degrees.
+    /// - First note: same ordered start as NearestChordTone.
+    /// - Subsequent notes: computes a motion weight for each candidate based on:
+    ///   interval size (prefers small steps), chord-tone membership, and
+    ///   characteristic degrees (modal colour), plus optional cadential nudges.
+    /// - Uses weighted randomness to pick from the pool, producing fluid,
+    ///   non-deterministic scalar lines that still feel harmonically grounded.
+    /// </summary>
     public class ScaleFlowMelodyStrategy : IMelodyStrategy
     {
-        /// <summary>
-        /// Modal / scalar "flow" strategy:
-        /// - Prefers small melodic steps,
-        /// - Gives chord tones extra weight (when allowed),
-        /// - Favors tonality profile's characteristic degrees,
-        /// - Nudges tonic on strong beats if the profile says to cadence home,
-        /// - Picks stochastically from a weighted pool instead of always nearest.
-        /// </summary>
         public Note PickNext(
             NoteName[] chordPitchClasses,
             NoteName[] scalePitchClasses,
@@ -30,15 +28,12 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,
-            MelodyPartState part)
+            MelodyPartState part,
+            HashSet<int> allowedDegrees)
         {
-            // 1. candidate pitch classes (per NoteSource)
-            var poolPCs = MelodyStrategyCommon.BuildPitchClassPool(
-                cfg, chordPitchClasses, scalePitchClasses);
-
-            // 2. expand to actual playable notes
-            var candidates = MelodyStrategyCommon.ExpandToInstrumentRange(
-                poolPCs, inst);
+            var candidates = MelodyStrategyCommon.BuildCandidatesWithFilter(
+                chordPitchClasses, scalePitchClasses,
+                degreeLookup, inst, cfg, allowedDegrees);
 
             if (candidates.Count == 0)
                 return null;

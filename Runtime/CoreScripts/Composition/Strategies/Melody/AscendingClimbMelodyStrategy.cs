@@ -7,6 +7,17 @@ using UnityEngine;
 
 namespace MidiGenPlay.Composition
 {
+    /// <summary>
+    /// “Climbing” contour strategy.
+    /// - Builds candidates from chord/scale + NoteSource and optional allowed degrees.
+    /// - First note: prefers a low tonic (if available), otherwise a strong ordered start.
+    /// - Normal slots: prefers notes above the last one, within <c>maxStepSemitones</c>,
+    ///   with small upward steps weighted more, plus bonuses for chord tones and
+    ///   characteristic degrees. Allows occasional small backsteps if no upward step fits.
+    /// - Final slot of the part: cadences deliberately to a tonic above the reference,
+    ///   using <see cref="MelodyStrategyCommon.ComputeTargetTonicAbove"/>.
+    /// - Uses weighted randomness inside the upward pool for a natural, rising line.
+    /// </summary>
     public class AscendingClimbMelodyStrategy : IMelodyStrategy
     {
         public Note PickNext(
@@ -19,12 +30,13 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,
-            MelodyPartState part)
+            MelodyPartState part,
+            HashSet<int> allowedDegrees)
         {
-            var poolPCs = 
-                MelodyStrategyCommon.BuildPitchClassPool(cfg, chordPCs, scalePCs);
-            var candidates = 
-                MelodyStrategyCommon.ExpandToInstrumentRange(poolPCs, inst);
+            var candidates = MelodyStrategyCommon.BuildCandidatesWithFilter(
+                chordPCs, scalePCs,
+                degreeLookup, inst, cfg, allowedDegrees);
+
             if (candidates.Count == 0) return null;
 
             // First note: prefer a low tonic opening

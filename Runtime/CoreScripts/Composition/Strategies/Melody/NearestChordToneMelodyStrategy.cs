@@ -9,12 +9,13 @@ namespace MidiGenPlay.Composition
     public sealed class NearestChordToneMelodyStrategy : IMelodyStrategy
     {
         /// <summary>
-        /// Deterministic / 'glued to harmony' strategy.
-        /// - Chooses primarily chord tones (if asked),
-        /// - or chord+scale union,
-        /// - or just scale,
-        /// then tries to stay near the last note in pitch,
-        /// and biases the tonality profile's characteristic degrees.
+        /// Deterministic / “glued to harmony” strategy.
+        /// - Builds candidates from chord/scale + NoteSource and optional allowed degrees.
+        /// - First note: uses the shared ordering helper to pick a strong, range-friendly start.
+        /// - Subsequent notes: ranks by chord priority, characteristic degree, and closeness
+        ///   in semitones to the last note, then picks the top candidate.
+        /// - Applies <c>chanceRepeatNote</c> and <c>maxStepSemitones</c> to avoid static,
+        ///   unplayable jumps while staying tightly connected to the harmony.
         /// </summary>
         public Note PickNext(
             NoteName[] chordPitchClasses,
@@ -26,15 +27,12 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,
-            MelodyPartState part)
+            MelodyPartState part,
+            HashSet<int> allowedDegrees)
         {
-            // 1. candidate pitch classes (per NoteSource)
-            var poolPCs = MelodyStrategyCommon.BuildPitchClassPool(
-                cfg, chordPitchClasses, scalePitchClasses);
-
-            // 2. concrete notes in instrument range
-            var candidates = MelodyStrategyCommon.ExpandToInstrumentRange(
-                poolPCs, inst);
+            var candidates = MelodyStrategyCommon.BuildCandidatesWithFilter(
+                chordPitchClasses, scalePitchClasses, 
+                degreeLookup, inst, cfg, allowedDegrees);
 
             if (candidates.Count == 0)
                 return null;

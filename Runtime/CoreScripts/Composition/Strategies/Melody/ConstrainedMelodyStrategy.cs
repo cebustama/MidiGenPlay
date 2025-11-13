@@ -1,13 +1,18 @@
 using Melanchall.DryWetMidi.MusicTheory;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
 {
     /// <summary>
-    /// Decorator for any IMelodyStrategy that applies optional phrase-level
-    /// constraints without modifying the underlying strategy implementation:
-    /// 1) Motif repetition (RepeatLastNotesDirective).
-    /// 2) Contour enforcement (AscendingOnly / DescendingOnly).
+    /// Decorator that wraps any <see cref="IMelodyStrategy"/> and layers
+    /// phrase-level constraints on top:
+    /// - Optional motif repetition via <see cref="RepeatLastNotesDirective"/> to
+    ///   echo or transpose the previous phrase peak/start.
+    /// - Optional contour enforcement (AscendingOnly / DescendingOnly) that gently
+    ///   nudges the chosen note up or down to respect the desired phrase shape.
+    /// The underlying strategy remains responsible for building candidates and
+    /// harmonic logic; this class only post-processes its choice.
     /// </summary>
     public class ConstrainedMelodyStrategy : IMelodyStrategy
     {
@@ -43,7 +48,8 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,
-            MelodyPartState part)
+            MelodyPartState part,
+            HashSet<int> allowedDegrees)
         {
             // 1) Optional motif repetition
             if (_repeat != null && phrase.NoteIndexInPhrase > 0 
@@ -60,7 +66,7 @@ namespace MidiGenPlay.Composition
             // 2) Delegate to the base strategy
             var candidate = _inner.PickNext(
                 chordPitchClasses, scaleNames, degreeLookup,
-                lastNote, instrument, cfg, rng, phrase, profile, part);
+                lastNote, instrument, cfg, rng, phrase, profile, part, allowedDegrees);
 
             if (candidate == null) return null;
 

@@ -48,7 +48,8 @@ namespace MidiGenPlay.Composition
             System.Random rng,                      // deterministic RNG if needed
             PhrasePlanner.PhraseState phrase,
             TonalityProfileSO profile,               // modal/tonality profile (may be null)
-            MelodyPartState part
+            MelodyPartState part,
+            HashSet<int> allowedDegrees
         );                 
     }
 
@@ -428,6 +429,43 @@ namespace MidiGenPlay.Composition
             int r = a % m;
             // If remainder has opposite sign to divisor, subtract 1 to floor.
             return (r != 0 && ((r < 0) ^ (m < 0))) ? q - 1 : q;
+        }
+
+        public static IEnumerable<NoteName> ApplyAllowedDegreeFilter(
+            IEnumerable<NoteName> pitchClasses,
+            Dictionary<NoteName, int> degreeLookup,
+            HashSet<int> allowedDegrees)
+        {
+            // No filter? Return as-is.
+            if (allowedDegrees == null ||
+                allowedDegrees.Count == 0 ||
+                degreeLookup == null)
+                return pitchClasses;
+
+            var filtered = pitchClasses
+                .Where(pc =>
+                {
+                    if (!degreeLookup.TryGetValue(pc, out var deg))
+                        return false;
+                    return allowedDegrees.Contains(deg);
+                })
+                .ToList();
+
+            // If filter killed everything (e.g. misconfigured), fall back to original pool
+            return filtered.Count > 0 ? filtered : pitchClasses;
+        }
+
+        public static List<Note> BuildCandidatesWithFilter(
+            NoteName[] chordPCs,
+            NoteName[] scalePCs,
+            Dictionary<NoteName, int> degreeLookup,
+            MIDIInstrumentSO inst,
+            MelodicLeadingConfig cfg,
+            HashSet<int> allowedDegrees)
+        {
+            var pool = BuildPitchClassPool(cfg, chordPCs, scalePCs);
+            pool = ApplyAllowedDegreeFilter(pool, degreeLookup, allowedDegrees);
+            return ExpandToInstrumentRange(pool, inst);
         }
     }
 

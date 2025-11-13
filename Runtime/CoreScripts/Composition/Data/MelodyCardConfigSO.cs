@@ -1,4 +1,3 @@
-using MidiGenPlay.Composition;
 using MidiGenPlay.Composition.Phrases;
 using UnityEngine;
 
