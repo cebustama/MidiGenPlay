@@ -25,13 +25,35 @@ namespace MidiGenPlay.Composition
         [Range(0, 1)] public float humanize = 0f;      // reserved for later
     }
 
-    /// <summary>
-    /// Constrains the melodic direction of a phrase.
-    /// None = free movement, AscendingOnly = nudge upwards, DescendingOnly = nudge downwards.
-    /// </summary>
-    public enum ContourConstraint { None, AscendingOnly, DescendingOnly }
+    [Serializable]
+    public struct WeightedInt
+    {
+        public int value;               // e.g., 12 (octave) or 2 (two scale steps)
+        [Range(0f, 1f)] public float weight;
+    }
+
+    public enum IntervalMode
+    {
+        FixedSemitones,            // legacy: semitonesPerPhrase
+        PerDirectionSemitones,     // weighted semitone choices for Up/Down
+        PerDirectionScaleSteps     // weighted SCALE-STEP choices for Up/Down
+    }
+
+    public enum RelativeMode
+    {
+        Anchor,        // offsets measured from the first anchor
+        PreviousTarget // offsets applied from last output note (phrase-to-phrase walk)
+    }
 
     public enum AnchorStartMode { AutoFromDirection, Lowest, Highest, Mid, Random }
+
+    // where to take the pitch-class from when applying the interval
+    public enum PitchClassSource
+    {
+        Anchor,         // use the very first anchor's pitch-class
+        Candidate,      // use the strategy's candidate pitch-class (current default)
+        ComputedRegister // take PC from baseNote+interval result (regNote)
+    }
 
     [Serializable]
     public class InterPhraseIntervalDirective
@@ -39,25 +61,55 @@ namespace MidiGenPlay.Composition
         [Tooltip("Enable phrase-to-phrase transposition pattern.")]
         public bool enabled = false;
 
-        [Tooltip("Interval in semitones per phrase step. 12 = octave, 7 = fifth, 3 = minor third, etc.")]
-        public int semitonesPerPhrase = 12;
+        [Header("Pitch-class source")]
+        [Tooltip("Which note provides the pitch-class when applying the interval")]
+        public PitchClassSource pitchClassSource = PitchClassSource.Candidate;
 
+
+        [Header("General")]
+
+        public IntervalMode mode = IntervalMode.FixedSemitones;
+        public RelativeMode relativeMode = RelativeMode.PreviousTarget;
         [Tooltip("Base direction: +1 = up, -1 = down.")]
         public int baseDirection = 1;
-
         [Tooltip("If true, flip direction every phrase: up/down/up/down...")]
         public bool alternateDirection = false;
-
         [Tooltip("Clamp to instrument range; if we hit the edge, stay on the boundary.")]
         public bool clampToRange = true;
 
+        [Header("Anchor Behaviour")]
         [Tooltip("Where to set first note (anchor)")]
         public AnchorStartMode anchorStart = AnchorStartMode.AutoFromDirection;
 
-        [Tooltip("If true, keep the anchor's pitch class and only change octave (C -> C -> C...). " +
-             "If false, keep each candidate's pitch class and only change its octave.")]
-        public bool lockPitchClassToAnchor = true;
+        [Header("Fixed Semitones")]
+        [Tooltip("Interval in semitones per phrase step. 12 = octave, 7 = fifth, 3 = minor third, etc.")]
+        public int semitonesPerPhrase = 12;
+
+        [Header("Weighted Choices")]
+        // weighted choices per direction (semitones)
+        public List<WeightedInt> upSemitones = new();
+        public List<WeightedInt> downSemitones = new();
+        // weighted choices per direction (scale steps)
+        // (1 = next scale degree, 2 = skip one, etc.)
+        public List<WeightedInt> upScaleSteps = new();
+        public List<WeightedInt> downScaleSteps = new();
+
+        // Whether to apply interval on the very first emitted note.
+        // If false, the first note is output without transposition and the pattern starts on the next phrase.
+        [Header("Lifecycle")]
+        public bool applyOnFirstNote = false;
+
+        // If applyOnFirstNote == false, choose what the first output note should use for pitch-class.
+        // - true  -> use 'anchor' as first note (honors anchorStart: Lowest/Highest/Mid/...)
+        // - false -> use the strategy 'candidate' as first note
+        public bool firstNoteUsesAnchor = false;
     }
+
+    /// <summary>
+    /// Constrains the melodic direction of a phrase.
+    /// None = free movement, AscendingOnly = nudge upwards, DescendingOnly = nudge downwards.
+    /// </summary>
+    public enum ContourConstraint { None, AscendingOnly, DescendingOnly }
 
     /// <summary>
     /// Weighted directive applied to a single phrase: can override the base strategy,

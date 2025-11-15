@@ -186,6 +186,9 @@ namespace MidiGenPlay.Composition
 
             DryWetMidiNote intervalAnchor = null;
             bool intervalAnchorSet = false;
+            DryWetMidiNote lastIntervalTarget = null;   // the last note AFTER interval logic
+            int cumulativeSemisFromAnchor = 0;          // optional if you want cumulative from anchor
+            int intervalStepIndex = 0;
 
             // walk chord-by-chord (currently 1 phrase per chord span)
             for (int chordIndex = 0; chordIndex < evts.Count; chordIndex++)
@@ -227,12 +230,31 @@ namespace MidiGenPlay.Composition
 
                     if (pickedDir != null && _settings?.logGenerator == true)
                     {
+                        string intervalInfo = "none";
+                        if (pickedDir.intervalDirective?.enabled == true)
+                        {
+                            var iv = pickedDir.intervalDirective;
+                            switch (iv.mode)
+                            {
+                                case IntervalMode.FixedSemitones:
+                                    intervalInfo = $"Fixed semis={iv.semitonesPerPhrase}";
+                                    break;
+                                case IntervalMode.PerDirectionSemitones:
+                                    intervalInfo = $"Weighted semis (up={iv.upSemitones.Count}, down={iv.downSemitones.Count})";
+                                    break;
+                                case IntervalMode.PerDirectionScaleSteps:
+                                    intervalInfo = $"Weighted SCALE steps (up={iv.upScaleSteps.Count}, down={iv.downScaleSteps.Count})";
+                                    break;
+                            }
+                        }
+
+                        /*
                         Debug.Log(
                             $"<color=yellow>[MelodyTrackComposer] Phrase dir | chordIdx={chordIndex} " +
                             $"overrideStrategy={pickedDir.overrideStrategy} " +
                             $"contour={pickedDir.contour} " +
                             $"intervalEnabled={pickedDir.intervalDirective?.enabled} " +
-                            $"semisPerPhrase={pickedDir.intervalDirective?.semitonesPerPhrase}</color>");
+                            $"interval={intervalInfo}</color>");*/
                     }
                 }
 
@@ -300,12 +322,18 @@ namespace MidiGenPlay.Composition
                     // Apply inter-phrase interval pattern here
                     picked = ApplyIntervalDirective(
                         picked,
-                        interval,
-                        partState,
+                        interval, // from style (may be null)
                         instrument,
+                        profile,
+                        scaleNames,
+                        degreeLookup,
                         ref intervalAnchor,
                         ref intervalAnchorSet,
-                        chordIndex, rng);
+                        ref lastIntervalTarget,
+                        ref cumulativeSemisFromAnchor,
+                        ref intervalStepIndex,
+                        chordIndex,
+                        rng);
 
                     if (picked == null) { lastMelody = null; continue; }
 
@@ -608,36 +636,87 @@ namespace MidiGenPlay.Composition
             }
         }
 
-        private WeightedPhraseDirective WeightedPickDirective(
-            System.Collections.Generic.List<WeightedPhraseDirective> list, System.Random rng)
+        static int WeightedPick(List<WeightedInt> list, System.Random rng, int fallback = 0)
         {
-            if (list == null || list.Count == 0) return null;
+            if (list == null || list.Count == 0) return fallback;
             float sum = 0f; foreach (var w in list) sum += Mathf.Max(0f, w.weight);
-            float r = (float)(rng.NextDouble() * Mathf.Max(0.0001f, sum));
-            foreach (var w in list) { r -= Mathf.Max(0f, w.weight); if (r <= 0f) return w; }
-            return list[list.Count - 1];
+            if (sum <= 0f) return list[0].value;
+            float t = (float)rng.NextDouble() * sum;
+            foreach (var w in list)
+            {
+                t -= Mathf.Max(0f, w.weight);
+                if (t <= 0f) return w.value;
+            }
+            return list[^1].value;
+        }
+
+        static int PcToSemitone(NoteName pc) => (int)pc; // DryWetMIDI NoteName maps to 0..11
+
+        static int AscendingSemis(int fromPc, int toPc)
+        {
+            int d = (toPc - fromPc);
+            if (d < 0) d += 12;
+            return d;
+        }
+        static int DescendingSemis(int fromPc, int toPc)
+        {
+            int d = (fromPc - toPc);
+            if (d < 0) d += 12;
+            return d;
+        }
+
+        // e.g., steps=2, dir=+1 means: go up two scale degrees from (startPc)
+        static int ScaleStepsToSemitones(NoteName[] scaleNames,
+                                         Dictionary<NoteName, int> degreeLookup,
+                                         NoteName startPc,
+                                         int steps,
+                                         int dir)
+        {
+            if (!degreeLookup.TryGetValue(startPc, out var deg))
+                return 0; // not expected if your candidate/anchor comes from scale
+
+            int semis = 0;
+            int fromPc = PcToSemitone(startPc);
+
+            for (int i = 0; i < steps; i++)
+            {
+                int nextDeg = (deg + (dir > 0 ? 1 : -1) + 7) % 7;
+                int toPc = PcToSemitone(scaleNames[nextDeg]);
+                semis += (dir > 0) ? AscendingSemis(fromPc, toPc) : -DescendingSemis(fromPc, toPc);
+                deg = nextDeg;
+                fromPc = toPc;
+            }
+            return semis;
         }
 
         private DryWetMidiNote ApplyIntervalDirective(
             DryWetMidiNote candidate,
             InterPhraseIntervalDirective interval,
-            MelodyPartState part,
             MIDIInstrumentSO instrument,
+            TonalityProfileSO profile,
+            NoteName[] scaleNames,
+            Dictionary<NoteName, int> degreeLookup,
             ref DryWetMidiNote anchor,
             ref bool anchorSet,
+            ref DryWetMidiNote lastTarget,
+            ref int cumSemisFromAnchor,
+            ref int stepIndex,
             int chordIndex,
             System.Random rng)
         {
             if (candidate == null || interval == null || !interval.enabled)
                 return candidate;
 
-            // 1. Establish anchor once (first note of the part)
+            // --------------------------------------------------------------------
+            // 1. Establish anchor once (first time this part uses the interval)
+            // --------------------------------------------------------------------
             if (!anchorSet)
             {
-                int dirForAnchor = (interval != null && interval.baseDirection != 0)
-                                    ? Math.Sign(interval.baseDirection) : 1;
+                int dirForAnchor = (interval.baseDirection != 0)
+                    ? Math.Sign(interval.baseDirection)
+                    : 1;
 
-                switch (interval?.anchorStart ?? AnchorStartMode.AutoFromDirection)
+                switch (interval.anchorStart)
                 {
                     case AnchorStartMode.Lowest:
                         anchor = DryWetMidiNote.Get(candidate.NoteName, instrument.octaveMin);
@@ -652,87 +731,183 @@ namespace MidiGenPlay.Composition
                         anchor = DryWetMidiNote.Get(candidate.NoteName, mid);
                         break;
 
-                    case AnchorStartMode.Random:   // NEW
+                    case AnchorStartMode.Random:
                         {
                             int low = instrument.octaveMin;
-                            int high = instrument.octaveMax + 1; // .Next upper bound is exclusive
-                            int rndOct = (rng != null) ? rng.Next(low, high)
-                                                       : UnityEngine.Random.Range(low, high);
+                            int high = instrument.octaveMax + 1; // upper bound exclusive
+                            int rndOct = (rng != null)
+                                ? rng.Next(low, high)
+                                : UnityEngine.Random.Range(low, high);
                             anchor = DryWetMidiNote.Get(candidate.NoteName, rndOct);
                             break;
                         }
 
                     case AnchorStartMode.AutoFromDirection:
                     default:
-                        anchor = MelodyStrategyCommon.SnapToEdgeOctave(candidate, instrument, dirForAnchor);
+                        // Old behavior: snap to edge depending on direction
+                        anchor = MelodyStrategyCommon.SnapToEdgeOctave(
+                            candidate, instrument, dirForAnchor);
                         break;
                 }
 
                 anchorSet = true;
+                lastTarget = anchor;
+                cumSemisFromAnchor = 0;
+
+                // 1.b) Optionally do NOT apply interval on the very first emitted note
+                // If we just initialized anchor and lastTarget == anchor, we are about to emit
+                // the first note for this interval pattern. Respect authoring choice.
+                if (!interval.applyOnFirstNote && lastTarget == anchor)
+                {
+                    DryWetMidiNote first;
+                    if (interval.firstNoteUsesAnchor)
+                    {
+                        // output exactly the anchor as first note
+                        first = anchor;
+                    }
+                    else
+                    {
+                        // output the candidate untouched as first note
+                        first = candidate;
+                    }
+
+                    lastTarget = first;
+
+                    if (_settings?.logGenerator == true)
+                    {
+                        Debug.Log($"<color=green>[MelodyTrackComposer] First note without interval | " +
+                                  $"anchor={anchor} cand={candidate} -> out={first}</color>");
+                    }
+
+                    return first;
+                }
 
                 if (_settings?.logGenerator == true)
-                    Debug.Log($"[MelodyTrackComposer] Anchor set → {anchor} (mode={interval?.anchorStart})");
+                {
+                    Debug.Log($"<color=green>[MelodyTrackComposer] Interval anchor set → {anchor} " +
+                              $"(mode={interval.anchorStart})</color>");
+                }
             }
 
-            // 2. Compute step index for this chord
-            int stepIndex = chordIndex; // 0,1,2,... (one step per chord/event)
+            // 2) Direction for this step (respect base dir; alternate on every APPLIED step)
+            int dir = Math.Sign(interval.baseDirection == 0 ? 1 : interval.baseDirection);
+            if (interval.alternateDirection && (stepIndex % 2 == 1)) dir = -dir;
 
-            int dir = interval.baseDirection;
-            if (dir == 0) dir = 1;
-            dir = Math.Sign(dir);
+            // --------------------------------------------------------------------
+            // 3. Decide base note for this step (Anchor vs Previous)
+            // --------------------------------------------------------------------
+            var baseNote = (interval.relativeMode == RelativeMode.Anchor)
+                ? anchor
+                : (lastTarget ?? anchor);
 
-            if (interval.alternateDirection && (stepIndex % 2 == 1))
-                dir = -dir;
+            int stepSemis = 0;
+            int chosenSteps = 0;
 
-            int semisOffset = stepIndex * interval.semitonesPerPhrase * dir;
+            switch (interval.mode)
+            {
+                case IntervalMode.FixedSemitones:
+                    stepSemis = interval.semitonesPerPhrase * dir;
+                    break;
 
-            // 3. Apply offset from anchor
-            /*var target = MelodyStrategyCommon.TransposePreservingPitchClass(
-                anchor, semisOffset, instrument, true);*/
+                case IntervalMode.PerDirectionSemitones:
+                    {
+                        int semis = (dir > 0)
+                            ? WeightedPick(interval.upSemitones, rng, 12)
+                            : WeightedPick(interval.downSemitones, rng, 12);
+                        stepSemis = semis * dir;
+                        break;
+                    }
 
+                case IntervalMode.PerDirectionScaleSteps:
+                    {
+                        int steps = (dir > 0)
+                            ? WeightedPick(interval.upScaleSteps, rng, 1)
+                            : WeightedPick(interval.downScaleSteps, rng, 1);
+
+                        // Use pitch-class of base note as starting degree
+                        chosenSteps = steps;
+                        var startPc = baseNote.NoteName;
+                        int semis = ScaleStepsToSemitones(
+                            scaleNames, degreeLookup, startPc, steps, dir);
+                        stepSemis = semis; // sign already applied by helper
+                        break;
+                    }
+            }
+
+            // --------------------------------------------------------------------
+            // 4. Apply interval using TransposePreservingPitchClass
+            // --------------------------------------------------------------------
+            /*
             DryWetMidiNote target;
 
             if (interval.lockPitchClassToAnchor)
             {
-                // MODE 1: fixed pitch class (e.g., C -> C -> C, climbing)
+                // Keep anchor pitch-class, accumulate semis from anchor
+                cumSemisFromAnchor += stepSemis;
                 target = MelodyStrategyCommon.TransposePreservingPitchClass(
-                    anchor, semisOffset, instrument);
+                    anchor, cumSemisFromAnchor, instrument);
             }
             else
             {
-                // MODE 2: keep candidate pitch class, only move its octave
-                // Use anchor's *octave* as reference, but candidate's NoteName.
-                int baseOct = anchor.Octave;
-                int octStep = interval.semitonesPerPhrase / 12; // assume multiples of 12 for octave motion
-                int newOct = baseOct + stepIndex * octStep * dir;
+                // Keep candidate pitch-class, but use register defined by baseNote + stepSemis
+                var regNote = MelodyStrategyCommon.TransposePreservingPitchClass(
+                    baseNote, stepSemis, instrument);
+                if (regNote != null)
+                    target = DryWetMidiNote.Get(candidate.NoteName, regNote.Octave);
+                else
+                    target = null;
+            }*/
+            // 4) Apply interval using TransposePreservingPitchClass to compute the REGISTER
+            var regNote = MelodyStrategyCommon.TransposePreservingPitchClass(
+                              baseNote, stepSemis, instrument);
 
-                if (interval.clampToRange)
-                {
-                    newOct = Mathf.Clamp(newOct, instrument.octaveMin, instrument.octaveMax);
-                }
-
-                target = DryWetMidiNote.Get(candidate.NoteName, newOct);
-            }
-
-            if (interval.clampToRange && target != null)
+            // Choose pitch-class according to the authoring switch
+            NoteName finalPc;
+            switch (interval.pitchClassSource)
             {
-                int minOct = instrument.octaveMin;
-                int maxOct = instrument.octaveMax;
-                int clampedOct = Mathf.Clamp(target.Octave, minOct, maxOct);
-                target = DryWetMidiNote.Get(target.NoteName, clampedOct);
+                case PitchClassSource.Anchor:
+                    finalPc = anchor.NoteName;
+                    break;
+                case PitchClassSource.ComputedRegister:
+                    finalPc = regNote.NoteName;
+                    break;
+                case PitchClassSource.Candidate:
+                default:
+                    finalPc = candidate.NoteName;
+                    break;
             }
 
-            // 4. Debug
-            if (_settings != null && _settings.logGenerator)
+            // Build final target at the computed register
+            DryWetMidiNote target = (regNote != null)
+                ? DryWetMidiNote.Get(finalPc, regNote.Octave)
+                : null;
+
+            // Clamp to instrument range if requested
+            if (target != null && interval.clampToRange)
+            {
+                int clamped = Mathf.Clamp(target.Octave, instrument.octaveMin, instrument.octaveMax);
+                target = DryWetMidiNote.Get(target.NoteName, clamped);
+            }
+
+            lastTarget = target ?? candidate;
+
+            if (_settings?.logGenerator == true)
             {
                 Debug.Log(
-                    $"[MelodyTrackComposer] Interval | chordIdx={chordIndex} " +
-                    $"step={stepIndex} semisPerPhrase={interval.semitonesPerPhrase} dir={dir} " +
-                    $"semisOffset={semisOffset} anchor={anchor} target={target}");
+                    $"<color=green>[MelodyTrackComposer] Interval step | chordIdx={chordIndex} " +
+                    $"mode={interval.mode} rel={interval.relativeMode} " +
+                    $"dir={(dir > 0 ? "Up" : "Down")} " +
+                    (interval.mode == IntervalMode.PerDirectionScaleSteps ? $"steps={chosenSteps} " : "") +
+                    $"stepSemis={stepSemis} anchor={anchor} base={baseNote} " +
+                    $"cand={candidate} -> target={target}</color>");
             }
+
+            // count only actual applications (not the first-note shortcut)
+            stepIndex++;
 
             return target ?? candidate;
         }
+
 
     }
 }
