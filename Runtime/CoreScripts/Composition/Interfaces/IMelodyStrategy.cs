@@ -368,6 +368,50 @@ namespace MidiGenPlay.Composition
             return n + semitones; // Uses DryWetMIDI's operator overload
         }
 
+        public static Note TransposePreservingPitchClass(
+            Note anchor,
+            int semitoneOffset,
+            MIDIInstrumentSO instrument,   // puede ser null, pero mejor pasarlo
+            bool clampToInstrumentRange = true)
+        {
+            if (anchor == null)
+                return null;
+
+            int midiAnchor = (int)(byte)anchor.NoteNumber; // 0..127
+            long midiDesired = midiAnchor + (long)semitoneOffset;
+
+            int pc = (int)((midiDesired % 12 + 12) % 12);
+            var pcName = (NoteName)pc;
+
+            int octDesired = (int)Math.Floor(midiDesired / 12.0) - 1;
+
+            int minOct = -1, maxOct = 9;
+            if (clampToInstrumentRange && instrument != null)
+            {
+                minOct = instrument.octaveMin;
+                maxOct = instrument.octaveMax;
+            }
+
+            int octClamped = Math.Max(minOct, Math.Min(maxOct, octDesired));
+
+            var note = Note.Get(pcName, octClamped);
+
+            int midi = (int)(byte)note.NoteNumber;
+            if (midi < 0) return Note.Get((NoteName)0, -1);
+            if (midi > 127) return Note.Get((NoteName)7, 9); // 127 = G9
+
+            return note;
+        }
+
+        public static Note SnapToEdgeOctave(Note n, MIDIInstrumentSO inst, int baseDirection)
+        {
+            if (n == null || inst == null) return n;
+
+            // If we’re going up, start as low as possible; if going down, start as high as possible.
+            int edgeOct = (baseDirection < 0) ? inst.octaveMax : inst.octaveMin;
+            return Note.Get(n.NoteName, edgeOct);
+        }
+
         /// <summary>
         /// Moves the note up by <paramref name="semitones"/> semitones (default = 1).
         /// </summary>

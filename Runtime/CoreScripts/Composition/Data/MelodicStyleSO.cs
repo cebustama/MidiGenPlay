@@ -31,6 +31,34 @@ namespace MidiGenPlay.Composition
     /// </summary>
     public enum ContourConstraint { None, AscendingOnly, DescendingOnly }
 
+    public enum AnchorStartMode { AutoFromDirection, Lowest, Highest, Mid, Random }
+
+    [Serializable]
+    public class InterPhraseIntervalDirective
+    {
+        [Tooltip("Enable phrase-to-phrase transposition pattern.")]
+        public bool enabled = false;
+
+        [Tooltip("Interval in semitones per phrase step. 12 = octave, 7 = fifth, 3 = minor third, etc.")]
+        public int semitonesPerPhrase = 12;
+
+        [Tooltip("Base direction: +1 = up, -1 = down.")]
+        public int baseDirection = 1;
+
+        [Tooltip("If true, flip direction every phrase: up/down/up/down...")]
+        public bool alternateDirection = false;
+
+        [Tooltip("Clamp to instrument range; if we hit the edge, stay on the boundary.")]
+        public bool clampToRange = true;
+
+        [Tooltip("Where to set first note (anchor)")]
+        public AnchorStartMode anchorStart = AnchorStartMode.AutoFromDirection;
+
+        [Tooltip("If true, keep the anchor's pitch class and only change octave (C -> C -> C...). " +
+             "If false, keep each candidate's pitch class and only change its octave.")]
+        public bool lockPitchClassToAnchor = true;
+    }
+
     /// <summary>
     /// Weighted directive applied to a single phrase: can override the base strategy,
     /// constrain contour, and optionally repeat/transposed motif notes.
@@ -47,6 +75,9 @@ namespace MidiGenPlay.Composition
 
         [Tooltip("If set, repeat the last N notes (optionally transposed).")]
         public RepeatLastNotesDirective repeatDirective;
+
+        [Tooltip("Optional inter-phrase transposition pattern.")]
+        public InterPhraseIntervalDirective intervalDirective;
     }
 
     /// <summary>
@@ -55,6 +86,7 @@ namespace MidiGenPlay.Composition
     [Serializable]
     public class RepeatLastNotesDirective
     {
+        public bool enabled = false;
         [Range(1, 8)] public int notesToRepeat = 2;
         public int transposeSemitones = 0;
     }

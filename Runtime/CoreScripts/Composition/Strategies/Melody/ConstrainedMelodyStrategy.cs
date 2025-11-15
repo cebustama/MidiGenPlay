@@ -1,4 +1,5 @@
 using Melanchall.DryWetMidi.MusicTheory;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -41,7 +42,7 @@ namespace MidiGenPlay.Composition
         public Note PickNext(
             NoteName[] chordPitchClasses,
             NoteName[] scaleNames,
-            System.Collections.Generic.Dictionary<NoteName, int> degreeLookup,
+            Dictionary<NoteName, int> degreeLookup,
             Note lastNote,
             MIDIInstrumentSO instrument,
             MelodicLeadingConfig cfg,
@@ -51,31 +52,28 @@ namespace MidiGenPlay.Composition
             MelodyPartState part,
             HashSet<int> allowedDegrees)
         {
-            // 1) Optional motif repetition
-            if (_repeat != null && phrase.NoteIndexInPhrase > 0 
+            // 1) Optional motif repetition (unchanged)
+            if (_repeat != null && phrase.NoteIndexInPhrase > 0
                 && phrase.PhraseStartNote != null)
             {
                 var prev = phrase.PhrasePeakNote ?? phrase.PhraseStartNote;
                 if (prev != null)
-                {
-                    // Very simple version: repeat/transpose the last known peak
-                    return MelodyStrategyCommon.Transpose(prev, _repeat.transposeSemitones);
-                }
+                    return MelodyStrategyCommon.Transpose(
+                        prev, _repeat.transposeSemitones);
             }
 
-            // 2) Delegate to the base strategy
+            // 2) Delegate to base strategy
             var candidate = _inner.PickNext(
                 chordPitchClasses, scaleNames, degreeLookup,
                 lastNote, instrument, cfg, rng, phrase, profile, part, allowedDegrees);
 
             if (candidate == null) return null;
 
-            // 3) Nudge to respect contour (light-touch)
+            // 3) Contour nudging (existing logic)
             if (_contour != ContourConstraint.None && phrase.PhraseStartNote != null)
             {
                 int lastSemis = MelodyStrategyCommon.Semis(
                     phrase.PhrasePeakNote ?? phrase.PhraseStartNote);
-
                 int candSemis = MelodyStrategyCommon.Semis(candidate);
 
                 if (_contour == ContourConstraint.AscendingOnly && candSemis < lastSemis)
@@ -83,7 +81,17 @@ namespace MidiGenPlay.Composition
                 if (_contour == ContourConstraint.DescendingOnly && candSemis > lastSemis)
                     return MelodyStrategyCommon.NudgeDown(candidate, 1);
             }
+
             return candidate;
+        }
+
+        private static Note ClampToInstrument(Note n, MIDIInstrumentSO inst)
+        {
+            int min = inst.octaveMin;
+            int max = inst.octaveMax;
+
+            int oct = Mathf.Clamp(n.Octave, min, max);
+            return Note.Get(n.NoteName, oct);
         }
     }
 }

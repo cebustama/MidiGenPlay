@@ -3,6 +3,7 @@ using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -127,6 +128,10 @@ namespace MidiGenPlay.Composition
             if (_melodicStyle != null)
                 baseForThisPart = ResolveStrategy(_melodicStyle.baseStrategy);
 
+            if (_settings?.logGenerator == true)
+                Debug.Log($"<color=yellow>[MelodyTrackComposer] Using melodic style '{_melodicStyle.name}' " +
+                          $"baseStrategy={_melodicStyle.baseStrategy}</color>");
+
             // RNG, timeline, etc.
             var rng = ctx?.rng ?? new System.Random();
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -179,6 +184,9 @@ namespace MidiGenPlay.Composition
                 return list[list.Count - 1];
             }
 
+            DryWetMidiNote intervalAnchor = null;
+            bool intervalAnchorSet = false;
+
             // walk chord-by-chord (currently 1 phrase per chord span)
             for (int chordIndex = 0; chordIndex < evts.Count; chordIndex++)
             {
@@ -200,6 +208,7 @@ namespace MidiGenPlay.Composition
                 IMelodyStrategy activeStrategy = baseForThisPart;
                 var contour = ContourConstraint.None;
                 RepeatLastNotesDirective repeat = null;
+                InterPhraseIntervalDirective interval = null;
 
                 if (_melodicStyle != null && _melodicStyle.usePerPhraseOverrides
                     && _melodicStyle.perPhraseDirectives != null
@@ -213,13 +222,25 @@ namespace MidiGenPlay.Composition
 
                         contour = pickedDir.contour;
                         repeat = pickedDir.repeatDirective;
+                        interval = pickedDir.intervalDirective;
+                    }
+
+                    if (pickedDir != null && _settings?.logGenerator == true)
+                    {
+                        Debug.Log(
+                            $"<color=yellow>[MelodyTrackComposer] Phrase dir | chordIdx={chordIndex} " +
+                            $"overrideStrategy={pickedDir.overrideStrategy} " +
+                            $"contour={pickedDir.contour} " +
+                            $"intervalEnabled={pickedDir.intervalDirective?.enabled} " +
+                            $"semisPerPhrase={pickedDir.intervalDirective?.semitonesPerPhrase}</color>");
                     }
                 }
 
                 // Wrap in constraint decorator only if needed
                 if (contour != ContourConstraint.None || repeat != null)
                     activeStrategy = 
-                        new ConstrainedMelodyStrategy(activeStrategy, contour, repeat);
+                        new ConstrainedMelodyStrategy(
+                            activeStrategy, contour, repeat);
 
                 // track info about this phrase so we can fill in PhraseState:
                 DryWetMidiNote phraseFirstNote = null;
@@ -275,6 +296,16 @@ namespace MidiGenPlay.Composition
                         profile,
                         partState,
                         allowedDegrees);
+
+                    // Apply inter-phrase interval pattern here
+                    picked = ApplyIntervalDirective(
+                        picked,
+                        interval,
+                        partState,
+                        instrument,
+                        ref intervalAnchor,
+                        ref intervalAnchorSet,
+                        chordIndex, rng);
 
                     if (picked == null) { lastMelody = null; continue; }
 
@@ -367,223 +398,6 @@ namespace MidiGenPlay.Composition
 
             return file;
         }
-
-        /*
-        private MidiFile ComposeMelodyFromProgression(
-            MIDIInstrumentSO instrument,
-            int bpm,
-            SongConfig.PartConfig part,
-            SongConfig.PartConfig.TrackConfig trackCfg,
-            ChordProgressionData prog,
-            int channel,
-            MidiGenerator.GenContext ctx,
-            TonalityProfileSO profile)
-        {
-            var rng = ctx?.rng ?? new System.Random();
-
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var pb = new PatternBuilder().MoveToStart();
-
-            // === Global timing info for the part ===
-            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
-            int beatsPerBar = tsInfo.BeatsPerMeasure;
-
-            // Progression timing resolution:
-            // startStep / lengthSteps are in "steps", where stepsPerBeat = prog.subdivisions.
-            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
-
-            // === Tonal / scale info ===
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7)
-                                .Select(n => n.NoteName)
-                                .ToArray();
-
-            int partMeasures = Mathf.Max(1, part.Measures);
-            double partTotalBeats = partMeasures * beatsPerBar;
-            var tonicPc = scaleNames[0]; // degree-0 pitch class (tonic)
-
-            // NoteName -> 0..6 scale degree index in this tonality
-            var degreeLookup = new Dictionary<NoteName, int>();
-            for (int i = 0; i < scaleNames.Length && i < 7; i++)
-            {
-                if (!degreeLookup.ContainsKey(scaleNames[i]))
-                    degreeLookup[scaleNames[i]] = i;
-            }
-
-            // === Sort chord progression events in time ===
-            var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
-                        .OrderBy(e => e.startStep)
-                        .ToList();
-
-            if (evts.Count == 0)
-                return new MidiFile(); // nothing to do
-
-            // remember the previous melodic note across phrases
-            DryWetMidiNote lastMelody = null;
-            var capturedMelody = new List<MidiGenerator.GuideNote>();
-
-            // walk chord-by-chord (currently 1 phrase per chord span)
-            for (int chordIndex = 0; chordIndex < evts.Count; chordIndex++)
-            {
-                var ce = evts[chordIndex];
-
-                // --- 1. Harmonic context: chord pitch classes for this span ---
-                var degreeRoot = scaleNames[(int)ce.degree];
-                var chordPitchClasses = GetChordNoteNames(degreeRoot, ce.quality);
-
-                // --- 2. Convert chord event timing (steps) -> beats ---
-                double chordStartBeats = ce.startStep / (double)stepsPerBeat;
-                double chordBeats = Mathf.Max(1, ce.lengthSteps) / (double)stepsPerBeat;
-
-                // --- 3. Ask the PhrasePlanner to create expressive phrase slots
-                // (bursts, sustains, rests, accents, etc.) for this chord span ---
-                var phraseSlots = _phrasePlanner.PlanPhraseSlotsForSpan(
-                    chordStartBeats,
-                    chordBeats,
-                    beatsPerBar,
-                    chordIndex,
-                    rng,
-                    profile
-                );
-
-                // track info about this phrase so we can fill in PhraseState:
-                DryWetMidiNote phraseFirstNote = null;
-                DryWetMidiNote phrasePeakNote = null;
-
-                bool IsFinalSlotOfPart(PhrasePlanner.PhraseSlot s)
-                {
-                    bool lastChord = (chordIndex == evts.Count - 1);
-                    bool lastSlot = (s.slotIndexInPhrase == s.totalSlotsInPhrase - 1);
-                    return lastChord && lastSlot;
-                }
-
-                // --- 4. For each planned slot, pick pitch (or rest) and emit MIDI ---
-                foreach (var slot in phraseSlots)
-                {
-                    // Rest slot: don't ask the strategy, just "breathe"
-                    if (!slot.playNote) { lastMelody = null; continue; }
-
-                    // Build the PhraseState for this slot (what the strategy sees):
-                    var phraseState = new PhrasePlanner.PhraseState
-                    {
-                        PhraseIndex = slot.phraseId,
-                        NoteIndexInPhrase = slot.slotIndexInPhrase,
-                        TotalNotesInPhrase = slot.totalSlotsInPhrase,
-                        IsStrongBeat = slot.isAccent,      // accent/downbeat hint
-                        IsPhraseEnd = slot.isPhraseEnd,   // cadence / "land it"
-                        DesiredContourDir = slot.desiredContourDir, // +1 up / -1 down, etc.
-
-                        PhraseStartNote = phraseFirstNote,
-                        PhrasePeakNote = phrasePeakNote
-                    };
-
-                    // Part-level context
-                    var partState = new MelodyPartState
-                    {
-                        ChordIndex = chordIndex,
-                        TotalChords = evts.Count,
-                        IsFinalSlotOfPart = IsFinalSlotOfPart(slot),
-                        PartStartBeat = 0.0,
-                        PartTotalBeats = partTotalBeats,
-                        TonicPC = tonicPc
-                    };
-
-
-                    // Ask melodic strategy for the actual pitch to play here.
-                    // (May return null for "no note", but usually not.)
-                    var picked = _strategy.PickNext(
-                        chordPitchClasses,      // chord context
-                        scaleNames,             // scale context
-                        degreeLookup,           // scale degree lookup
-                        lastMelody,             // what we played last
-                        instrument,             // range, etc.
-                        _cfg,                   // player personality
-                        rng,                    // deterministic random
-                        phraseState,            // phrase context
-                        profile,                 // tonality profile (Dorian, etc.)
-                        partState
-                    );
-
-                    if (picked == null)
-                    {
-                        // Strategy chose to rest anyway
-                        lastMelody = null;
-                        continue;
-                    }
-
-                    // Track phrase-first and phrase-peak for future slots this phrase
-                    if (phraseFirstNote == null)
-                        phraseFirstNote = picked;
-
-                    if (phrasePeakNote == null ||
-                        MelodyStrategyCommon.Semis(picked) >
-                        MelodyStrategyCommon.Semis(phrasePeakNote))
-                    {
-                        phrasePeakNote = picked;
-                    }
-
-                    // How loud should we play this slot?
-                    int velocityVal = ChooseVelocityForSlot(slot, picked, profile, rng);
-                    var velocity7 = (SevenBitNumber)Mathf.Clamp(velocityVal, 1, 127);
-
-                    // Convert beats -> musical time spans
-                    var startTs = MusicalTimeSpan.Quarter.Multiply(slot.whenBeat);
-                    var durTs = MusicalTimeSpan.Quarter.Multiply(slot.durBeats);
-
-                    // Emit note
-                    pb.MoveToTime(startTs);
-                    pb.Note(picked, durTs, velocity7);
-
-                    // Add entry to GuideNotes list
-                    capturedMelody.Add(new MidiGenerator.GuideNote
-                    {
-                        startBeats = slot.whenBeat,
-                        durBeats = slot.durBeats,
-                        note = picked
-                    });
-
-                    // remember for next slot
-                    lastMelody = picked;
-
-                    // (Optional next step: if slot.isPhraseEnd, we could update
-                    // internal memory for call/response, e.g. lastPhraseEndNote = picked.)
-                    if (slot.isPhraseEnd)
-                    {
-                        _phraseMemory.lastPhraseEndNote = picked;
-                    }
-                }
-
-                // pull the planner's structural memory (phraseId, contourDir)
-                _phraseMemory = _phrasePlanner.GetMemory();
-                // inject the melodic memory we know (lastPhraseEndNote)
-                _phraseMemory.lastPhraseEndNote = lastMelody;
-                // push it back so planner can see it next chord
-                _phrasePlanner.SetMemory(_phraseMemory);
-            }
-
-            // --- 5. Finalize MIDI file ---
-            var file = pb.Build().ToFile(tempoMap);
-
-            StampBankAndPatch(file, instrument, channel);
-            ForceAllChannel(file, channel);
-
-            if (_settings?.logGenerator == true)
-            {
-                var (tracks, notes, lastTick) = Inspect(file);
-                Debug.Log($"[MelodyTrackComposer] " +
-                    $"tracks={tracks} notes={notes} lastTick={lastTick}");
-            }
-
-            // push melody into context cache
-            if (ctx != null && ctx.SetMelodyForPartMusician != null)
-            {
-                var musicianId = trackCfg?.MusicianId;
-                ctx.SetMelodyForPartMusician(part, musicianId, capturedMelody);
-            }
-
-            return file;
-        }
-        */
 
         /// <summary>
         /// Generates one note per beat using the active chord's tones.
@@ -803,5 +617,122 @@ namespace MidiGenPlay.Composition
             foreach (var w in list) { r -= Mathf.Max(0f, w.weight); if (r <= 0f) return w; }
             return list[list.Count - 1];
         }
+
+        private DryWetMidiNote ApplyIntervalDirective(
+            DryWetMidiNote candidate,
+            InterPhraseIntervalDirective interval,
+            MelodyPartState part,
+            MIDIInstrumentSO instrument,
+            ref DryWetMidiNote anchor,
+            ref bool anchorSet,
+            int chordIndex,
+            System.Random rng)
+        {
+            if (candidate == null || interval == null || !interval.enabled)
+                return candidate;
+
+            // 1. Establish anchor once (first note of the part)
+            if (!anchorSet)
+            {
+                int dirForAnchor = (interval != null && interval.baseDirection != 0)
+                                    ? Math.Sign(interval.baseDirection) : 1;
+
+                switch (interval?.anchorStart ?? AnchorStartMode.AutoFromDirection)
+                {
+                    case AnchorStartMode.Lowest:
+                        anchor = DryWetMidiNote.Get(candidate.NoteName, instrument.octaveMin);
+                        break;
+
+                    case AnchorStartMode.Highest:
+                        anchor = DryWetMidiNote.Get(candidate.NoteName, instrument.octaveMax);
+                        break;
+
+                    case AnchorStartMode.Mid:
+                        int mid = (instrument.octaveMin + instrument.octaveMax) / 2;
+                        anchor = DryWetMidiNote.Get(candidate.NoteName, mid);
+                        break;
+
+                    case AnchorStartMode.Random:   // NEW
+                        {
+                            int low = instrument.octaveMin;
+                            int high = instrument.octaveMax + 1; // .Next upper bound is exclusive
+                            int rndOct = (rng != null) ? rng.Next(low, high)
+                                                       : UnityEngine.Random.Range(low, high);
+                            anchor = DryWetMidiNote.Get(candidate.NoteName, rndOct);
+                            break;
+                        }
+
+                    case AnchorStartMode.AutoFromDirection:
+                    default:
+                        anchor = MelodyStrategyCommon.SnapToEdgeOctave(candidate, instrument, dirForAnchor);
+                        break;
+                }
+
+                anchorSet = true;
+
+                if (_settings?.logGenerator == true)
+                    Debug.Log($"[MelodyTrackComposer] Anchor set → {anchor} (mode={interval?.anchorStart})");
+            }
+
+            // 2. Compute step index for this chord
+            int stepIndex = chordIndex; // 0,1,2,... (one step per chord/event)
+
+            int dir = interval.baseDirection;
+            if (dir == 0) dir = 1;
+            dir = Math.Sign(dir);
+
+            if (interval.alternateDirection && (stepIndex % 2 == 1))
+                dir = -dir;
+
+            int semisOffset = stepIndex * interval.semitonesPerPhrase * dir;
+
+            // 3. Apply offset from anchor
+            /*var target = MelodyStrategyCommon.TransposePreservingPitchClass(
+                anchor, semisOffset, instrument, true);*/
+
+            DryWetMidiNote target;
+
+            if (interval.lockPitchClassToAnchor)
+            {
+                // MODE 1: fixed pitch class (e.g., C -> C -> C, climbing)
+                target = MelodyStrategyCommon.TransposePreservingPitchClass(
+                    anchor, semisOffset, instrument);
+            }
+            else
+            {
+                // MODE 2: keep candidate pitch class, only move its octave
+                // Use anchor's *octave* as reference, but candidate's NoteName.
+                int baseOct = anchor.Octave;
+                int octStep = interval.semitonesPerPhrase / 12; // assume multiples of 12 for octave motion
+                int newOct = baseOct + stepIndex * octStep * dir;
+
+                if (interval.clampToRange)
+                {
+                    newOct = Mathf.Clamp(newOct, instrument.octaveMin, instrument.octaveMax);
+                }
+
+                target = DryWetMidiNote.Get(candidate.NoteName, newOct);
+            }
+
+            if (interval.clampToRange && target != null)
+            {
+                int minOct = instrument.octaveMin;
+                int maxOct = instrument.octaveMax;
+                int clampedOct = Mathf.Clamp(target.Octave, minOct, maxOct);
+                target = DryWetMidiNote.Get(target.NoteName, clampedOct);
+            }
+
+            // 4. Debug
+            if (_settings != null && _settings.logGenerator)
+            {
+                Debug.Log(
+                    $"[MelodyTrackComposer] Interval | chordIdx={chordIndex} " +
+                    $"step={stepIndex} semisPerPhrase={interval.semitonesPerPhrase} dir={dir} " +
+                    $"semisOffset={semisOffset} anchor={anchor} target={target}");
+            }
+
+            return target ?? candidate;
+        }
+
     }
 }
