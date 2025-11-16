@@ -203,7 +203,8 @@ namespace MidiGenPlay.Composition
             var rng = ctx?.rng ?? new System.Random();
 
             // Build (or profile-drive) a progression.
-            var prog = BuildProceduralProgression(part, ctx, rng);
+            var prog = BuildProceduralProgression(part, ctx, rng,
+                verbose: _settings.logGenerator == true);
             // Cache progression in GenContext so bass / melody / harmony can reuse.
             ctx?.SetProgressionForPart?.Invoke(part, prog);
 
@@ -393,7 +394,8 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part, MidiGenerator.GenContext ctx,
             System.Random rng,
             float baseW = 1f, float rootB = 3f, float domB = 1.5f, float charB = 2f,
-            int defaultVelocity = 96)
+            int defaultVelocity = 96,
+            bool verbose = false)
         {
             TonalityProfileSO profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
             if (profile != null)
@@ -403,7 +405,8 @@ namespace MidiGenPlay.Composition
                     part,
                     profile,
                     rng,
-                    defaultVelocity
+                    defaultVelocity,
+                    verbose
                 );
             }
 
@@ -475,7 +478,8 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part,
             TonalityProfileSO profile,
             System.Random rng,
-            int defaultVelocity = 96)
+            int defaultVelocity = 96,
+            bool verbose = false)
         {
             // 1. Derive base per-degree weights (size 7)
             // Scale degrees (0..6, 0 = I, 1 = II, ..., 6 = VII)
@@ -499,6 +503,26 @@ namespace MidiGenPlay.Composition
                     w += profile.characteristicBonus;
 
                 weights[i] = w;
+            }
+
+            // Log
+            if (verbose)
+            {
+                var weightLines = new List<string>();
+                for (int i = 0; i < 7; i++)
+                {
+                    var deg = (ScaleDegree)i;
+                    var qual = GetDiatonicTriadQuality(part.Tonality, deg);
+                    var rn = ToRomanRich(deg, qual);
+                    weightLines.Add($"{i}:{rn}= {weights[i]:0.##}");
+                }
+
+                Debug.Log($"[ChordProfile] Using profile for part '{part.Name}': " +
+                          profile.ToDebugString(includeVamps: true));
+
+                Debug.Log($"<color=orange>[ChordProfile] Base degree weights for {part.Tonality} " +
+                    $"over {part.RootNote}: " +
+                          string.Join(" | ", weightLines) + "</color>");
             }
 
             // 2. Decide if we’re going to use a vamp or just free-pick
@@ -526,6 +550,21 @@ namespace MidiGenPlay.Composition
                 };
             }
 
+            // Log
+            if (verbose)
+            {
+                if (useVamp && vampRuntime.degreesSequence != null)
+                {
+                    var seq = string.Join(",", vampRuntime.degreesSequence);
+                    Debug.Log($"[ChordProfile] Chosen vamp for part '{part.Name}': " +
+                              $"degrees=[{seq}] bars={vampRuntime.barsRemaining}");
+                }
+                else
+                {
+                    Debug.Log($"[ChordProfile] No vamp chosen for part '{part.Name}', " +
+                        $"using free-pick chords.");
+                }
+            }
 
             var ts = GetTimeSignatureDetails(
                 part.TimeSignature,
@@ -548,6 +587,13 @@ namespace MidiGenPlay.Composition
             int bar = 0;
             while (bar < measures)
             {
+                if (verbose)
+                {
+                    Debug.Log($"[ChordProfile] Entering vamp branch: " +
+                        $"barsRemaining={vampRuntime.barsRemaining} " +
+                              $"for part '{part.Name}'");
+                }
+
                 // --- Vamp branch ---
                 if (useVamp && vampRuntime.barsRemaining > 0)
                 {
@@ -565,6 +611,13 @@ namespace MidiGenPlay.Composition
                         var sd = (ScaleDegree)degIdx;
                         var qual = GetDiatonicTriadQuality(part.Tonality, sd);
                         pickedDegrees.Add((sd, qual));
+
+                        if (verbose)
+                        {
+                            var rn = ToRomanRich(sd, qual);
+                            Debug.Log($"[ChordProfile]   Bar {bar + 1}/{measures} " +
+                                $"(vamp): degIdx={degIdx} rn={rn}");
+                        }
                     }
 
                     vampRuntime.barsRemaining--;
@@ -588,12 +641,29 @@ namespace MidiGenPlay.Composition
                 else
                 {
                     float total = localWeights.Sum();
-                    float pick = (float)rng.NextDouble() * total;
+                    float pickVal = (float)rng.NextDouble() * total;
+
+                    if (verbose)
+                    {
+                        var lwLines = new List<string>();
+                        for (int i = 0; i < 7; i++)
+                        {
+                            var deg = (ScaleDegree)i;
+                            var qual = GetDiatonicTriadQuality(part.Tonality, deg);
+                            var rn = ToRomanRich(deg, qual);
+                            lwLines.Add($"{i}:{rn} w={localWeights[i]:0.##}");
+                        }
+
+                        Debug.Log($"[ChordProfile] Bar {bar + 1}/{measures} free-pick weights: " +
+                                  string.Join(" | ", lwLines) +
+                                  $"  (roulette pick={pickVal:0.###} / total={total:0.###})");
+                    }
+
                     chosenIdx = 0;
                     for (; chosenIdx < 7; chosenIdx++)
                     {
-                        if (pick <= localWeights[chosenIdx]) break;
-                        pick -= localWeights[chosenIdx];
+                        if (pickVal <= localWeights[chosenIdx]) break;
+                        pickVal -= localWeights[chosenIdx];
                     }
                     if (chosenIdx >= 7) chosenIdx = 6;
                 }
@@ -601,6 +671,14 @@ namespace MidiGenPlay.Composition
                 var sdChosen = (ScaleDegree)chosenIdx;
                 var qChosen = GetDiatonicTriadQuality(part.Tonality, sdChosen);
                 pickedDegrees.Add((sdChosen, qChosen));
+
+                if (verbose)
+                {
+                    var rn = ToRomanRich(sdChosen, qChosen);
+                    Debug.Log($"[ChordProfile]   Bar {bar + 1}/{measures} " +
+                        $"picked degree idx={chosenIdx} rn={rn}");
+                }
+
                 bar++;
             }
 
@@ -610,6 +688,14 @@ namespace MidiGenPlay.Composition
             prog.subdivisions = subdivisions;
             prog.events = new List<ChordProgressionData.ChordEvent>();
             prog.RebuildFromAnchors(anchors, pickedDegrees, defaultVelocity);
+
+            if (verbose && prog.events != null)
+            {
+                var seq = string.Join("  ",
+                    prog.events.Select(e => ToRomanRich(e.degree, e.quality)));
+                Debug.Log($"[ChordProfile] Final profile-driven progression for " +
+                    $"part '{part.Name}': {seq}");
+            }
 
             return prog;
         }

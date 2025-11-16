@@ -130,15 +130,7 @@ namespace MidiGenPlay.Composition
                             return FindProgressionForPart(p); // existing authored-based lookup
                         },
 
-                        SetProgressionForPart = (p, pr) =>
-                        {
-                            progressionByPart[p] = pr;
-                            if (_settings?.logGenerator == true && pr != null)
-                            {
-                                var seq = string.Join("  ", pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
-                                Debug.Log($"<color=yellow>{LogTag} Cached progression for part '{p.Name}': {seq}</color>");
-                            }
-                        },
+                        SetProgressionForPart = CreateSetProgressionForPart(progressionByPart),
 
                         // Tonality cache
                         GetTonalityProfileForPart = (p) =>
@@ -322,15 +314,7 @@ namespace MidiGenPlay.Composition
                     if (progressionByPart.TryGetValue(p, out var pr)) return pr;
                     return FindProgressionForPart(p);
                 },
-                SetProgressionForPart = (p, pr) =>
-                {
-                    progressionByPart[p] = pr;
-                    if (_settings?.logGenerator == true && pr != null)
-                    {
-                        var seq = string.Join("  ", pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
-                        Debug.Log($"<color=yellow>{LogTag} Cached progression for part '{p.Name}': {seq}</color>");
-                    }
-                },
+                SetProgressionForPart = CreateSetProgressionForPart(progressionByPart),
 
                 // tonality profile lookup delegated to settings
                 GetTonalityProfileForPart = (p) =>
@@ -382,65 +366,6 @@ namespace MidiGenPlay.Composition
             var channelMap = 
                 BuildChannelMap((rolesForChannels ?? Array.Empty<TrackRole>()).ToList());
 
-            // --- Generate tracks in two passes ---
-            // TODO: Encapsulate passes with cfg.Role as argument
-            // Pass 1: everything except Harmony
-            /*
-            for (int i = 0; i < part.Tracks.Count; i++)
-            {
-                var cfg = part.Tracks[i];
-
-                // Get cached instrument
-                if (instrumentOverrides != null
-                    && !string.IsNullOrEmpty(cfg.MusicianId)
-                    && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
-                    && inst != null)
-                {
-                    if (_settings?.logGenerator == true)
-                        Debug.Log($"{LogTag} [Override] Using pinned " +
-                            $"instrument '{inst.InstrumentName}' for " +
-                            $"mus='{cfg.MusicianId}' " +
-                            $"role={cfg.Role}.");
-
-                    cfg.Instrument = inst; // composer must honor this
-                }
-
-                // Track-specific deterministic seed so adding a new track doesn't shift others
-                var trackSeed = StableHash32(
-                    $"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
-                var trackRng = new System.Random(trackSeed);
-
-                GenerateOne(full, part, cfg, channelMap[i], bpm, 
-                    partTicks, 0, ctx, producedByRole, trackRng);
-            }
-
-            // Pass 2: Harmony (needs lead/melody available in ctx)
-            for (int i = 0; i < part.Tracks.Count; i++)
-            {
-                var cfg = part.Tracks[i];
-
-                if (instrumentOverrides != null
-                    && !string.IsNullOrEmpty(cfg.MusicianId)
-                    && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
-                    && inst != null)
-                {
-                    if (_settings?.logGenerator == true)
-                        Debug.Log($"{LogTag} [Override] Using pinned " +
-                            $"instrument '{inst.InstrumentName}' for " +
-                            $"mus='{cfg.MusicianId}' " +
-                            $"role={cfg.Role}.");
-
-                    cfg.Instrument = inst; // composer must honor this
-                }
-
-                var trackSeed = StableHash32(
-                    $"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
-                var trackRng = new System.Random(trackSeed);
-
-                if (cfg.Role == TrackRole.Harmony)
-                    GenerateOne(full, part, cfg, channelMap[i], bpm, 
-                        partTicks, 0, ctx, producedByRole, trackRng);
-            }*/
 
             var render = new PartRender { merged = full, partTicks = partTicks, bpm = bpm };
 
@@ -538,8 +463,8 @@ namespace MidiGenPlay.Composition
             if (_settings?.logGenerator == true)
             {
                 Debug.Log($"{LogTag} Start part='{part.Name}' role={cfg.Role} " +
-                    $"ch={channel} inst={InstName(cfg)} pattern={PatternName(cfg)} " +
-                          $"@tick={cursorTicks} lenTicks={partTicks}");
+                    $"ch={channel} inst={InstName(cfg)}" +
+                    $"@tick={cursorTicks} lenTicks={partTicks}");
             }
 
             var prev = ctx.rng;
@@ -738,6 +663,50 @@ namespace MidiGenPlay.Composition
                 }
                 return (int)hash;
             }
+        }
+
+        private Action<SongConfig.PartConfig, ChordProgressionData> 
+            CreateSetProgressionForPart(
+            Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart)
+        {
+            return (p, pr) =>
+            {
+                progressionByPart[p] = pr;
+
+                if (_settings?.logGenerator == true && pr != null)
+                {
+                    // 1) Roman numerals (existing behaviour)
+                    var seqRoman = string.Join("  ",
+                        pr.events.Select(e => ToRomanRich(e.degree, e.quality)));
+
+                    // 2) Concrete chord labels using MusicTheory
+                    var chordLabels = pr.events.Select(e =>
+                    {
+                        var pcs = ChordPitchClasses(p.Tonality, p.RootNote, e.degree, e.quality);
+                        if (pcs == null || pcs.Length == 0)
+                            return "?";
+
+                        var rootPc = pcs[0];
+
+                        // Spell root relative to the key (C, D♭, etc.)
+                        var rootLabel = SpellNoteForDegree(rootPc, p.RootNote, (int)e.degree);
+
+                        var notesStr = string.Join(" ", pcs.Select(n => n.ToString()));
+
+                        // Example: "Cmaj7 [C E G B]" – e.quality.ToString() already carries the suffix
+                        return $"{rootLabel}{e.quality} [{notesStr}]";
+                    });
+
+                    var seqChords = string.Join("  ", chordLabels);
+
+                    Debug.Log(
+                        $"<color=orange>{LogTag} " +
+                        $"Cached progression for part '{p.Name}': {seqRoman}</color>");
+                    Debug.Log(
+                        $"<color=orange>{LogTag} " +
+                        $"Progression chords for part '{p.Name}': {seqChords}</color>");
+                }
+            };
         }
     }
 }

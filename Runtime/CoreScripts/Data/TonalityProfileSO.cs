@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 
@@ -71,6 +72,65 @@ namespace MidiGenPlay.Composition
 
             [Tooltip("Max bars to repeat this vamp once chosen.")]
             public int maxBars;
+        }
+
+        public string ToDebugString(
+            bool includeIdentity = true,
+            bool includeWeights = true,
+            bool includeFormRules = true,
+            bool includeVamps = true)
+        {
+            var parts = new List<string>();
+
+            if (includeIdentity)
+            {
+                parts.Add($"id='{profileId}'");
+                parts.Add($"name='{displayName}'");
+                parts.Add($"tonality={tonality}");
+
+                if (characteristicDegrees != null && characteristicDegrees.Count > 0)
+                {
+                    parts.Add($"charDegs=[{string.Join(",", characteristicDegrees)}]");
+                }
+            }
+
+            if (includeWeights)
+            {
+                if (baseDegreeWeights != null && baseDegreeWeights.Count > 0)
+                {
+                    var wStr = string.Join(",",
+                        baseDegreeWeights.Select(w => w.ToString("0.##")));
+                    parts.Add($"baseW=[{wStr}]");
+                }
+                parts.Add($"tonicBonus={tonicBonus:0.##}");
+                parts.Add($"supportDeg={supportDegree}");
+                parts.Add($"supportBonus={supportBonus:0.##}");
+                parts.Add($"charBonus={characteristicBonus:0.##}");
+            }
+
+            if (includeFormRules)
+            {
+                parts.Add($"firstBarTonicBonus={firstBarTonicBonus:0.##}");
+                parts.Add($"forceCadenceToTonic={forceCadenceToTonic}");
+            }
+
+            if (includeVamps && vampCandidates != null && vampCandidates.Count > 0)
+            {
+                var vampStr = string.Join(" | ",
+                    vampCandidates.Select(v =>
+                        $"[{string.Join(",", v.degrees)}] w={v.weight:0.##} " +
+                        $"bars={v.minBars}-{v.maxBars}"));
+                parts.Add($"vamps={vampStr}");
+            }
+
+            return $"TonalityProfileSO({string.Join("; ", parts)})";
+        }
+
+        public override string ToString()
+        {
+            // Default: identity + weights only (no vamps/form) to keep it compact
+            return ToDebugString(includeIdentity: true, includeWeights: true,
+                                 includeFormRules: false, includeVamps: false);
         }
     }
 }

@@ -67,7 +67,10 @@ namespace MidiGenPlay.Composition
             if (prog == null)
             {
                 var rng = ctx?.rng ?? new System.Random();
-                prog = ChordTrackComposer.BuildProceduralProgression(part, ctx, rng);
+
+                prog = ChordTrackComposer.BuildProceduralProgression(
+                    part, ctx, rng, verbose: true);
+
                 ctx?.SetProgressionForPart?.Invoke(part, prog);
                 if (_settings?.logGenerator == true)
                     Debug.Log($"[MelodyTrackComposer] " +
@@ -149,7 +152,6 @@ namespace MidiGenPlay.Composition
             var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7)
                                 .Select(n => n.NoteName)
                                 .ToArray();
-
 
             int partMeasures = Mathf.Max(1, part.Measures);
             double partTotalBeats = partMeasures * beatsPerBar;

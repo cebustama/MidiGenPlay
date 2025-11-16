@@ -83,7 +83,7 @@ namespace MidiGenPlay.Composition
         }
         #endregion
 
-        private const bool useLogs = true;
+        private const bool useLogs = false;
 
         private PhraseMemory _memory; // running memory across phrases
         private readonly MelodicLeadingConfig _cfg;
