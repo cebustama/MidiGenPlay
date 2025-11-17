@@ -9,7 +9,7 @@ namespace MidiGenPlay.Composition
     /// and provide a MelodicStyleSO (base strategy + per-phrase directives).
     /// Gameplay attaches this to TrackConfig.Parameters.Style so the composer can read it.
     /// </summary>
-    [CreateAssetMenu(menuName = "ALWTTT/Cards/MelodyCardConfig")]
+    [CreateAssetMenu(menuName = "MidiGenPlay/TrackConfigs/MelodyCardConfig")]
     public class MelodyCardConfigSO : TrackStyleBundleSO
     {
         [Header("Leading (optional override)")]

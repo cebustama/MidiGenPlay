@@ -26,11 +26,11 @@ namespace MidiGenPlay.MusicTheory
 
         private static readonly Dictionary<TempoRange, (int Min, int Max)> TempoRanges = new()
         {
-            { TempoRange.VerySlow, (40, 60) },
-            { TempoRange.Slow, (61, 90) },
-            { TempoRange.Moderate, (91, 120) },
-            { TempoRange.Fast, (121, 160) },
-            { TempoRange.VeryFast, (161, 200) }
+            { TempoRange.VerySlow, (61, 90) },
+            { TempoRange.Slow, (91, 120) },
+            { TempoRange.Moderate, (121, 160) },
+            { TempoRange.Fast, (161, 200) },
+            { TempoRange.VeryFast, (201, 240) }
         };   
 
         public static Scale GetScaleFromTonality(Tonality tonality, NoteName rootNote)

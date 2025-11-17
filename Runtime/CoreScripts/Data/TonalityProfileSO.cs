@@ -53,6 +53,13 @@ namespace MidiGenPlay.Composition
         public bool forceCadenceToTonic = true;
 
         [Header("Modal loops / vamps")]
+        [Range(0f, 1f)]
+        [Tooltip("Probability that this profile will use a vamp at all for a given part.")]
+        public float vampUsageProbability = 0.6f;
+        [Range(0f, 1f)]
+        [Tooltip("Maximum fraction of the part's bars that can be covered by vamps.")]
+        public float maxVampCoverage = 0.5f;
+
         [Tooltip("Optional short repeating degree sequences that strongly advertise this tonality.\n" +
              "Degrees are indices 0..6 in local scale, e.g. {0,3} could mean i-7 to IV7 in Dorian.\n" +
              "Tiled across multiple bars when chosen.")]

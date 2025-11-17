@@ -25,7 +25,11 @@ namespace MidiGenPlay
 
             public Tonality Tonality;
             public NoteName RootNote;
+            
             public TempoRange TempoRange;
+            public int? ExplicitBpm;
+            public float TempoScale = 1f;
+
             public TimeSignature TimeSignature;
             public int Measures;
             public int Repetitions;

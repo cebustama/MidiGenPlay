@@ -73,11 +73,18 @@ namespace MidiGenPlay.Composition
             var prog = ctx?.GetProgressionForPart?.Invoke(part)
                        ?? (cfg.Parameters?.Pattern as ChordProgressionData);
 
+            var backingStyle = cfg.Parameters?.Style as BackingCardConfigSO;
+            var effectiveVL = backingStyle?.voiceLeadingOverride ?? _vl;
+
             if (_settings?.logGenerator == true)
             {
+                var progName = prog?.displayName ?? "(null)";
+                var vlName = effectiveVL != null ? effectiveVL.name : "(none)";
                 Debug.Log($"<color=green>[ChordTrackComposer]</color> part='{part.Name}' " +
                           $"inst='{instrument?.InstrumentName}' bpm={bpm} ch={channel} " +
-                          $"progression='{prog?.displayName ?? "(null)"}' evts={prog?.events?.Count ?? 0}");
+                          $"progression='{progName}' evts={prog?.events?.Count ?? 0} " +
+                          $"VL='{vlName}' " +
+                          $"(card override={backingStyle != null && backingStyle.voiceLeadingOverride != null})");
             }
 
             // degree + quality → chord pcs
@@ -101,7 +108,7 @@ namespace MidiGenPlay.Composition
             {
                 if (_settings?.logGenerator == true)
                     Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
-                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel);
+                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL);
             }
 
             // Grid info
@@ -132,8 +139,8 @@ namespace MidiGenPlay.Composition
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                     var playable =
-                        (_vl != null && _vl.enableVoiceLeading && voicer != null)
-                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, _vl)
+                        (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
+                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
                         : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
 
                     lastVoicing = playable;
@@ -198,13 +205,15 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part,
             SongConfig.PartConfig.TrackConfig cfg,
             MidiGenerator.GenContext ctx,
-            int channel)
+            int channel,
+            VoiceLeadingConfig vlOverride)
         {
             var rng = ctx?.rng ?? new System.Random();
 
             // Build (or profile-drive) a progression.
             var prog = BuildProceduralProgression(part, ctx, rng,
                 verbose: _settings.logGenerator == true);
+
             // Cache progression in GenContext so bass / melody / harmony can reuse.
             ctx?.SetProgressionForPart?.Invoke(part, prog);
 
@@ -218,7 +227,7 @@ namespace MidiGenPlay.Composition
             }
 
             // Render using the same path as authored progressions
-            return RenderFromProgression(instrument, bpm, part, prog, channel, ctx);
+            return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride);
         }
 
         /// <summary>
@@ -525,9 +534,76 @@ namespace MidiGenPlay.Composition
                           string.Join(" | ", weightLines) + "</color>");
             }
 
+            // Get grid info
+            var ts = GetTimeSignatureDetails(
+                part.TimeSignature,
+                // TODO: BPM per part to avoid timing issues
+                GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen)
+            );
+
+            int beatsPerBar = ts.BeatsPerMeasure;
+            int measures = Mathf.Max(1, part.Measures);
+            int subdivisions = 1;
+            int stepsPerMeasure = beatsPerBar * subdivisions;
+            int totalSteps = stepsPerMeasure * measures;
+
             // 2. Decide if we’re going to use a vamp or just free-pick
+            var vampRuntime = new VampRuntime { degreesSequence = null, barsRemaining = 0 };
+            bool useVamp = false;
+
+            // Roll whether to use any vamp at all for this part
+            bool allowVamp = profile.vampUsageProbability > 0f &&
+                             rng.NextDouble() < profile.vampUsageProbability;
+
+            if (allowVamp)
+            {
+                var chosen = ChooseVamp(profile.vampCandidates, rng); // existing helper
+
+                if (chosen.HasValue && chosen.Value.degreesSequence != null &&
+                    chosen.Value.degreesSequence.Count > 0)
+                {
+                    // Total bars the vamp *would* occupy
+                    int seqLen = chosen.Value.degreesSequence.Count;
+                    int totalVampBars = chosen.Value.barsRemaining * seqLen;
+
+                    // Clamp by profile's max coverage
+                    int maxAllowedBars = Mathf.Max(
+                        1,
+                        Mathf.FloorToInt(measures * profile.maxVampCoverage));
+
+                    totalVampBars = Mathf.Min(totalVampBars, maxAllowedBars);
+
+                    // Convert back to "loops of the sequence"
+                    int loops = Mathf.Max(1, Mathf.CeilToInt((float)totalVampBars / seqLen));
+
+                    vampRuntime = new VampRuntime
+                    {
+                        degreesSequence = chosen.Value.degreesSequence,
+                        barsRemaining = loops
+                    };
+                    useVamp = true;
+                }
+            }
+
+            // logs
+            if (verbose)
+            {
+                if (useVamp && vampRuntime.degreesSequence != null)
+                {
+                    var seq = string.Join(",", vampRuntime.degreesSequence);
+                    Debug.Log($"[ChordProfile] Chosen vamp for part '{part.Name}': " +
+                              $"degrees=[{seq}] loops={vampRuntime.barsRemaining} " +
+                              $"(maxCoverage={profile.maxVampCoverage:0.##})");
+                }
+                else
+                {
+                    Debug.Log($"[ChordProfile] No vamp (or vamp disabled) for part '{part.Name}', " +
+                              $"using free-pick chords.");
+                }
+            }
+
             //    (choose a vampCandidate by weight, or null if none)
-            var chosen = ChooseVamp(profile.vampCandidates, rng); // returns (degrees[], barsToUse) or null
+            /*var chosen = ChooseVamp(profile.vampCandidates, rng); // returns (degrees[], barsToUse) or null
 
             // Wrap tuple in a mutable struct we can edit in-place.
             VampRuntime vampRuntime;
@@ -564,20 +640,9 @@ namespace MidiGenPlay.Composition
                     Debug.Log($"[ChordProfile] No vamp chosen for part '{part.Name}', " +
                         $"using free-pick chords.");
                 }
-            }
+            }*/
 
-            var ts = GetTimeSignatureDetails(
-                part.TimeSignature,
-                // TODO: BPM per part to avoid timing issues
-                GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen)
-            );
 
-            // TODO: Encapsulate obtaining these variables as tuple (bpb, m, sd, spm, ts)
-            int beatsPerBar = ts.BeatsPerMeasure;
-            int measures = Mathf.Max(1, part.Measures);
-            int subdivisions = 1;
-            int stepsPerMeasure = beatsPerBar * subdivisions;
-            int totalSteps = stepsPerMeasure * measures;
 
             var anchors = new bool[totalSteps];
             for (int m = 0; m < measures; m++) anchors[m * stepsPerMeasure] = true;
@@ -741,7 +806,8 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig part,
             ChordProgressionData prog,
             int channel,
-            MidiGenerator.GenContext ctx)
+            MidiGenerator.GenContext ctx,
+            VoiceLeadingConfig vlOverride)
         {
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
@@ -763,6 +829,8 @@ namespace MidiGenPlay.Composition
             var voicer = ctx?.ChordVoicer ?? _voicer;
             IReadOnlyList<DryWetMidiNote> lastVoicing = null;
 
+            var effectiveVL = vlOverride ?? _vl;
+
             for (int repeat = 0; repeat < numRepeats; repeat++)
             {
                 int repeatStepOffset = repeat * patternTotalSteps;
@@ -773,8 +841,8 @@ namespace MidiGenPlay.Composition
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                     var playable =
-                        (_vl != null && _vl.enableVoiceLeading && voicer != null)
-                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, _vl)
+                        (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
+                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
                         : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
 
                     lastVoicing = playable;
@@ -796,6 +864,13 @@ namespace MidiGenPlay.Composition
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                 }
+            }
+
+            if (_settings?.logGenerator == true)
+            {
+                var name = effectiveVL != null ? effectiveVL.name : "(none)";
+                Debug.Log($"<color=red>[ChordTrackComposer] RenderFromProgression part='{part.Name}' " +
+                          $"VL effective='{name}' (override param={vlOverride != null})</color>");
             }
 
             var file = pb.Build().ToFile(tempoMap);

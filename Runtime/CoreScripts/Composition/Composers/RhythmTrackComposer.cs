@@ -28,7 +28,11 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx)
         {
             var kit = (MIDIPercussionInstrumentSO)cfg.PercussionInstrument;
-            var data = cfg.Parameters?.Pattern as DrumPatternData;
+            var cardCfg = cfg.Parameters?.Style as RhythmCardConfigSO;
+            var data = cardCfg?.patternOverride as DrumPatternData
+                ?? cfg.Parameters?.Pattern as DrumPatternData;
+
+            var recipe = cardCfg?.recipeOverride ?? cfg.Parameters?.RhythmRecipe;
 
             // fully procedural drums when there's no pattern
             if ((data == null) && kit != null)
@@ -38,13 +42,25 @@ namespace MidiGenPlay.Composition
 
                 // choose a style for this meter; fall back to generic if none
                 RhythmStyleRegistry.RegisterDefaults(); // safe no-op if already called
-                var style = RhythmStyleRegistry.Choose(
-                    part.TimeSignature,
-                    cfg.Parameters?.RhythmRecipe,
-                    (min, max) => UnityEngine.Random.Range(min, max));
+
+                IRhythmStyle style = null;
+                if (cardCfg != null && !string.IsNullOrEmpty(cardCfg.styleIdOverride))
+                {
+                    style = RhythmStyleRegistry.ChooseById(
+                        part.TimeSignature,
+                        cardCfg.styleIdOverride);
+                }
+
+                if (style == null)
+                {
+                    style = RhythmStyleRegistry.Choose(
+                        part.TimeSignature,
+                        recipe,
+                        (min, max) => UnityEngine.Random.Range(min, max));
+                }
 
                 MidiFile pFile = (style != null)
-                    ? style.Compose(kit, bpm, part.Measures, channel, cfg.Parameters?.RhythmRecipe)
+                    ? style.Compose(kit, bpm, part.Measures, channel, recipe)
                     : ComposeProcedural(kit, bpm, part.TimeSignature, part.Measures, channel);
 
                 // Post-process here so all styles remain pure
