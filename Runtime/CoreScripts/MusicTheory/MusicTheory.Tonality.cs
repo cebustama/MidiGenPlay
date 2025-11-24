@@ -70,13 +70,13 @@ namespace MidiGenPlay.MusicTheory
         private static readonly Dictionary<Tonality, int> TonalityWeights = new()
         {
             // Modal Scales
-            { Tonality.Ionian, 1 },        // Essentially the Major scale
-            { Tonality.Dorian, 0 },        // Popular in jazz, folk, and medieval music
-            { Tonality.Phrygian, 0 },      // Spanish/Middle Eastern influence
-            { Tonality.Lydian, 0 },        // Bright and uplifting
-            { Tonality.Mixolydian, 0 },    // Common in blues and rock
-            { Tonality.Aeolian, 0 },       // Equivalent to Natural Minor scale
-            { Tonality.Locrian, 0 },       // Rare, used in experimental music
+            { Tonality.Ionian, 5 },        // Essentially the Major scale
+            { Tonality.Dorian, 3 },        // Popular in jazz, folk, and medieval music
+            { Tonality.Phrygian, 3 },      // Spanish/Middle Eastern influence
+            { Tonality.Lydian, 3 },        // Bright and uplifting
+            { Tonality.Mixolydian, 3 },    // Common in blues and rock
+            { Tonality.Aeolian, 5 },       // Equivalent to Natural Minor scale
+            { Tonality.Locrian, 1 },       // Rare, used in experimental music
         };
 
         /// <summary>
@@ -122,6 +122,27 @@ namespace MidiGenPlay.MusicTheory
 
             int randomIndex = UnityEngine.Random.Range(0, tonalityArray.Length);
             return tonalityArray[randomIndex];
+        }
+
+        public static Tonality GetRandomAnyTonality()
+        {
+            return GetRandomTonalityByWeight();
+        }
+
+        public static Tonality GetRandomMajorishTonality()
+        {
+            var majors = Enum.GetValues(typeof(Tonality))
+                             .Cast<Tonality>()
+                             .Where(IsMajorish);
+            return GetRandomTonalityFromList(majors);
+        }
+
+        public static Tonality GetRandomMinorishTonality()
+        {
+            var minors = Enum.GetValues(typeof(Tonality))
+                             .Cast<Tonality>()
+                             .Where(IsMinorish);
+            return GetRandomTonalityFromList(minors);
         }
 
         // NOTE: DryWetMidi ScaleIntervals class

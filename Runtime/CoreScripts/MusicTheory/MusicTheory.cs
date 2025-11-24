@@ -163,7 +163,8 @@ namespace MidiGenPlay.MusicTheory
             return notes;
         }
 
-        public static bool GetNoteFromScale(Scale scale, ScaleDegree degree, NoteName rootNote, int octave, out Note note)
+        public static bool GetNoteFromScale(
+            Scale scale, ScaleDegree degree, NoteName rootNote, int octave, out Note note)
         {
             // Ensure the degree is within valid range
             if ((int)degree < 0 || (int)degree >= scale.Intervals.Count())

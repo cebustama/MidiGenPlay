@@ -132,7 +132,8 @@ namespace MidiGenPlay.Composition
                 baseForThisPart = ResolveStrategy(_melodicStyle.baseStrategy);
 
             if (_settings?.logGenerator == true)
-                Debug.Log($"<color=yellow>[MelodyTrackComposer] Using melodic style '{_melodicStyle.name}' " +
+                Debug.Log($"<color=yellow>[MelodyTrackComposer] Using melodic style " +
+                    $"'{_melodicStyle.name}' " +
                           $"baseStrategy={_melodicStyle.baseStrategy}</color>");
 
             // RNG, timeline, etc.
