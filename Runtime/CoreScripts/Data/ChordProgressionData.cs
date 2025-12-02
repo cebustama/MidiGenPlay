@@ -10,27 +10,36 @@ namespace MidiGenPlay
     [CreateAssetMenu(menuName = "MidiGenPlay/Chord Progression")]
     public class ChordProgressionData : PatternDataSO
     {
-        public List<Tonality> tonalities;
+        [Header("Harmonic Grid")]
+        [Tooltip("How many timing steps per beat this progression uses.")]
+        public int subdivisions = 1;
 
-        [Range(1, 8)]
-        // steps per beat (1=quarters, 2=eighths, 4=sixteenths, ...)
-        public int subdivisions = 1; 
-
-        // List of chords with their timing details
         [System.Serializable]
         public class ChordEvent
         {
             public int startStep;    // 0..(measures*beatsPerMeasure*subdivisions-1)
             public int lengthSteps;  // >= 1
             public ScaleDegree degree;
-            public ChordQuality quality;    
+            public ChordQuality quality;
             public int velocity;    // 0..127
         }
 
-        public List<ChordEvent> events = new List<ChordEvent>();  // List of chord data
+        [Tooltip("Events in step units (startStep/lengthSteps).")]
+        public List<ChordEvent> events = new List<ChordEvent>();
+
+        [Header("Tonality Filter")]
+        [Tooltip("If empty, this progression can be used in any tonality. " +
+             "Otherwise, it’s restricted to these modes.")]
+        public List<Tonality> tonalities = new();
+
+        [Header("Authoring")]
+        [Tooltip("Original Roman progression string used to create this asset, " +
+             "e.g. \"I – V – vi – IV\" or \"i (2) – iv (1) – v (1)\".")]
+        [TextArea(1, 3)]
+        public string originalInput;
 
         public int TotalSteps(int beatsPerMeasure)
-            => Mathf.Max(0, measures) * Mathf.Max(1, beatsPerMeasure) * Mathf.Max(1, subdivisions);
+            => Mathf.Max(0, Measures) * Mathf.Max(1, beatsPerMeasure) * Mathf.Max(1, subdivisions);
 
         /// Return an "anchor" mask: true at each chord start
         public bool[] BuildAnchorMask(int beatsPerMeasure)
@@ -123,5 +132,38 @@ namespace MidiGenPlay
 
             return best ?? events.OrderBy(ev => ev.startStep).Last();
         }
+
+        /// <summary>
+        /// Rebuilds DisplayName from the original input string and basic metadata.
+        /// This is meant to be called from editor tools after modifying the asset.
+        /// </summary>
+        public void UpdateDisplayNameAuto()
+        {
+            // Base: original Roman string or asset name
+            string baseLabel = string.IsNullOrWhiteSpace(originalInput)
+                ? name
+                : originalInput.Replace("\n", " ").Trim();
+
+            string tsShort = TimeSignature.ToString(); // e.g. FourFour
+            string tonalityShort = (tonalities != null && tonalities.Count > 0)
+                ? string.Join("-", tonalities.Select(ShortCodeForTonality))
+                : "Any";
+
+            // Example: "I–V–vi–IV [4 bars, FourFour, sub x1, I-M]"
+            DisplayName = $"{baseLabel} [{Measures} bars, {tsShort}, " +
+                $"sub x{subdivisions}, {tonalityShort}]";
+        }
+
+        private static string ShortCodeForTonality(Tonality t) => t switch
+        {
+            Tonality.Ionian => "I",
+            Tonality.Dorian => "D",
+            Tonality.Phrygian => "Ph",
+            Tonality.Lydian => "L",
+            Tonality.Mixolydian => "M",
+            Tonality.Aeolian => "Ae",
+            Tonality.Locrian => "Lo",
+            _ => t.ToString()
+        };
     }
 }

@@ -75,6 +75,7 @@ namespace MidiGenPlay
 
         public class GenContext
         {
+            public MidiGenPlayConfig Settings;
             public System.Random rng;
             public IChordVoicer ChordVoicer;
             public VoiceLeadingConfig chordVoicingPreset;
@@ -163,7 +164,7 @@ namespace MidiGenPlay
             if (instrument == null) Debug.LogError("EMPTY INSTRUMENT");
 
             Debug.Log($"<color=green>Generating Melody Track: " +
-                $"{melodyPattern.displayName} for {instrument.InstrumentName}</color> " +
+                $"{melodyPattern.DisplayName} for {instrument.InstrumentName}</color> " +
                 $"Tonality: {tonality.ToString()}");
 
             // 1️⃣ Retrieve scale and time signature details
@@ -172,7 +173,7 @@ namespace MidiGenPlay
             int beatsPerBar = timeSignatureInfo.BeatsPerMeasure;
 
             // Determine the number of times to repeat the melody pattern
-            int patternLength = melodyPattern.measures;
+            int patternLength = melodyPattern.Measures;
             int numRepeats = Mathf.CeilToInt((float)measures / patternLength);
 
             // 2️⃣ Initialize Pattern Builder
@@ -200,7 +201,7 @@ namespace MidiGenPlay
                     if (!GetNoteFromScale(
                         scale, selectedDegree, rootNote, octave, out DryWetMidiNote note))
                     {
-                        Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.displayName}");
+                        Debug.LogWarning($"Invalid Scale Degree {selectedDegree} in {melodyPattern.DisplayName}");
                         continue;
                     }
 

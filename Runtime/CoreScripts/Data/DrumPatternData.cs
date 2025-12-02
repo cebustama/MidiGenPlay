@@ -22,7 +22,7 @@ namespace MidiGenPlay
         [Min(1)] public int subdivisions = 1; // steps per beat (1=quarter grid in 4/4 if tempo grid uses beats)
 
         public int StepsPerMeasure => Mathf.Max(1, beatsPerMeasure * subdivisions);
-        public int TotalSteps => Mathf.Max(1, measures * StepsPerMeasure);
+        public int TotalSteps => Mathf.Max(1, Measures * StepsPerMeasure);
 
         // -----------------------------
         // Lanes
@@ -76,7 +76,7 @@ namespace MidiGenPlay
         public void SetSignature(int beatsPerMeasure, int measures, int subdivisions = 1)
         {
             this.beatsPerMeasure = Mathf.Max(1, beatsPerMeasure);
-            this.measures = Mathf.Max(1, measures);
+            this.Measures = Mathf.Max(1, measures);
             this.subdivisions = Mathf.Max(1, subdivisions);
             EnsureSizes();
         }
@@ -120,7 +120,7 @@ namespace MidiGenPlay
             var clone = CreateInstance<DrumPatternData>();
             clone.name = name + " (Runtime)";
 
-            clone.measures = measures;
+            clone.Measures = Measures;
             clone.beatsPerMeasure = beatsPerMeasure;
             clone.subdivisions = subdivisions;
 

@@ -18,7 +18,7 @@ public class ChordProgressionsList : ScriptableObject
         TimeSignature timeSignature)
     {
         var matchingProgressions = chordProgressionDatas
-            .Where(progression => progression.timeSignature == timeSignature)
+            .Where(progression => progression.TimeSignature == timeSignature)
             .ToList();
 
         if (matchingProgressions.Count == 0)
@@ -60,7 +60,7 @@ public class ChordProgressionsList : ScriptableObject
         TimeSignature timeSignature, Tonality tonality)
     {
         var matchingProgressions = chordProgressionDatas
-            .Where(progression => progression.timeSignature == timeSignature &&
+            .Where(progression => progression.TimeSignature == timeSignature &&
                                   progression.tonalities.Contains(tonality))
             .ToList();
 

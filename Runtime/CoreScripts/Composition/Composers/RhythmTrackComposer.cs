@@ -196,7 +196,7 @@ namespace MidiGenPlay.Composition
             int stepsPerBeat = Mathf.Max(1, data.subdivisions);
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
-            int patternMeasures = Mathf.Max(1, data.measures);
+            int patternMeasures = Mathf.Max(1, data.Measures);
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int partTotalSteps = Mathf.Max(1, partMeasures) * stepsPerMeasure;
             int repeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
@@ -288,7 +288,7 @@ namespace MidiGenPlay.Composition
             string pianoRoll = string.Join("\n", processedLines.Values);
 
             var pb = new PatternBuilder().MoveToStart();
-            int patMeasures = Mathf.Max(1, patternData.measures);
+            int patMeasures = Mathf.Max(1, patternData.Measures);
             int repeats = Mathf.CeilToInt((float)measures / patMeasures);
 
             for (int r = 0; r < repeats; r++)

@@ -113,6 +113,7 @@ namespace MidiGenPlay.Composition
                     // --- GENERATION CONTEXT ---
                     var ctx = new MidiGenerator.GenContext
                     {
+                        Settings = _settings,
                         rng = new System.Random(_settings.defaultSeed + entry.PartIndex * 397 ^ rep),
                         ChordVoicer = _voicer,
                         chordVoicingPreset = _settings.voiceLeading,
@@ -295,6 +296,7 @@ namespace MidiGenPlay.Composition
             var partSeed = _settings.defaultSeed + partIndex * 397;
             var ctx = new MidiGenerator.GenContext
             {
+                Settings = _settings,
                 rng = new System.Random(partSeed),
                 ChordVoicer = _voicer,
                 chordVoicingPreset = _settings.voiceLeading,

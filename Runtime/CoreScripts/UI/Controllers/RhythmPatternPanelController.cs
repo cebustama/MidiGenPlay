@@ -135,7 +135,7 @@ namespace MidiGenPlay.UI
             runtime.InitializeIfEmpty();
 
             // ensure grid is sized to runtime’s own signature
-            SetSignature(runtime.beatsPerMeasure, runtime.measures, runtime.subdivisions);
+            SetSignature(runtime.beatsPerMeasure, runtime.Measures, runtime.subdivisions);
 
             patternPreview = runtime;
             RebuildGridFromRuntime();
@@ -224,7 +224,7 @@ namespace MidiGenPlay.UI
             int rows = Mathf.Max(1, runtime.lanes?.Count ?? 0);
             grid.Build(
                 rows: rows,
-                measures: runtime.measures,
+                measures: runtime.Measures,
                 beatsPerMeasure: runtime.beatsPerMeasure,
                 subdivisions: runtime.subdivisions,
                 initialState: (r, s) =>
@@ -360,7 +360,7 @@ namespace MidiGenPlay.UI
                 ? "none"
                 : string.Join("", runtime.lanes.ConvertAll(l => Abbrev(l.instrument)));
 
-            return $"Drum_{ts}_{runtime.measures}m_{ins}";
+            return $"Drum_{ts}_{runtime.Measures}m_{ins}";
         }
 
         private static string Abbrev(GeneralMidiPercussion gmp)
@@ -381,8 +381,8 @@ namespace MidiGenPlay.UI
 
         private void CopyRuntimeInto(DrumPatternData dst, string displayNameOverride = null)
         {
-            dst.displayName = string.IsNullOrEmpty(displayNameOverride) ? runtime.displayName : displayNameOverride;
-            dst.measures = runtime.measures;
+            dst.DisplayName = string.IsNullOrEmpty(displayNameOverride) ? runtime.DisplayName : displayNameOverride;
+            dst.Measures = runtime.Measures;
             dst.beatsPerMeasure = runtime.beatsPerMeasure;
             dst.subdivisions = runtime.subdivisions;
 

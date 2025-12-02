@@ -47,7 +47,7 @@ namespace MidiGenPlay.UI
         {
             patterns = patternRepo.GetChordProgressions(ts).ToList();
             chordDropdown.ClearOptions();
-            chordDropdown.AddOptions(patterns.Select(p => p.displayName).ToList());
+            chordDropdown.AddOptions(patterns.Select(p => p.DisplayName).ToList());
             if (patterns.Count > 0) chordDropdown.value = 0;
         }
 

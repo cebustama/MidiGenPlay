@@ -39,5 +39,8 @@ namespace MidiGenPlay
         public int octaveMin = 1;
         [Range(1, 9)]
         public int octaveMax = 9;
+
+        [Header("Mix")]
+        [Range(0f, 1f)] public float volume01 = 1f;
     }
 }

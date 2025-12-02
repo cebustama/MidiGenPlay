@@ -452,7 +452,7 @@ namespace MidiGenPlay.Composition
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
-            int patternMeasures = Mathf.Max(1, prog.measures);
+            int patternMeasures = Mathf.Max(1, prog.Measures);
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
 
             int partMeasures = Mathf.Max(1, part.Measures);

@@ -43,7 +43,7 @@ namespace MidiGenPlay.UI
         {
             patterns = patternRepo.GetDrumPatterns(ts).ToList();
             drumPatternDropdown.ClearOptions();
-            drumPatternDropdown.AddOptions(patterns.Select(p => p.displayName).ToList());
+            drumPatternDropdown.AddOptions(patterns.Select(p => p.DisplayName).ToList());
             if (patterns.Count > 0) drumPatternDropdown.value = 0;
         }
 

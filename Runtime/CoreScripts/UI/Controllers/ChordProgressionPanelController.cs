@@ -56,7 +56,7 @@ namespace MidiGenPlay.UI
             if (runtime != null && runtime.events != null)
                 events.AddRange(runtime.events);
 
-            SetSignature(runtime.timeSignature, runtime.measures, runtime.subdivisions);
+            SetSignature(runtime.TimeSignature, runtime.Measures, runtime.subdivisions);
             PaintAnchorsFromEvents();
             labels?.Refresh(events);
         }
@@ -65,9 +65,9 @@ namespace MidiGenPlay.UI
         {
             if (originalAsset == null || runtime == null) return;
 
-            originalAsset.displayName = runtime.displayName;
-            originalAsset.timeSignature = runtime.timeSignature;
-            originalAsset.measures = runtime.measures;
+            originalAsset.DisplayName = runtime.DisplayName;
+            originalAsset.TimeSignature = runtime.TimeSignature;
+            originalAsset.Measures = runtime.Measures;
             originalAsset.subdivisions = runtime.subdivisions;
 
             originalAsset.tonalities = new List<Tonality>(runtime.tonalities ?? new());
@@ -96,9 +96,9 @@ namespace MidiGenPlay.UI
 
             originalAsset = null; // this is a new pattern, not tied to an asset yet
             runtime = ScriptableObject.CreateInstance<ChordProgressionData>();
-            runtime.displayName = "Untitled";
-            runtime.timeSignature = ts;
-            runtime.measures = Mathf.Max(1, measures);
+            runtime.DisplayName = "Untitled";
+            runtime.TimeSignature = ts;
+            runtime.Measures = Mathf.Max(1, measures);
             runtime.subdivisions = Mathf.Max(1, subdivisions);
             runtime.tonalities = new List<Tonality> { t };
             runtime.events = new List<ChordProgressionData.ChordEvent>();
@@ -139,9 +139,9 @@ namespace MidiGenPlay.UI
 
             // 4) Create a fresh ScriptableObject (deep copy of runtime)
             var asset = ScriptableObject.CreateInstance<ChordProgressionData>();
-            asset.displayName = name;
-            asset.timeSignature = runtime.timeSignature;
-            asset.measures = runtime.measures;
+            asset.DisplayName = name;
+            asset.TimeSignature = runtime.TimeSignature;
+            asset.Measures = runtime.Measures;
             asset.subdivisions = runtime.subdivisions;
             asset.tonalities = new List<Tonality>(runtime.tonalities ?? new());
             asset.events = new List<ChordProgressionData.ChordEvent>(runtime.events ?? new());
@@ -171,11 +171,11 @@ namespace MidiGenPlay.UI
         private string BuildKeyName()
         {
             var src = runtime ?? progression;
-            string ts = (src?.timeSignature.ToString() ?? "TS").Replace(" ", "");
+            string ts = (src?.TimeSignature.ToString() ?? "TS").Replace(" ", "");
             string ton = tonality.ToString();
             string ev = (events.Count == 0) ? "none"
                        : string.Join("-", events.Select(e => $"{e.startStep}:{e.lengthSteps}:{(int)e.degree}:{(int)e.quality}"));
-            int m = src?.measures ?? 1;
+            int m = src?.Measures ?? 1;
             return $"Prog_{ton}_{ts}_{m}m_{ev}";
         }
 
@@ -335,16 +335,16 @@ namespace MidiGenPlay.UI
             runtime.events.Clear();
             runtime.events.AddRange(events);
             runtime.subdivisions = grid.Subdivisions;
-            runtime.measures = grid.Measures;
+            runtime.Measures = grid.Measures;
         }
 
         private static ChordProgressionData DeepClone(ChordProgressionData src)
         {
             if (src == null) return null;
             var clone = ScriptableObject.CreateInstance<ChordProgressionData>();
-            clone.displayName = src.displayName;
-            clone.timeSignature = src.timeSignature;
-            clone.measures = src.measures;
+            clone.DisplayName = src.DisplayName;
+            clone.TimeSignature = src.TimeSignature;
+            clone.Measures = src.Measures;
             clone.subdivisions = src.subdivisions;
 
             clone.tonalities = new List<Tonality>();
@@ -390,8 +390,8 @@ namespace MidiGenPlay.UI
             // Write back to runtime (if any)
             if (runtime != null)
             {
-                runtime.timeSignature = ts;
-                runtime.measures = measures;
+                runtime.TimeSignature = ts;
+                runtime.Measures = measures;
                 runtime.subdivisions = subdivisions;
                 runtime.events = new List<ChordProgressionData.ChordEvent>(events);
             }

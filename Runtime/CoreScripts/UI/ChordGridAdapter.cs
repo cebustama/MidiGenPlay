@@ -31,7 +31,7 @@ namespace MidiGenPlay.UI
                 anchors = data.BuildAnchorMask(beatsPerMeasure);
 
             // Prefer the caller-provided measures; fall back to the asset
-            var m = measures > 0 ? measures : (data != null ? Mathf.Max(1, data.measures) : 4);
+            var m = measures > 0 ? measures : (data != null ? Mathf.Max(1, data.Measures) : 4);
 
             grid.Build(
                 rows: 1,
@@ -61,7 +61,7 @@ namespace MidiGenPlay.UI
                 ids.Add((data.events[i].degree, data.events[i].quality));
 
             data.subdivisions = grid.Subdivisions; // keep asset synced with UI
-            data.measures = Mathf.Max(1, grid.Measures);
+            data.Measures = Mathf.Max(1, grid.Measures);
 
             // Rebuild the ChordEvent list from the new anchors
             data.RebuildFromAnchors(mask, ids);

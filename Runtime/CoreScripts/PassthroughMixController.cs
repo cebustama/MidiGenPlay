@@ -29,6 +29,10 @@ namespace MidiGenPlay
             // Map [0..1] -> [0..127] for the low-level player.
             int v127 = Mathf.RoundToInt(volume01 * 127f);
             _player.SetChannelVolume(channel, v127);
+
+#if UNITY_EDITOR
+            Debug.Log($"[Mix] SetChannelVolume ch={channel} vol01={volume01:0.00} v127={v127}");
+#endif
         }
 
         public void SetMultipleChannelVolumes01(IReadOnlyDictionary<int, float> volumes01)

@@ -103,13 +103,13 @@ namespace MidiGenPlay
                 case DrumPatternData d:
                     var dClone = d.DeepCloneRuntime();
                     MutateDrumGridInPlace(dClone, rng, strategyId);
-                    dClone.displayName = SafeName(d.displayName) + " (Alt)";
+                    dClone.DisplayName = SafeName(d.DisplayName) + " (Alt)";
                     return dClone;
 
                 case ChordProgressionData c:
                     var cClone = CloneChordProgression(c);
                     RotateChordProgressionInPlace(cClone, part, strategyId);
-                    cClone.displayName = SafeName(c.displayName) + " (Alt)";
+                    cClone.DisplayName = SafeName(c.DisplayName) + " (Alt)";
                     return cClone;
 
                 default:
@@ -165,8 +165,8 @@ namespace MidiGenPlay
         {
             var clone = ScriptableObject.CreateInstance<ChordProgressionData>();
             clone.name = src.name + " (Runtime)";
-            clone.displayName = src.displayName;
-            clone.measures = src.measures;
+            clone.DisplayName = src.DisplayName;
+            clone.Measures = src.Measures;
             clone.subdivisions = src.subdivisions;
             clone.tonalities = src.tonalities != null ? 
                 new List<Tonality>(src.tonalities) : 
@@ -199,7 +199,7 @@ namespace MidiGenPlay
             var tsInfo = TimeSignatureProperties[part.TimeSignature];
             int stepsPerBeat = Math.Max(1, p.subdivisions);
             int stepsPerMeasure = stepsPerBeat * tsInfo.BeatsPerMeasure;
-            int totalSteps = Math.Max(stepsPerMeasure, p.measures * stepsPerMeasure);
+            int totalSteps = Math.Max(stepsPerMeasure, p.Measures * stepsPerMeasure);
 
             int shift = stepsPerBeat; // rotate by one beat by default
             if (string.Equals(strategyId, "rotate2", StringComparison.OrdinalIgnoreCase)) shift *= 2;

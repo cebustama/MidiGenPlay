@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d47879d2b6be0e6498062ce1607f3cb7, type: 3}
+  m_Name: _ChordProgressionLibrary
+  m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.Composition.ChordProgressionLibrarySO
+  entries:
+  - id: "I \u2013 V \u2013 vi \u2013 IV [4 bars, FourFour, sub x1, I-D-Ph-L-M-Ae-Lo]"
+    progression: {fileID: 11400000, guid: a70f9c6df6c718b49bd9cf40fd436ea5, type: 2}
+    compatibleTonalities: 00000000010000000200000003000000040000000500000006000000
+    usageHint: 0
+    weight: 1
+    notes: 

@@ -477,7 +477,7 @@ namespace MidiGenPlay
         private void SelectChordDropdownForAsset(ChordProgressionData asset)
         {
             if (!asset) return;
-            var disp = string.IsNullOrEmpty(asset.displayName) ? asset.name : asset.displayName;
+            var disp = string.IsNullOrEmpty(asset.DisplayName) ? asset.name : asset.DisplayName;
 
             int idx = chordProgressionDropdown.options.FindIndex(o => o.text == disp || o.text == asset.name);
             if (idx < 0) { Debug.LogWarning($"[TrackDetails] Could not find '{disp}' in chord dropdown."); return; }
@@ -491,7 +491,7 @@ namespace MidiGenPlay
         private void SelectRhythmDropdownForAsset(DrumPatternData asset)
         {
             if (!asset) return;
-            var disp = string.IsNullOrEmpty(asset.displayName) ? asset.name : asset.displayName;
+            var disp = string.IsNullOrEmpty(asset.DisplayName) ? asset.name : asset.DisplayName;
 
             int idx = drumPatternDropdown.options.FindIndex(o => o.text == disp || o.text == asset.name);
             if (idx < 0) { Debug.LogWarning($"[TrackDetails] Could not find '{disp}' in drum dropdown."); return; }

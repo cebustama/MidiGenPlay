@@ -18,7 +18,7 @@ public class DrumPatternsList : ScriptableObject
     {
         // Filter drum patterns that match the time signature
         var matchingPatterns = drumPatternDatas
-            .Where(pattern => pattern.timeSignature == timeSignature)
+            .Where(pattern => pattern.TimeSignature == timeSignature)
             .ToList();
 
         // If no patterns match, return null

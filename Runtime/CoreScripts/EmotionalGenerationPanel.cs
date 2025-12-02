@@ -131,9 +131,9 @@ public class EmotionalGenerationPanel : MonoBehaviour
         Debug.Log($"Percussion Instrument: {percussionInstrument?.InstrumentName ?? "None"}");
         Debug.Log($"Backing Instrument: {backingInstrument?.InstrumentName ?? "None"}");
         Debug.Log($"Lead Instrument: {leadInstrument?.InstrumentName ?? "None"}");
-        Debug.Log($"Chord Progression: {chordProgression?.displayName ?? "None"}");
-        Debug.Log($"Drum Pattern: {drumPattern?.displayName ?? "None"}");
-        Debug.Log($"Melody Pattern: {melodyPattern?.displayName ?? "None"}");
+        Debug.Log($"Chord Progression: {chordProgression?.DisplayName ?? "None"}");
+        Debug.Log($"Drum Pattern: {drumPattern?.DisplayName ?? "None"}");
+        Debug.Log($"Melody Pattern: {melodyPattern?.DisplayName ?? "None"}");
 
         // Initialize MIDI Generator
         // TODO: Settings SO

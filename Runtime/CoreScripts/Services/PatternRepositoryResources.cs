@@ -77,11 +77,11 @@ namespace MidiGenPlay.Services
         public IReadOnlyList<MelodyPatternData> GetAllMelodyPatterns() => melodies;
 
         public IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts) 
-            => drums.Where(p => p.timeSignature == ts).ToList();
+            => drums.Where(p => p.TimeSignature == ts).ToList();
         public IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts) 
-            => chords.Where(p => p.timeSignature == ts).ToList();
+            => chords.Where(p => p.TimeSignature == ts).ToList();
         public IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts) 
-            => melodies.Where(p => p.timeSignature == ts).ToList();
+            => melodies.Where(p => p.TimeSignature == ts).ToList();
 
         // Always return LOCAL write folder (Assets/Resources/…)
         public string GetChordWriteFolder() => cfg.GetChordWriteFolder();

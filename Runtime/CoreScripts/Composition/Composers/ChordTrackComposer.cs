@@ -78,7 +78,7 @@ namespace MidiGenPlay.Composition
 
             if (_settings?.logGenerator == true)
             {
-                var progName = prog?.displayName ?? "(null)";
+                var progName = prog?.DisplayName ?? "(null)";
                 var vlName = effectiveVL != null ? effectiveVL.name : "(none)";
                 Debug.Log($"<color=green>[ChordTrackComposer]</color> part='{part.Name}' " +
                           $"inst='{instrument?.InstrumentName}' bpm={bpm} ch={channel} " +
@@ -118,7 +118,7 @@ namespace MidiGenPlay.Composition
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
             int partTotalSteps = Mathf.Max(1, part.Measures) * stepsPerMeasure;
-            int patternMeasures = Mathf.Max(1, prog.measures);
+            int patternMeasures = Mathf.Max(1, prog.Measures);
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
 
@@ -407,6 +407,28 @@ namespace MidiGenPlay.Composition
             bool verbose = false)
         {
             TonalityProfileSO profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
+
+            // 1) Try to use a library template if one is configured
+            var lib = ctx?.Settings?.progressionLibrary;
+            if (lib != null)
+            {
+                var templateEntry = PickTemplateForPart(part, profile, lib, rng, verbose);
+                if (templateEntry != null && templateEntry.progression != null)
+                {
+                    // Instantiate so we get a runtime copy and don't mutate the asset.
+                    var progTemplate = ScriptableObject.Instantiate(templateEntry.progression);
+
+                    if (verbose)
+                    {
+                        Debug.Log(
+                            $"<color=cyan>[ChordTrackComposer] Using library template '{templateEntry.id}' " +
+                            $"for part '{part.Name}' (tonality={part.Tonality}, measures={part.Measures}).</color>");
+                    }
+
+                    return progTemplate;
+                }
+            }
+
             if (profile != null)
             {
                 // Use the profile-aware path
@@ -473,7 +495,7 @@ namespace MidiGenPlay.Composition
 
             // Materialize ChordProgressionData
             var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
-            prog.measures = measures;
+            prog.Measures = measures;
             prog.subdivisions = subdivisions;
             prog.events = new List<ChordProgressionData.ChordEvent>();
 
@@ -749,7 +771,7 @@ namespace MidiGenPlay.Composition
 
             // build progression asset in-memory
             var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
-            prog.measures = measures;
+            prog.Measures = measures;
             prog.subdivisions = subdivisions;
             prog.events = new List<ChordProgressionData.ChordEvent>();
             prog.RebuildFromAnchors(anchors, pickedDegrees, defaultVelocity);
@@ -815,7 +837,7 @@ namespace MidiGenPlay.Composition
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
             int partTotalSteps = Mathf.Max(1, part.Measures) * stepsPerMeasure;
-            int patternMeasures = Mathf.Max(1, prog.measures);
+            int patternMeasures = Mathf.Max(1, prog.Measures);
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
 
@@ -878,6 +900,138 @@ namespace MidiGenPlay.Composition
             StampBankAndPatch(file, instrument, channel);
             ForceAllChannel(file, channel);
             return file;
+        }
+
+        /// <summary>
+        /// Picks a chord progression template from the library for this part, if any fits.
+        /// It takes into account:
+        /// - Part tonality (must be compatible, if entry/progression defines tonalities)
+        /// - Rough bar-length compatibility (prefer progressions that fit or loop nicely)
+        /// - UsageHint (verse/chorus/bridge/intro)
+        /// - Optional TonalityProfile cadence preference (ending on I if forceCadenceToTonic is true)
+        /// 
+        /// Returns the chosen Entry, or null if nothing is suitable.
+        /// </summary>
+        private static ChordProgressionLibrarySO.Entry PickTemplateForPart(
+            SongConfig.PartConfig part,
+            TonalityProfileSO profile,
+            ChordProgressionLibrarySO library,
+            System.Random rng,
+            bool verbose = false)
+        {
+            if (library == null || library.entries == null || library.entries.Count == 0)
+                return null;
+
+            var desiredUsage = ChordProgressionLibrarySO.UsageHint.Any;
+            // TODO:  Choose based on loop iteration number, part number, etc
+
+            int partBars = Mathf.Max(1, part.Measures);
+            var candidates = new List<(ChordProgressionLibrarySO.Entry entry, float score)>();
+
+            // ------------------------------------------------------------
+            // 2. Score each entry based on tonality, length, usage, profile
+            // ------------------------------------------------------------
+            foreach (var e in library.entries)
+            {
+                if (e == null || e.progression == null)
+                    continue;
+
+                var prog = e.progression;
+
+                // 2.a) Tonality compatibility
+                bool tonalityOk = true;
+                var tonality = part.Tonality;
+
+                // Prefer entry.compatibleTonalities, otherwise use progression.tonalities
+                List<Tonality> allowedTonalities = null;
+                if (e.compatibleTonalities != null && e.compatibleTonalities.Count > 0)
+                    allowedTonalities = e.compatibleTonalities;
+                else if (prog.tonalities != null && prog.tonalities.Count > 0)
+                    allowedTonalities = prog.tonalities;
+
+                if (allowedTonalities != null && allowedTonalities.Count > 0)
+                {
+                    tonalityOk = allowedTonalities.Contains(tonality);
+                }
+
+                if (!tonalityOk)
+                    continue;
+
+                // 2.b) Length compatibility: prefer patterns that fit or loop the part nicely.
+                int tplBars = Mathf.Max(1, prog.Measures);
+
+                // Hard filter: ignore absurdly long templates for very short parts
+                if (tplBars > partBars * 2) // heuristic, can be tuned later
+                    continue;
+
+                float lengthScore;
+                if (tplBars == partBars)
+                    lengthScore = 2.0f;            // perfect fit
+                else if (partBars % tplBars == 0)
+                    lengthScore = 1.5f;            // loops evenly
+                else if (tplBars % partBars == 0)
+                    lengthScore = 0.8f;            // template is longer than part
+                else
+                    lengthScore = 0.9f;            // acceptable but not perfect
+
+                // 2.c) UsageHint: prefer entries that match our inferred part role
+                float usageScore = 1f;
+                if (desiredUsage != ChordProgressionLibrarySO.UsageHint.Any &&
+                    e.usageHint != ChordProgressionLibrarySO.UsageHint.Any)
+                {
+                    usageScore = (e.usageHint == desiredUsage) ? 1.5f : 0.75f;
+                }
+
+                // 2.d) Cadence preference from TonalityProfile, if present
+                float cadenceScore = 1f;
+                if (profile != null && profile.forceCadenceToTonic && 
+                    prog.events != null && prog.events.Count > 0)
+                {
+                    var lastEvt = prog.events[prog.events.Count - 1];
+                    if (lastEvt.degree == ScaleDegree.Tonic)
+                        cadenceScore = 1.3f;   // ends on I: slightly prefer
+                    else
+                        cadenceScore = 0.9f;   // ends elsewhere: slightly penalize
+                }
+
+                // 2.e) Base weight from entry
+                float baseWeight = Mathf.Max(0f, e.weight);
+
+                float finalScore = baseWeight * lengthScore * usageScore * cadenceScore;
+                if (finalScore <= 0f)
+                    continue;
+
+                candidates.Add((e, finalScore));
+            }
+
+            if (candidates.Count == 0)
+                return null;
+
+            // ------------------------------------------------------------
+            // 3. Roulette selection by score
+            // ------------------------------------------------------------
+            float totalScore = 0f;
+            foreach (var c in candidates) totalScore += c.score;
+
+            float pick = (float)rng.NextDouble() * totalScore;
+            foreach (var c in candidates)
+            {
+                if (pick <= c.score)
+                {
+                    if (verbose)
+                    {
+                        Debug.Log(
+                            $"[ChordTrackComposer] Template candidate chosen: '{c.entry.id}' " +
+                            $"(score={c.score:0.###}, part='{part.Name}', " +
+                            $"usageHint={c.entry.usageHint}).");
+                    }
+                    return c.entry;
+                }
+                pick -= c.score;
+            }
+
+            // Fallback (should be unreachable, but safe)
+            return candidates[candidates.Count - 1].entry;
         }
     }
 }

@@ -49,6 +49,9 @@ public class MidiGenPlayConfig : ScriptableObject
     [Tooltip("Ventana en ticks para empatar etiquetas chd: con NoteOn (±valor).")]
     public int chordLabelTickTolerance = 2;
 
+    [Header("Chord Progressions")]
+    public ChordProgressionLibrarySO progressionLibrary;
+
     [Header("Voice Leadings")]
     public VoiceLeadingConfig voiceLeading;
     public MelodicLeadingConfig melodicLeading;

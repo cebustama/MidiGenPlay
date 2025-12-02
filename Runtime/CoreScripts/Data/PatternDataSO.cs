@@ -5,8 +5,8 @@ namespace MidiGenPlay
 {
     public abstract class PatternDataSO : ScriptableObject
     {
-        public string displayName;
-        public TimeSignature timeSignature;
-        [Min(1)] public int measures;
+        public string DisplayName;
+        public TimeSignature TimeSignature;
+        [Min(1)] public int Measures;
     }
 }
