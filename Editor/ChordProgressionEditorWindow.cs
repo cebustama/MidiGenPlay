@@ -62,6 +62,8 @@ public class ChordProgressionEditorWindow : EditorWindow
     private bool showAllowedTonalities = true; // foldout state
     private GUIStyle gridPreviewStyle;
 
+    private ChordProgressionData lastLoadedAsset;
+
     // Scroll position for the grid preview area so long progressions don't
     // push the buttons over the text.
     private Vector2 previewGridScroll;
@@ -81,16 +83,21 @@ public class ChordProgressionEditorWindow : EditorWindow
         EditorGUILayout.LabelField(
             "Chord Progression From Roman Numerals", EditorStyles.boldLabel);
 
-        targetAsset = (ChordProgressionData)EditorGUILayout.ObjectField(
+        var newTargetAsset = (ChordProgressionData)EditorGUILayout.ObjectField(
             new GUIContent("Target Asset",
                 "Existing ChordProgressionData to overwrite, " +
                 "or leave empty to create a new one."),
             targetAsset, typeof(ChordProgressionData), false);
 
+        if (newTargetAsset != targetAsset)
+        {
+            targetAsset = newTargetAsset;
+            OnTargetAssetChanged();
+        }
+
         targetLibrary = (ChordProgressionLibrarySO)EditorGUILayout.ObjectField(
             new GUIContent("Progression Library (optional)",
-                "If assigned, the created/updated asset will " +
-                "automatically be added as an entry."),
+                "Used for 'Clone From Library' and 'Add Current To Library'."),
             targetLibrary, typeof(ChordProgressionLibrarySO), false);
 
         if (targetLibrary != null &&
@@ -261,7 +268,7 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         EditorGUILayout.Space();
 
-        // --- Action buttons (always below the preview) ----------------------------
+        // --- Action buttons ---------------------------------------------------
         using (new EditorGUILayout.HorizontalScope())
         {
             if (GUILayout.Button("Parse & Preview (no write)"))
@@ -269,10 +276,27 @@ public class ChordProgressionEditorWindow : EditorWindow
                 ParseAndPreview(onlyPreview: true);
             }
 
+            GUI.enabled = targetAsset != null;
             if (GUILayout.Button("Apply To Target Asset"))
             {
                 ParseAndPreview(onlyPreview: false);
             }
+            GUI.enabled = true;
+        }
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (GUILayout.Button("Save As New Asset..."))
+            {
+                SaveAsNewAsset();
+            }
+
+            GUI.enabled = targetLibrary != null && targetAsset != null;
+            if (GUILayout.Button("Add Current To Library"))
+            {
+                AddCurrentToLibrary();
+            }
+            GUI.enabled = true;
         }
     }
 
@@ -456,31 +480,6 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         EditorUtility.SetDirty(targetAsset);
         AssetDatabase.SaveAssets();
-
-        // --- Library integration (optional) ---
-        if (targetLibrary != null)
-        {
-            // avoid duplicates (same progression asset)
-            bool exists = targetLibrary.entries.Any(e => e.progression == targetAsset);
-            if (!exists)
-            {
-                targetLibrary.entries.Add(new ChordProgressionLibrarySO.Entry
-                {
-                    id = string.IsNullOrWhiteSpace(targetAsset.DisplayName)
-                        ? targetAsset.name
-                        : targetAsset.DisplayName,
-                    progression = targetAsset,
-                    weight = 1f,
-                    compatibleTonalities =
-                        (targetAsset.tonalities == null || targetAsset.tonalities.Count == 0)
-                            ? new List<Tonality>()
-                            : new List<Tonality>(targetAsset.tonalities)
-                });
-
-                EditorUtility.SetDirty(targetLibrary);
-                AssetDatabase.SaveAssets();
-            }
-        }
 
         // Also refresh the concrete-chord preview after a successful apply
         UpdatePreview(chords);
@@ -1093,6 +1092,242 @@ public class ChordProgressionEditorWindow : EditorWindow
             case NoteName.B:        return "ff66cc";
             default:                return "ffffff";
         }
+    }
+
+    /// <summary>
+    /// Called whenever targetAsset changes in the object field.
+    /// Loads its originalInput, time signature and allowed tonalities
+    /// into the window, and refreshes the preview.
+    /// </summary>
+    private void OnTargetAssetChanged()
+    {
+        lastLoadedAsset = targetAsset;
+
+        if (targetAsset == null)
+            return;
+
+        // Use originalInput if present
+        if (!string.IsNullOrWhiteSpace(targetAsset.originalInput))
+            progressionInput = targetAsset.originalInput;
+
+        // Sync meter
+        timeSignature = targetAsset.TimeSignature;
+
+        // Sync tonalities → toggle flags
+        if (tonalityFlags == null)
+            OnEnable();
+
+        if (targetAsset.tonalities != null && targetAsset.tonalities.Count > 0)
+        {
+            var set = new HashSet<Tonality>(targetAsset.tonalities);
+            foreach (var key in tonalityFlags.Keys.ToList())
+                tonalityFlags[key] = set.Contains(key);
+        }
+        else
+        {
+            // If asset has no restrictions, default to "all allowed"
+            // TODO: Default config
+            foreach (var key in tonalityFlags.Keys.ToList())
+                tonalityFlags[key] = true;
+        }
+
+        // Refresh preview if we have a Roman string
+        if (!string.IsNullOrWhiteSpace(progressionInput))
+            ParseAndPreview(onlyPreview: true);
+
+        Repaint();
+    }
+
+    /// <summary>
+    /// Creates a brand new ChordProgressionData asset from the current editor state.
+    /// Does NOT add it to any library (use AddCurrentToLibrary for that).
+    /// </summary>
+    private void SaveAsNewAsset()
+    {
+        if (string.IsNullOrWhiteSpace(progressionInput))
+        {
+            EditorUtility.DisplayDialog("Error",
+                "Progression input string is empty.", "OK");
+            return;
+        }
+
+        if (!TryParseProgression(
+            progressionInput,
+            defaultDurationMeasures,
+            out var chords,
+            out var parseError))
+        {
+            EditorUtility.DisplayDialog("Parse Error",
+                parseError ?? "Unknown error.", "OK");
+            return;
+        }
+
+        if (chords == null || chords.Count == 0)
+        {
+            EditorUtility.DisplayDialog("Parse Error",
+                "No chords were parsed from the input.", "OK");
+            return;
+        }
+
+        // For a new asset, use the window's timeSignature field
+        TimeSignature effectiveTs = timeSignature;
+
+        var tsInfo = TimeSignatureProperties[effectiveTs];
+        int beatsPerMeasure = tsInfo.BeatsPerMeasure;
+
+        if (!ComputeStepsAndSubdivisions(
+            chords,
+            beatsPerMeasure,
+            out int subdivisions,
+            out List<int> lengthsSteps,
+            out int totalSteps,
+            out var durError))
+        {
+            EditorUtility.DisplayDialog("Quantization Error",
+                durError ?? "Could not find a consistent grid (steps / subdivisions).",
+                "OK");
+            return;
+        }
+
+        string path = EditorUtility.SaveFilePanelInProject(
+            "Save Chord Progression As...",
+            "New Chord Progression Data",
+            "asset",
+            "Choose where to save the new progression asset.");
+
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        var newAsset = ScriptableObject.CreateInstance<ChordProgressionData>();
+        AssetDatabase.CreateAsset(newAsset, path);
+
+        Undo.RecordObject(newAsset, "Create Chord Progression");
+
+        int stepsPerMeasure = beatsPerMeasure * subdivisions;
+        int totalMeasures = Mathf.Max(1, totalSteps / Mathf.Max(1, stepsPerMeasure));
+
+        newAsset.TimeSignature = effectiveTs;
+        newAsset.Measures = totalMeasures;
+        newAsset.subdivisions = subdivisions;
+        newAsset.originalInput = progressionInput;
+
+        // Tonalities from toggles
+        newAsset.tonalities.Clear();
+        foreach (var kv in tonalityFlags)
+            if (kv.Value)
+                newAsset.tonalities.Add(kv.Key);
+
+        // Events
+        newAsset.events.Clear();
+        int currentStep = 0;
+        for (int i = 0; i < chords.Count; i++)
+        {
+            var pc = chords[i];
+            int chordSteps = Mathf.Max(1, lengthsSteps[i]);
+
+            var evt = new ChordProgressionData.ChordEvent
+            {
+                degree = pc.degree,
+                quality = ResolveChordQuality(pc),
+                startStep = currentStep,
+                lengthSteps = chordSteps,
+                velocity = defaultVelocity
+            };
+
+            newAsset.events.Add(evt);
+            currentStep += chordSteps;
+        }
+
+        newAsset.UpdateDisplayNameAuto();
+
+        EditorUtility.SetDirty(newAsset);
+        AssetDatabase.SaveAssets();
+
+        // Make this the current target and sync UI/preview
+        targetAsset = newAsset;
+        OnTargetAssetChanged();
+    }
+
+    /// <summary>
+    /// Adds the current targetAsset to targetLibrary if not already present
+    /// with the same originalInput string (ignoring case/whitespace).
+    /// </summary>
+    private void AddCurrentToLibrary()
+    {
+        if (targetLibrary == null)
+        {
+            EditorUtility.DisplayDialog("No Library Assigned",
+                "Assign a ChordProgressionLibrarySO in the 'Progression Library' field first.",
+                "OK");
+            return;
+        }
+
+        if (targetAsset == null)
+        {
+            EditorUtility.DisplayDialog("No Target Asset",
+                "There is no ChordProgressionData to add. " +
+                "Apply or Save As first.",
+                "OK");
+            return;
+        }
+
+        if (targetLibrary.entries == null)
+            targetLibrary.entries = new List<ChordProgressionLibrarySO.Entry>();
+
+        // Key string: prefer the asset's originalInput; fallback to current editor string.
+        string keyString = !string.IsNullOrWhiteSpace(targetAsset.originalInput)
+            ? targetAsset.originalInput.Trim()
+            : (progressionInput ?? string.Empty).Trim();
+
+        if (string.IsNullOrEmpty(keyString))
+        {
+            EditorUtility.DisplayDialog("Missing Original String",
+                "The progression has no original input string to use as a uniqueness key.\n" +
+                "Set 'originalInput' or the editor string first.",
+                "OK");
+            return;
+        }
+
+        // Duplicate if ANY existing entry’s progression has the same originalInput
+        bool duplicate = targetLibrary.entries.Any(e =>
+            e != null &&
+            e.progression != null &&
+            !string.IsNullOrWhiteSpace(e.progression.originalInput) &&
+            string.Equals(
+                e.progression.originalInput.Trim(),
+                keyString,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (duplicate)
+        {
+            EditorUtility.DisplayDialog("Already In Library",
+                "Another entry in this library already has the same original input string.\n" +
+                "If you really want a variation, change the string slightly and try again.",
+                "OK");
+            return;
+        }
+
+        var entry = new ChordProgressionLibrarySO.Entry
+        {
+            id = string.IsNullOrWhiteSpace(targetAsset.DisplayName)
+            ? targetAsset.name
+            : targetAsset.DisplayName,
+            progression = targetAsset,
+            weight = 1f,
+            compatibleTonalities =
+            (targetAsset.tonalities == null || targetAsset.tonalities.Count == 0)
+                ? new List<Tonality>()
+                : new List<Tonality>(targetAsset.tonalities)
+        };
+
+        targetLibrary.entries.Add(entry);
+
+        EditorUtility.SetDirty(targetLibrary);
+        AssetDatabase.SaveAssets();
+
+        EditorUtility.DisplayDialog("Added To Library",
+            $"Added '{entry.id}' to '{targetLibrary.name}'.",
+            "OK");
     }
 }
 #endif
