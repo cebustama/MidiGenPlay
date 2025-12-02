@@ -70,11 +70,43 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx)
         {
             var instrument = (MIDIInstrumentSO)cfg.Instrument;
-            var prog = ctx?.GetProgressionForPart?.Invoke(part)
-                       ?? (cfg.Parameters?.Pattern as ChordProgressionData);
 
+            // 0) Resolve card style (BackingCardConfigSO) from TrackParameters.Style
             var backingStyle = cfg.Parameters?.Style as BackingCardConfigSO;
             var effectiveVL = backingStyle?.voiceLeadingOverride ?? _vl;
+
+            // 1) Card-level progression override (if any)
+            ChordProgressionData prog = null;
+            if (backingStyle != null)
+            {
+                var rng = ctx?.rng ?? new System.Random();
+                prog = backingStyle.PickProgressionOverride(rng);
+
+                if (prog != null)
+                {
+                    // Share override with other tracks (melody, bass, etc.)
+                    // but don't overwrite if some other system already set it.
+                    if (ctx?.GetProgressionForPart?.Invoke(part) == null)
+                    {
+                        ctx?.SetProgressionForPart?.Invoke(part, prog);
+                    }
+
+                    if (_settings?.logGenerator == true)
+                    {
+                        Debug.Log(
+                            $"<color=green>[ChordTrackComposer]</color> " +
+                            $"Card-level progression override used: '{prog.DisplayName}' " +
+                            $"for part='{part.Name}'.");
+                    }
+                }
+            }
+
+            // 2) If still null, use cached or explicitly authored pattern
+            if (prog == null)
+            {
+                prog = ctx?.GetProgressionForPart?.Invoke(part)
+                       ?? (cfg.Parameters?.Pattern as ChordProgressionData);
+            }
 
             if (_settings?.logGenerator == true)
             {
@@ -84,12 +116,15 @@ namespace MidiGenPlay.Composition
                           $"inst='{instrument?.InstrumentName}' bpm={bpm} ch={channel} " +
                           $"progression='{progName}' evts={prog?.events?.Count ?? 0} " +
                           $"VL='{vlName}' " +
-                          $"(card override={backingStyle != null && backingStyle.voiceLeadingOverride != null})");
+                          $"(card override=" +
+                          $"{backingStyle != null && backingStyle.voiceLeadingOverride != null})");
             }
 
             // degree + quality → chord pcs
             var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
+            var scaleNames = GetNotesFromScale(scale, part.RootNote, 4, 7)
+                            .Select(n => n.NoteName)
+                            .ToArray();
 
             if (_settings?.logGenerator == true)
             {
@@ -122,12 +157,18 @@ namespace MidiGenPlay.Composition
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
 
-            var chordMarkers = new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
+            var chordMarkers = 
+                new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
             var pb = new PatternBuilder();
 
             // Choose voicer
             var voicer = ctx?.ChordVoicer ?? _voicer;
             IReadOnlyList<DryWetMidiNote> lastVoicing = null;
+
+            Debug.Log($"[ChordTrackComposer] " +
+                $"Voice Leading Check: Config={(effectiveVL != null)}, " +
+                $"Enabled={(effectiveVL?.enableVoiceLeading)}, " +
+                $"Voicer={(voicer != null)}");
 
             for (int repeat = 0; repeat < numRepeats; repeat++)
             {

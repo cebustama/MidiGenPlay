@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 78f8c0d78658c524fb6baa090014cb46, type: 3}
-  m_Name: Test Chord Progression
+  m_Name: "I \u2013 IV \u2013 V \u2013 I"
   m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.ChordProgressionData
   DisplayName: "I \u2013 IV \u2013 V \u2013 I [4 bars, FourFour, sub x1, I]"
   TimeSignature: 0
