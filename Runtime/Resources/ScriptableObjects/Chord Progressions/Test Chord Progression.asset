@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 78f8c0d78658c524fb6baa090014cb46, type: 3}
   m_Name: Test Chord Progression
   m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.ChordProgressionData
-  DisplayName: "I \u2013 V \u2013 vi \u2013 IV [4 bars, FourFour, sub x1, I-D-Ph-L-M-Ae-Lo]"
+  DisplayName: "I \u2013 IV \u2013 V \u2013 I [4 bars, FourFour, sub x1, I]"
   TimeSignature: 0
   Measures: 4
   subdivisions: 1
@@ -24,18 +24,18 @@ MonoBehaviour:
     velocity: 96
   - startStep: 4
     lengthSteps: 4
-    degree: 4
+    degree: 3
     quality: 0
     velocity: 96
   - startStep: 8
     lengthSteps: 4
-    degree: 5
-    quality: 1
+    degree: 4
+    quality: 0
     velocity: 96
   - startStep: 12
     lengthSteps: 4
-    degree: 3
+    degree: 0
     quality: 0
     velocity: 96
-  tonalities: 00000000010000000200000003000000040000000500000006000000
-  originalInput: "I \u2013 V \u2013 vi \u2013 IV"
+  tonalities: 00000000
+  originalInput: "I \u2013 IV \u2013 V \u2013 I"

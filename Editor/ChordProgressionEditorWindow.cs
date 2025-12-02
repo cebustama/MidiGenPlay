@@ -1,5 +1,4 @@
 ﻿#if UNITY_EDITOR
-using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay;
 using MidiGenPlay.Composition;
@@ -35,6 +34,7 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     [SerializeField] private ChordProgressionData targetAsset;
     [SerializeField] private ChordProgressionLibrarySO targetLibrary;
+    [SerializeField] private int selectedLibraryIndex = -1;
 
     [SerializeField][TextArea(2, 4)] private string progressionInput = "I – V – vi – IV";
 
@@ -51,10 +51,20 @@ public class ChordProgressionEditorWindow : EditorWindow
     // TODO: Maybe make only Ionian true by default?
     private Dictionary<Tonality, bool> tonalityFlags; // Tonality toggles (all true by default)
 
+    // Preview
     [SerializeField] private NoteName previewRoot = NoteName.C; // only for preview
     [SerializeField] private string previewChordNames = "";
+    [SerializeField] private string previewGridText = "";
+    [SerializeField] private int previewMeasures;
+    [SerializeField] private int previewSubdivisions;
+    [SerializeField] private int previewBeatsPerMeasure;
 
     private bool showAllowedTonalities = true; // foldout state
+    private GUIStyle gridPreviewStyle;
+
+    // Scroll position for the grid preview area so long progressions don't
+    // push the buttons over the text.
+    private Vector2 previewGridScroll;
 
     private void OnEnable()
     {
@@ -82,6 +92,50 @@ public class ChordProgressionEditorWindow : EditorWindow
                 "If assigned, the created/updated asset will " +
                 "automatically be added as an entry."),
             targetLibrary, typeof(ChordProgressionLibrarySO), false);
+
+        if (targetLibrary != null &&
+            targetLibrary.entries != null &&
+            targetLibrary.entries.Count > 0)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Clone From Library", EditorStyles.boldLabel);
+
+            var entries = targetLibrary.entries;
+            var labels = new string[entries.Count];
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                string label = !string.IsNullOrWhiteSpace(e.id)
+                    ? e.id
+                    : (e.progression != null
+                        ? (!string.IsNullOrWhiteSpace(e.progression.DisplayName)
+                            ? e.progression.DisplayName
+                            : e.progression.name)
+                        : $"Entry {i}");
+
+                labels[i] = label;
+            }
+
+            selectedLibraryIndex = Mathf.Clamp(selectedLibraryIndex, -1, entries.Count - 1);
+            selectedLibraryIndex = EditorGUILayout.Popup(
+                new GUIContent("Library Entry",
+                    "Select an existing progression template to copy into the editor string."),
+                selectedLibraryIndex,
+                labels);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUI.enabled = selectedLibraryIndex >= 0 &&
+                              selectedLibraryIndex < entries.Count;
+
+                if (GUILayout.Button("Load Selected Into Editor"))
+                {
+                    CloneFromLibraryEntry(entries[selectedLibraryIndex]);
+                }
+
+                GUI.enabled = true;
+            }
+        }
 
         EditorGUILayout.Space();
 
@@ -148,43 +202,77 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         EditorGUILayout.Space();
-        EditorGUILayout.LabelField(
-            "Preview (Roman → concrete chords)", EditorStyles.boldLabel);
 
+        // --- Preview header -------------------------------------------------------
+        EditorGUILayout.LabelField(
+            "Preview (Roman → concrete chords)",
+            EditorStyles.boldLabel);
+
+        // Simple linear preview line (always visible)
         EditorGUILayout.HelpBox(
             string.IsNullOrEmpty(previewChordNames)
                 ? "Press 'Parse & Preview' or 'Apply To Target Asset' to update the preview."
                 : previewChordNames,
             MessageType.None);
 
+        // --- Grid preview (bars / beats / colors) --------------------------------
+        if (previewMeasures > 0 &&
+            previewBeatsPerMeasure > 0 &&
+            previewSubdivisions > 0)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                $"Grid: {previewMeasures} bars, " +
+                $"{previewBeatsPerMeasure} beats/bar, " +
+                $"subdivisions x{previewSubdivisions}",
+                EditorStyles.miniLabel);
 
+            if (!string.IsNullOrEmpty(previewGridText))
+            {
+                if (gridPreviewStyle == null)
+                {
+                    gridPreviewStyle = new GUIStyle(EditorStyles.label)
+                    {
+                        richText = true,
+                        wordWrap = true,
+                        font = EditorStyles.miniFont
+                    };
+                }
+
+                // Boxed scroll area so long progressions don't overlap with buttons.
+                using (new EditorGUILayout.VerticalScope(GUI.skin.box))
+                {
+                    // Height hint: at least a few lines, up to ~10 lines before scrolling
+                    float line = EditorGUIUtility.singleLineHeight;
+                    float minHeight = line * 3f;
+                    float maxHeight = line * 10f;
+
+                    previewGridScroll = EditorGUILayout.BeginScrollView(
+                        previewGridScroll,
+                        GUILayout.MinHeight(minHeight),
+                        GUILayout.MaxHeight(maxHeight));
+
+                    EditorGUILayout.LabelField(previewGridText, gridPreviewStyle);
+
+                    EditorGUILayout.EndScrollView();
+                }
+            }
+        }
 
         EditorGUILayout.Space();
+
+        // --- Action buttons (always below the preview) ----------------------------
         using (new EditorGUILayout.HorizontalScope())
         {
             if (GUILayout.Button("Parse & Preview (no write)"))
             {
-                if (!TryParseProgression(
-                    progressionInput, 
-                    defaultDurationMeasures, 
-                    out var chords,
-                    out var parseError))
-                {
-                    if (!string.IsNullOrEmpty(parseError))
-                        EditorUtility.DisplayDialog("Parse Error", parseError, "OK");
-                }
-                else
-                {
-                    UpdatePreview(chords);
-                }
+                ParseAndPreview(onlyPreview: true);
             }
 
-            GUI.enabled = targetAsset != null;
             if (GUILayout.Button("Apply To Target Asset"))
             {
-                ApplyToAsset();
+                ParseAndPreview(onlyPreview: false);
             }
-            GUI.enabled = true;
         }
     }
 
@@ -198,6 +286,60 @@ public class ChordProgressionEditorWindow : EditorWindow
     }
 
     // --- Main application logic ---
+
+    /// <summary>
+    /// Common helper used by the two buttons:
+    /// - Parses the Roman progression string.
+    /// - If successful, updates the linear + grid preview.
+    /// - If onlyPreview == false, also calls ApplyToAsset() to write into the asset
+    ///   (and into the library if configured).
+    /// </summary>
+    private void ParseAndPreview(bool onlyPreview)
+    {
+        // Basic guard
+        if (string.IsNullOrWhiteSpace(progressionInput))
+        {
+            EditorUtility.DisplayDialog(
+                "Error",
+                "Progression input string is empty.",
+                "OK");
+            return;
+        }
+
+        // Try to parse the Roman string into ParsedChord entries
+        if (!TryParseProgression(
+                progressionInput,
+                defaultDurationMeasures,
+                out var chords,
+                out var parseError))
+        {
+            // Show parse error and clear previews so it's obvious something failed
+            if (!string.IsNullOrEmpty(parseError))
+                EditorUtility.DisplayDialog("Parse Error", parseError, "OK");
+
+            previewChordNames = "";
+            previewGridText = "";
+            previewMeasures = 0;
+            previewSubdivisions = 0;
+            previewBeatsPerMeasure = 0;
+            return;
+        }
+
+        // Update both the linear text preview and the colored grid preview
+        UpdatePreview(chords);
+
+        // If this was the "Apply" button, also write everything to the asset
+        if (!onlyPreview)
+        {
+            // For simplicity we reuse the existing ApplyToAsset(), which
+            // re-parses the string internally and also:
+            // - computes the timing grid,
+            // - fills ChordProgressionData.events,
+            // - updates DisplayName, originalInput, tonalities,
+            // - adds the asset to the library if configured.
+            ApplyToAsset();
+        }
+    }
 
     private void ApplyToAsset()
     {
@@ -752,45 +894,205 @@ public class ChordProgressionEditorWindow : EditorWindow
     }
 
     /// <summary>
-    /// Builds a human-readable line like "Cmaj7 | G7 | Am7 | Fmaj7 (2)" 
-    /// using the current previewRoot and referenceTonality.
+    /// Builds:
+    ///  - a linear preview like "Cmaj7 | G7 | Am7 | Fmaj7 (2)"
+    ///  - a colored bar/beat grid,
+    /// using the current previewRoot, referenceTonality and parsed chord qualities.
     /// </summary>
     private void UpdatePreview(List<ParsedChord> chords)
     {
         if (chords == null || chords.Count == 0)
         {
             previewChordNames = "";
+            previewGridText = "";
+            previewMeasures = 0;
+            previewSubdivisions = 0;
+            previewBeatsPerMeasure = 0;
             return;
         }
 
-        // Get scale degrees → pitch classes for the chosen tonality/key
+        // Use asset TS if available, otherwise window field
+        TimeSignature effectiveTs =
+            (targetAsset != null) ? targetAsset.TimeSignature : timeSignature;
+
+        var tsInfo = TimeSignatureProperties[effectiveTs];
+        int beatsPerMeasure = tsInfo.BeatsPerMeasure;
+
+        // Compute timing grid for preview only
+        if (!ComputeStepsAndSubdivisions(
+            chords,
+            beatsPerMeasure,
+            out int subdivisions,
+            out List<int> lengthsSteps,
+            out int totalSteps,
+            out var durError))
+        {
+            previewChordNames = $"[Grid error: {durError}]";
+            previewGridText = "";
+            previewMeasures = 0;
+            previewSubdivisions = 0;
+            previewBeatsPerMeasure = 0;
+            return;
+        }
+
+        int stepsPerMeasure = beatsPerMeasure * subdivisions;
+        int measures = Mathf.Max(1, totalSteps / Mathf.Max(1, stepsPerMeasure));
+
+        previewBeatsPerMeasure = beatsPerMeasure;
+        previewSubdivisions = subdivisions;
+        previewMeasures = measures;
+
+        // --- Build chord symbols and colors ---
+
         var scale = GetScaleFromTonality(referenceTonality, previewRoot);
-        var scaleNames = GetNotesFromScale(scale, previewRoot, 4, 7)
+        var scaleNotes = GetNotesFromScale(scale, previewRoot, 4, 7)
                             .Select(n => n.NoteName)
                             .ToArray();
 
-        var parts = new List<string>(chords.Count);
+        var chordSymbols = new List<string>(chords.Count);
+        var chordColors = new List<string>(chords.Count);
+        var linearParts = new List<string>(chords.Count);
 
-        foreach (var pc in chords)
+        for (int i = 0; i < chords.Count; i++)
         {
-            int degIndex = (int)pc.degree;
-            degIndex = Mathf.Clamp(degIndex, 0, 6);
-
-            var degreeRoot = scaleNames[degIndex];
+            var pc = chords[i];
+            int degIndex = Mathf.Clamp((int)pc.degree, 0, 6);
+            var degreeRoot = scaleNotes[degIndex];
             var q = ResolveChordQuality(pc);
 
             string symbol = GetChordSymbolSpelledForDegree(
                 previewRoot, degIndex, degreeRoot, q);
 
-            // Show duration only if different from 1 bar
+            chordSymbols.Add(symbol);
+            chordColors.Add(ColorHexForNote(degreeRoot));
+
             string label = symbol;
             if (Mathf.Abs(pc.durationMeasures - 1f) > 0.0001f)
                 label += $" ({pc.durationMeasures:g})";
 
-            parts.Add(label);
+            linearParts.Add(label);
         }
 
-        previewChordNames = string.Join(" | ", parts);
+        // Simple linear preview
+        previewChordNames = string.Join(" | ", linearParts);
+
+        // --- Build per-beat grid ---
+
+        int totalBeats = measures * beatsPerMeasure;
+        // Map each step to the chord index
+        int[] chordByStep = new int[totalSteps];
+        int cursor = 0;
+        for (int i = 0; i < chords.Count; i++)
+        {
+            int len = lengthsSteps[i];
+            for (int s = 0; s < len && cursor + s < totalSteps; s++)
+            {
+                chordByStep[cursor + s] = i;
+            }
+            cursor += len;
+            if (cursor >= totalSteps)
+                break;
+        }
+
+        var sb = new System.Text.StringBuilder();
+
+        for (int bar = 0; bar < measures; bar++)
+        {
+            sb.Append("|");
+            for (int beat = 0; beat < beatsPerMeasure; beat++)
+            {
+                int stepIndex = bar * stepsPerMeasure + beat * subdivisions;
+                if (stepIndex >= totalSteps)
+                    stepIndex = totalSteps - 1;
+
+                int chordIndex = chordByStep[stepIndex];
+
+                // New chord at this beat?
+                bool isNewChord = (bar == 0 && beat == 0);
+                if (!isNewChord)
+                {
+                    int prevStepIndex = stepIndex - subdivisions;
+                    if (prevStepIndex < 0)
+                        prevStepIndex = 0;
+
+                    int prevChordIndex = chordByStep[prevStepIndex];
+                    isNewChord = chordIndex != prevChordIndex;
+                }
+
+                string cellText = "-";
+                if (isNewChord)
+                {
+                    string sym = chordSymbols[chordIndex];
+                    string col = chordColors[chordIndex];
+                    cellText = $"<color=#{col}>{sym}</color>";
+                }
+
+                sb.Append(" ").Append(cellText).Append(" ");
+            }
+            sb.Append("|").AppendLine();
+        }
+
+        previewGridText = sb.ToString();
+    }
+
+    /// <summary>
+    /// Loads an existing library entry into the editor:
+    /// - Copies its original Roman string (if available) into progressionInput
+    /// - Syncs time signature and allowed tonalities
+    /// </summary>
+    private void CloneFromLibraryEntry(ChordProgressionLibrarySO.Entry entry)
+    {
+        if (entry == null || entry.progression == null)
+            return;
+
+        var prog = entry.progression;
+
+        // Prefer the original Roman string; fallback to DisplayName / id.
+        if (!string.IsNullOrWhiteSpace(prog.originalInput))
+            progressionInput = prog.originalInput;
+        else if (!string.IsNullOrWhiteSpace(prog.DisplayName))
+            progressionInput = prog.DisplayName;
+        else if (!string.IsNullOrWhiteSpace(entry.id))
+            progressionInput = entry.id;
+        else
+            progressionInput = prog.name;
+
+        // Sync meter
+        timeSignature = prog.TimeSignature;
+
+        // Sync allowed tonalities into the toggles
+        if (tonalityFlags == null)
+            OnEnable();
+
+        var progTonalities = prog.tonalities ?? new List<Tonality>();
+        foreach (var key in tonalityFlags.Keys.ToList())
+        {
+            tonalityFlags[key] = progTonalities.Contains(key);
+        }
+
+        // Keep previewRoot & referenceTonality as-is for now.
+        Repaint();
+    }
+
+    private static string ColorHexForNote(NoteName note)
+    {
+        // Simple, distinct-ish palette. Adjust to taste.
+        switch (note)
+        {
+            case NoteName.C:        return "ff6666";
+            case NoteName.CSharp:   return "ff9966";
+            case NoteName.D:        return "ffcc66";
+            case NoteName.DSharp:   return "ffff66";
+            case NoteName.E:        return "ccff66";
+            case NoteName.F:        return "99ff66";
+            case NoteName.FSharp:   return "66ff99";
+            case NoteName.G:        return "66ffff";
+            case NoteName.GSharp:   return "6699ff";
+            case NoteName.A:        return "9966ff";
+            case NoteName.ASharp:   return "cc66ff";
+            case NoteName.B:        return "ff66cc";
+            default:                return "ffffff";
+        }
     }
 }
 #endif
