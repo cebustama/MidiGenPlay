@@ -35,17 +35,24 @@ public class ChordProgressionEditorWindow : EditorWindow
     [SerializeField] private ChordProgressionData targetAsset;
     [SerializeField] private ChordProgressionLibrarySO targetLibrary;
     [SerializeField] private int selectedLibraryIndex = -1;
+    private enum InputMode { RomanString, Grid }
+    [SerializeField] private InputMode inputMode = InputMode.RomanString;
 
     [SerializeField][TextArea(2, 4)] private string progressionInput = "I – V – vi – IV";
-
     [SerializeField] private float defaultDurationMeasures = 1f;
-
     [SerializeField][Range(1, 127)] private int defaultVelocity = 96;
+
+    // --- Grid authoring state (for Grid mode) ---
+    [SerializeField] private int gridMeasures = 4;
+    [SerializeField] private int gridBeatsPerMeasure = 4;
+    [SerializeField][Range(1, 8)] private int gridSubdivisions = 1;
+    [SerializeField]
+    private List<ChordProgressionData.ChordEvent> gridEvents
+        = new List<ChordProgressionData.ChordEvent>();
 
     [SerializeField] private TimeSignature timeSignature = TimeSignature.FourFour;
 
     [SerializeField] private Tonality referenceTonality = Tonality.Ionian;
-
     [SerializeField] private bool autoDiatonicTriads = true;
 
     // TODO: Maybe make only Ionian true by default?
@@ -59,8 +66,11 @@ public class ChordProgressionEditorWindow : EditorWindow
     [SerializeField] private int previewSubdivisions;
     [SerializeField] private int previewBeatsPerMeasure;
 
+    [SerializeField] private Vector2 mainScroll;
+
     private bool showAllowedTonalities = true; // foldout state
     private GUIStyle gridPreviewStyle;
+    private GUIStyle chordBlockLabelStyle;
 
     private ChordProgressionData lastLoadedAsset;
 
@@ -80,8 +90,10 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     private void OnGUI()
     {
+        mainScroll = EditorGUILayout.BeginScrollView(mainScroll);
+
         EditorGUILayout.LabelField(
-            "Chord Progression From Roman Numerals", EditorStyles.boldLabel);
+            "Chord Progression Editor", EditorStyles.boldLabel);
 
         var newTargetAsset = (ChordProgressionData)EditorGUILayout.ObjectField(
             new GUIContent("Target Asset",
@@ -144,31 +156,25 @@ public class ChordProgressionEditorWindow : EditorWindow
             }
         }
 
+        inputMode = (InputMode)GUILayout.Toolbar(
+            (int)inputMode,
+            new[] { "Roman", "Grid" });
+
         EditorGUILayout.Space();
-
-        EditorGUILayout.LabelField("Progression String");
-        EditorGUILayout.HelpBox(
-            "Examples:\n" +
-            "  I – V – vi – IV\n" +
-            "  i (2) – iv (1) – v (1)\n" +
-            "Durations are in measures. If omitted, Default Duration is used.",
-            MessageType.Info);
-
-        progressionInput = EditorGUILayout.TextArea(progressionInput);
-
-        defaultDurationMeasures = EditorGUILayout.FloatField(
-            new GUIContent("Default Duration (measures)",
-                "Used when a chord has no '(x)' duration suffix."),
-            defaultDurationMeasures);
-
-        defaultVelocity = EditorGUILayout.IntSlider(
-            new GUIContent("Default Velocity", "Velocity for all chord events."),
-            defaultVelocity, 1, 127);
 
         timeSignature = (TimeSignature)EditorGUILayout.EnumPopup(
             new GUIContent("Time Signature",
                 "Meter used to quantize durations and compute total measures."),
             timeSignature);
+
+        if (inputMode == InputMode.RomanString)
+        {
+            DrawRomanMode();
+        }
+        else
+        {
+            DrawGridMode();
+        }
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Tonality & Qualities", EditorStyles.boldLabel);
@@ -277,7 +283,7 @@ public class ChordProgressionEditorWindow : EditorWindow
             }
 
             GUI.enabled = targetAsset != null;
-            if (GUILayout.Button("Apply To Target Asset"))
+            if (GUILayout.Button("Save"))
             {
                 ParseAndPreview(onlyPreview: false);
             }
@@ -298,7 +304,156 @@ public class ChordProgressionEditorWindow : EditorWindow
             }
             GUI.enabled = true;
         }
+
+        EditorGUILayout.EndScrollView();
     }
+
+    private void DrawRomanMode()
+    {
+        EditorGUILayout.LabelField("Progression String");
+        EditorGUILayout.HelpBox(
+            "Examples:\n" +
+            "  I – V – vi – IV\n" +
+            "  i (2) – iv (1) – v (1)\n" +
+            "Durations are in measures. If omitted, Default Duration is used.",
+            MessageType.Info);
+
+        progressionInput = EditorGUILayout.TextArea(progressionInput);
+
+        defaultDurationMeasures = EditorGUILayout.FloatField(
+            new GUIContent("Default Duration (measures)",
+                "Used when a chord has no '(x)' duration suffix."),
+            defaultDurationMeasures);
+
+        defaultVelocity = EditorGUILayout.IntSlider(
+            new GUIContent("Default Velocity", "Velocity for all chord events."),
+            defaultVelocity, 1, 127);
+    }
+
+    private void DrawGridMode()
+    {
+        // Make sure we are looking at the current asset's data
+        SyncGridFromAsset();
+
+        EditorGUILayout.LabelField("Grid Parameters");
+
+        // Measures
+        gridMeasures = EditorGUILayout.IntField(
+            new GUIContent("Measures",
+                "Total number of bars for this progression."),
+            gridMeasures);
+
+        // Beats per bar (independent from TimeSignature enum for now)
+        gridBeatsPerMeasure = EditorGUILayout.IntField(
+            new GUIContent("Beats Per Measure",
+                "Meter numerator. For 4/4 use 4, for 3/4 use 3, etc."),
+            gridBeatsPerMeasure);
+
+        // Subdivisions = timing steps per beat
+        gridSubdivisions = EditorGUILayout.IntSlider(
+            new GUIContent("Subdivisions (steps per beat)",
+                "Horizontal grid resolution. 1 = quarter notes, " +
+                "2 = eighths, 4 = sixteenths, etc."),
+            gridSubdivisions, 1, 8);
+
+        // Clamp to sensible minimums
+        gridMeasures = Mathf.Max(1, gridMeasures);
+        gridBeatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
+        gridSubdivisions = Mathf.Max(1, gridSubdivisions);
+
+        EditorGUILayout.Space();
+
+        EditorGUILayout.HelpBox(
+            "Grid mode:\n" +
+            "- Measures / Beats / Subdivisions define the horizontal grid.\n" +
+            "- Currently read-only: showing ChordEvents as colored blocks.\n" +
+            "- Next step: clicking to create / edit events.",
+            MessageType.Info);
+
+        // Reserve a rect where the actual chord lane will be drawn.
+        const float laneHeight = 32f;
+        Rect gridRect = GUILayoutUtility.GetRect(
+            0, 10000, laneHeight, laneHeight);
+
+        // Background
+        EditorGUI.DrawRect(gridRect, new Color(0.15f, 0.15f, 0.15f, 1f));
+
+        int stepsPerMeasure = gridBeatsPerMeasure * gridSubdivisions;
+        int totalSteps = Mathf.Max(1, gridMeasures * stepsPerMeasure);
+        float stepWidth = gridRect.width / totalSteps;
+
+        // Bar separators
+        if (totalSteps > 0)
+        {
+            Handles.BeginGUI();
+            Handles.color = new Color(1f, 1f, 1f, 0.15f);
+
+            for (int bar = 0; bar <= gridMeasures; bar++)
+            {
+                float x = gridRect.xMin + bar * stepsPerMeasure * stepWidth;
+                Handles.DrawLine(
+                    new Vector2(x, gridRect.yMin),
+                    new Vector2(x, gridRect.yMax));
+            }
+
+            Handles.EndGUI();
+        }
+
+        // Prepare degree → color mapping (using your existing note palette)
+        var scale = GetScaleFromTonality(referenceTonality, previewRoot);
+        var scaleNotes = GetNotesFromScale(scale, previewRoot, 4, 7)
+                            .Select(n => n.NoteName)
+                            .ToArray();
+
+        Color[] degreeColors = new Color[7];
+        for (int i = 0; i < degreeColors.Length; i++)
+        {
+            Color col;
+            if (!ColorUtility.TryParseHtmlString(
+                    "#" + ColorHexForNote(scaleNotes[i]),
+                    out col))
+            {
+                col = Color.white;
+            }
+            degreeColors[i] = col;
+        }
+
+        // Label style for chord blocks
+        if (chordBlockLabelStyle == null)
+        {
+            chordBlockLabelStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                richText = true
+            };
+            chordBlockLabelStyle.normal.textColor = Color.black;
+        }
+
+        // Draw each ChordEvent as a colored block
+        if (gridEvents != null && gridEvents.Count > 0)
+        {
+            foreach (var e in gridEvents)
+            {
+                int start = Mathf.Clamp(e.startStep, 0, totalSteps - 1);
+                int length = Mathf.Clamp(e.lengthSteps, 1, totalSteps - start);
+
+                float x = gridRect.xMin + start * stepWidth;
+                float w = length * stepWidth;
+
+                int degIndex = Mathf.Clamp((int)e.degree, 0, 6);
+                Color col = degreeColors[degIndex];
+
+                var blockRect = new Rect(x, gridRect.yMin, w, gridRect.height);
+                EditorGUI.DrawRect(blockRect, col);
+
+                string rn = ToRomanRich(e.degree, e.quality);
+                GUI.Label(blockRect, rn, chordBlockLabelStyle);
+            }
+        }
+
+        // (Next step will go here: mouse handling inside gridRect to edit/create events.)
+    }
+
 
     // --- Data structures for parsing ---
 
@@ -477,6 +632,9 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         targetAsset.UpdateDisplayNameAuto();
+
+        // Keep grid view in sync with the asset we just wrote
+        SyncGridFromAsset();
 
         EditorUtility.SetDirty(targetAsset);
         AssetDatabase.SaveAssets();
@@ -1131,6 +1289,9 @@ public class ChordProgressionEditorWindow : EditorWindow
                 tonalityFlags[key] = true;
         }
 
+        // sync grid state from the asset
+        SyncGridFromAsset();
+
         // Refresh preview if we have a Roman string
         if (!string.IsNullOrWhiteSpace(progressionInput))
             ParseAndPreview(onlyPreview: true);
@@ -1240,6 +1401,10 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         newAsset.UpdateDisplayNameAuto();
 
+        // Keep grid view in sync with the newly created asset
+        targetAsset = newAsset;
+        SyncGridFromAsset();
+
         EditorUtility.SetDirty(newAsset);
         AssetDatabase.SaveAssets();
 
@@ -1328,6 +1493,33 @@ public class ChordProgressionEditorWindow : EditorWindow
         EditorUtility.DisplayDialog("Added To Library",
             $"Added '{entry.id}' to '{targetLibrary.name}'.",
             "OK");
+    }
+
+    // Keep grid parameters + editable event cache in sync with the target asset.
+    private void SyncGridFromAsset()
+    {
+        if (targetAsset == null)
+            return;
+
+        // Init list if needed
+        if (gridEvents == null)
+            gridEvents = new List<ChordProgressionData.ChordEvent>();
+
+        // Copy basic timing info if it's not set or obviously invalid
+        if (gridMeasures <= 0)
+            gridMeasures = Mathf.Max(1, targetAsset.Measures);
+
+        var tsInfo = TimeSignatureProperties[targetAsset.TimeSignature];
+        if (gridBeatsPerMeasure <= 0)
+            gridBeatsPerMeasure = tsInfo.BeatsPerMeasure;
+
+        if (gridSubdivisions <= 0)
+            gridSubdivisions = Mathf.Max(1, targetAsset.subdivisions);
+
+        // Copy events from asset into the local editable cache
+        gridEvents.Clear();
+        if (targetAsset.events != null)
+            gridEvents.AddRange(targetAsset.events);
     }
 }
 #endif
