@@ -39,3 +39,9 @@ MonoBehaviour:
     usageHint: 0
     weight: 1
     notes: 
+  - id: "iv (2) \u2013 V - I [4 bars, FourFour, sub x1, I]"
+    progression: {fileID: 11400000, guid: acae2f1124a06114d95c056b8ceeb259, type: 2}
+    compatibleTonalities: 00000000
+    usageHint: 0
+    weight: 1
+    notes: 

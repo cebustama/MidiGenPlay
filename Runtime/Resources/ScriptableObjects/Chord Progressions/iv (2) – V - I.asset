@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 78f8c0d78658c524fb6baa090014cb46, type: 3}
+  m_Name: "iv (2) \u2013 V - I"
+  m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.ChordProgressionData
+  DisplayName: "iv (2) \u2013 V - I [4 bars, FourFour, sub x1, I-D-Ph-L-M-Ae-Lo]"
+  TimeSignature: 0
+  Measures: 4
+  subdivisions: 1
+  events:
+  - startStep: 0
+    lengthSteps: 8
+    degree: 3
+    quality: 4
+    velocity: 96
+    isDiatonic: 1
+  - startStep: 8
+    lengthSteps: 4
+    degree: 4
+    quality: 6
+    velocity: 96
+    isDiatonic: 1
+  - startStep: 12
+    lengthSteps: 4
+    degree: 0
+    quality: 4
+    velocity: 96
+    isDiatonic: 1
+  tonalities: 00000000010000000200000003000000040000000500000006000000
+  originalInput: "iv (2) \u2013 V - I "

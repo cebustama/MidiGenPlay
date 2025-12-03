@@ -22,6 +22,10 @@ namespace MidiGenPlay
             public ScaleDegree degree;
             public ChordQuality quality;
             public int velocity;    // 0..127
+
+            [Tooltip("True if this chord’s quality matches the diatonic harmony " +
+             "for the reference tonality; false if it is a borrowed/non-diatonic chord.")]
+            public bool isDiatonic = true;
         }
 
         [Tooltip("Events in step units (startStep/lengthSteps).")]

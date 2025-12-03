@@ -53,7 +53,17 @@ public class ChordProgressionEditorWindow : EditorWindow
     [SerializeField] private TimeSignature timeSignature = TimeSignature.FourFour;
 
     [SerializeField] private Tonality referenceTonality = Tonality.Ionian;
-    [SerializeField] private bool autoDiatonicTriads = true;
+
+
+    // how we auto-infer diatonic qualities when quality is *not* explicit.
+    private enum AutoDiatonicMode
+    {
+        None,       // literal: case = triad quality, key ignored
+        Triads,     // diatonic triads for (mode, degree)
+        Sevenths    // diatonic seventh chords for (mode, degree)
+    }
+
+    [SerializeField] private AutoDiatonicMode autoDiatonicMode = AutoDiatonicMode.Triads;
 
     // TODO: Maybe make only Ionian true by default?
     private Dictionary<Tonality, bool> tonalityFlags; // Tonality toggles (all true by default)
@@ -184,10 +194,12 @@ public class ChordProgressionEditorWindow : EditorWindow
                 "Used to derive diatonic triad quality (Major/Minor/Dim) for each degree."),
             referenceTonality);
 
-        autoDiatonicTriads = EditorGUILayout.Toggle(
-            new GUIContent("Auto Diatonic Triads",
-                "If true, chord quality = diatonic triad for (referenceTonality, degree)."),
-            autoDiatonicTriads);
+        autoDiatonicMode = (AutoDiatonicMode)EditorGUILayout.EnumPopup(
+            new GUIContent("Auto Diatonic Qualities",
+                "None: literal – roman case = triad quality; key ignored.\n" +
+                "Triads: infer diatonic triads for (mode, degree) when no suffix.\n" +
+                "Sevenths: infer diatonic 7th chords for (mode, degree) when no suffix."),
+            autoDiatonicMode);
 
         previewRoot = (NoteName)EditorGUILayout.EnumPopup(
             new GUIContent("Preview Root Note",
@@ -443,10 +455,18 @@ public class ChordProgressionEditorWindow : EditorWindow
                 int degIndex = Mathf.Clamp((int)e.degree, 0, 6);
                 Color col = degreeColors[degIndex];
 
+                // Borrowed chords: darken the color a bit
+                if (!e.isDiatonic)
+                    col = Color.Lerp(col, Color.black, 0.35f);
+
                 var blockRect = new Rect(x, gridRect.yMin, w, gridRect.height);
                 EditorGUI.DrawRect(blockRect, col);
 
                 string rn = ToRomanRich(e.degree, e.quality);
+                // Borrowed chords: italic roman numeral
+                if (!e.isDiatonic)
+                    rn = "<i>" + rn + "</i>";
+
                 GUI.Label(blockRect, rn, chordBlockLabelStyle);
             }
         }
@@ -618,13 +638,17 @@ public class ChordProgressionEditorWindow : EditorWindow
             var pc = chords[i];
             int chordSteps = Mathf.Max(1, lengthsSteps[i]);
 
+            var quality = ResolveChordQuality(pc);
+            bool isDiatonic = IsChordDiatonic(pc.degree, quality);
+
             var evt = new ChordProgressionData.ChordEvent
             {
                 degree = pc.degree,
-                quality = ResolveChordQuality(pc),
+                quality = quality,
                 startStep = currentStep,
                 lengthSteps = chordSteps,
-                velocity = defaultVelocity
+                velocity = defaultVelocity,
+                isDiatonic = isDiatonic
             };
 
             targetAsset.events.Add(evt);
@@ -638,6 +662,9 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         EditorUtility.SetDirty(targetAsset);
         AssetDatabase.SaveAssets();
+
+        // Keep the grid inspector view in sync with whatever we just wrote.
+        SyncGridFromAsset(force: true);
 
         // Also refresh the concrete-chord preview after a successful apply
         UpdatePreview(chords);
@@ -712,10 +739,10 @@ public class ChordProgressionEditorWindow : EditorWindow
     }
 
     private bool TryParseRomanWithQuality(
-        string token,
-        out ScaleDegree degree,
-        out ChordQuality? explicitQuality,
-        out string error)
+    string token,
+    out ScaleDegree degree,
+    out ChordQuality? explicitQuality,
+    out string error)
     {
         degree = ScaleDegree.Tonic;
         explicitQuality = null;
@@ -741,7 +768,7 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         string roman = token.Substring(0, idx);
-        string suffix = token.Substring(idx); // may be empty, "7", "maj7", "ø7", "sus4", etc.
+        string suffix = token.Substring(idx); // may be empty, "7", "maj7", "ø7", etc.
 
         // --- Roman → degree index (0..6) ---
         if (!TryParseRomanToDegreeIndex(roman, out int degIndex))
@@ -751,15 +778,36 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
         degree = (ScaleDegree)degIndex;
 
-        // --- Quality suffix (optional) ---
+        // --- Quality from suffix (optional, highest priority) ---
+        bool hasExplicitFromSuffix = false;
         suffix = suffix.Trim();
         if (!string.IsNullOrEmpty(suffix) && TryParseQualitySuffix(suffix, out var q))
         {
             explicitQuality = q;
+            hasExplicitFromSuffix = true;
+        }
+
+        // --- In None mode, if there was no suffix, use case as explicit triad quality ---
+        if (!hasExplicitFromSuffix && autoDiatonicMode == AutoDiatonicMode.None)
+        {
+            char c0 = roman[0];
+            if (char.IsLetter(c0))
+            {
+                // all-lowercase → minor, all-uppercase → major
+                bool anyLower = roman.Any(ch => char.IsLetter(ch) && char.IsLower(ch));
+                bool anyUpper = roman.Any(ch => char.IsLetter(ch) && char.IsUpper(ch));
+
+                if (anyLower && !anyUpper)
+                    explicitQuality = ChordQuality.Minor;
+                else if (anyUpper && !anyLower)
+                    explicitQuality = ChordQuality.Major;
+                // mixed case or weird → leave null, will fall back later
+            }
         }
 
         return true;
     }
+
 
     /// <summary>
     /// Parses classic roman numerals I..VII to a degree index (0..6).
@@ -1038,16 +1086,73 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     private ChordQuality ResolveChordQuality(ParsedChord c)
     {
-        // 1) Explicit quality in the string wins.
+        // 1) Explicit quality (suffix or, in None mode, case) always wins.
         if (c.explicitQuality.HasValue)
             return c.explicitQuality.Value;
 
-        // 2) If user asked for diatonic qualities, use those.
-        if (autoDiatonicTriads)
-            return GetDiatonicTriadQuality(referenceTonality, c.degree);
+        // 2) Otherwise, infer from selected auto mode.
+        switch (autoDiatonicMode)
+        {
+            case AutoDiatonicMode.Triads:
+                // Diatonic triad for this mode+degree
+                return GetDiatonicTriadQuality(referenceTonality, c.degree);
 
-        // 3) Fallback: plain major triad.
-        return ChordQuality.Major;
+            case AutoDiatonicMode.Sevenths:
+                // Diatonic 7th chord (Imaj7, iim7, V7, etc.)
+                return GetDiatonicSeventhQuality(referenceTonality, c.degree);
+
+            case AutoDiatonicMode.None:
+            default:
+                // Literal mode: no inference → default to plain major if nothing else is specified.
+                return ChordQuality.Major;
+        }
+    }
+
+
+    // Used only for analysis (diatonic vs borrowed)
+    private enum TriadFamily { Major, Minor, Diminished, Augmented, Suspended, Other }
+
+    private TriadFamily GetTriadFamily(ChordQuality q)
+    {
+        switch (q)
+        {
+            case ChordQuality.Major:
+            case ChordQuality.Major7:
+            case ChordQuality.Dominant7:
+                return TriadFamily.Major;
+
+            case ChordQuality.Minor:
+            case ChordQuality.Minor7:
+                return TriadFamily.Minor;
+
+            case ChordQuality.Diminished:
+            case ChordQuality.Diminished7:
+            case ChordQuality.HalfDiminished7:
+                return TriadFamily.Diminished;
+
+            case ChordQuality.Augmented:
+                return TriadFamily.Augmented;
+
+            case ChordQuality.Sus2:
+            case ChordQuality.Sus4:
+                return TriadFamily.Suspended;
+
+            default:
+                return TriadFamily.Other;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if 'quality' belongs to the same triad family as the
+    /// diatonic triad for (referenceTonality, degree). This is our notion of
+    /// "non-borrowed" versus "borrowed / modal mixture".
+    /// </summary>
+    private bool IsChordDiatonic(ScaleDegree degree, ChordQuality quality)
+    {
+        var expectedTriad = GetDiatonicTriadQuality(referenceTonality, degree);
+        var expectedFamily = GetTriadFamily(expectedTriad);
+        var actualFamily = GetTriadFamily(quality);
+        return expectedFamily == actualFamily;
     }
 
     /// <summary>
@@ -1099,7 +1204,7 @@ public class ChordProgressionEditorWindow : EditorWindow
         previewSubdivisions = subdivisions;
         previewMeasures = measures;
 
-        // --- Build chord symbols and colors ---
+        // --- Build chord symbols, colors and diatonic flags ---
 
         var scale = GetScaleFromTonality(referenceTonality, previewRoot);
         var scaleNotes = GetNotesFromScale(scale, previewRoot, 4, 7)
@@ -1108,6 +1213,7 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         var chordSymbols = new List<string>(chords.Count);
         var chordColors = new List<string>(chords.Count);
+        var chordIsDiatonic = new List<bool>(chords.Count);
         var linearParts = new List<string>(chords.Count);
 
         for (int i = 0; i < chords.Count; i++)
@@ -1115,15 +1221,21 @@ public class ChordProgressionEditorWindow : EditorWindow
             var pc = chords[i];
             int degIndex = Mathf.Clamp((int)pc.degree, 0, 6);
             var degreeRoot = scaleNotes[degIndex];
+
             var q = ResolveChordQuality(pc);
+            bool isDiatonic = IsChordDiatonic(pc.degree, q);
 
             string symbol = GetChordSymbolSpelledForDegree(
                 previewRoot, degIndex, degreeRoot, q);
 
             chordSymbols.Add(symbol);
             chordColors.Add(ColorHexForNote(degreeRoot));
+            chordIsDiatonic.Add(isDiatonic);
 
             string label = symbol;
+            if (!isDiatonic)
+                label = "*" + label; // mark borrowed chord in linear preview
+
             if (Mathf.Abs(pc.durationMeasures - 1f) > 0.0001f)
                 label += $" ({pc.durationMeasures:g})";
 
@@ -1136,16 +1248,14 @@ public class ChordProgressionEditorWindow : EditorWindow
         // --- Build per-beat grid ---
 
         int totalBeats = measures * beatsPerMeasure;
-        // Map each step to the chord index
         int[] chordByStep = new int[totalSteps];
         int cursor = 0;
         for (int i = 0; i < chords.Count; i++)
         {
             int len = lengthsSteps[i];
             for (int s = 0; s < len && cursor + s < totalSteps; s++)
-            {
                 chordByStep[cursor + s] = i;
-            }
+
             cursor += len;
             if (cursor >= totalSteps)
                 break;
@@ -1181,7 +1291,12 @@ public class ChordProgressionEditorWindow : EditorWindow
                 {
                     string sym = chordSymbols[chordIndex];
                     string col = chordColors[chordIndex];
-                    cellText = $"<color=#{col}>{sym}</color>";
+                    string colored = $"<color=#{col}>{sym}</color>";
+
+                    if (!chordIsDiatonic[chordIndex])
+                        colored = $"<i>{colored}</i>"; // borrowed: italic
+
+                    cellText = colored;
                 }
 
                 sb.Append(" ").Append(cellText).Append(" ");
@@ -1262,7 +1377,15 @@ public class ChordProgressionEditorWindow : EditorWindow
         lastLoadedAsset = targetAsset;
 
         if (targetAsset == null)
+        {
+            progressionInput = "";
+            previewChordNames = "";
+            previewGridText = "";
+            previewMeasures = 0;
+            previewSubdivisions = 0;
+            previewBeatsPerMeasure = 0;
             return;
+        }
 
         // Use originalInput if present
         if (!string.IsNullOrWhiteSpace(targetAsset.originalInput))
@@ -1290,7 +1413,7 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         // sync grid state from the asset
-        SyncGridFromAsset();
+        SyncGridFromAsset(force: true);
 
         // Refresh preview if we have a Roman string
         if (!string.IsNullOrWhiteSpace(progressionInput))
@@ -1386,13 +1509,17 @@ public class ChordProgressionEditorWindow : EditorWindow
             var pc = chords[i];
             int chordSteps = Mathf.Max(1, lengthsSteps[i]);
 
+            var quality = ResolveChordQuality(pc);
+            bool isDiatonic = IsChordDiatonic(pc.degree, quality);
+
             var evt = new ChordProgressionData.ChordEvent
             {
                 degree = pc.degree,
-                quality = ResolveChordQuality(pc),
+                quality = quality,
                 startStep = currentStep,
                 lengthSteps = chordSteps,
-                velocity = defaultVelocity
+                velocity = defaultVelocity,
+                isDiatonic = isDiatonic
             };
 
             newAsset.events.Add(evt);
@@ -1496,7 +1623,7 @@ public class ChordProgressionEditorWindow : EditorWindow
     }
 
     // Keep grid parameters + editable event cache in sync with the target asset.
-    private void SyncGridFromAsset()
+    private void SyncGridFromAsset(bool force = false)
     {
         if (targetAsset == null)
             return;
@@ -1505,11 +1632,14 @@ public class ChordProgressionEditorWindow : EditorWindow
         if (gridEvents == null)
             gridEvents = new List<ChordProgressionData.ChordEvent>();
 
-        // Copy basic timing info if it's not set or obviously invalid
-        if (gridMeasures <= 0)
+        // When 'force' is true we always pull fresh values from the asset.
+        // Otherwise we only initialise invalid/empty values so the user can
+        // tweak the numbers in the inspector without them being overwritten.
+        if (force || gridMeasures <= 0)
             gridMeasures = Mathf.Max(1, targetAsset.Measures);
 
         var tsInfo = TimeSignatureProperties[targetAsset.TimeSignature];
+
         if (gridBeatsPerMeasure <= 0)
             gridBeatsPerMeasure = tsInfo.BeatsPerMeasure;
 
