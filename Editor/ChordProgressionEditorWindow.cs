@@ -50,6 +50,12 @@ public class ChordProgressionEditorWindow : EditorWindow
     private List<ChordProgressionData.ChordEvent> gridEvents
         = new List<ChordProgressionData.ChordEvent>();
 
+    // --- Grid editing selection ---
+    [SerializeField] private bool gridHasSelection;
+    [SerializeField] private int gridSelectedIndex = -1; // -1 = brand new event
+    [SerializeField] private ChordProgressionData.ChordEvent gridEditingEvent;
+    [SerializeField] private bool gridInitializedFromAsset;
+
     [SerializeField] private TimeSignature timeSignature = TimeSignature.FourFour;
 
     [SerializeField] private Tonality referenceTonality = Tonality.Ionian;
@@ -344,6 +350,14 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     private void DrawGridMode()
     {
+        if (targetAsset == null)
+        {
+            EditorGUILayout.HelpBox(
+                "Assign a Target Asset to author a progression in Grid mode.",
+                MessageType.Info);
+            return;
+        }
+
         // Make sure we are looking at the current asset's data
         SyncGridFromAsset();
 
@@ -378,8 +392,8 @@ public class ChordProgressionEditorWindow : EditorWindow
         EditorGUILayout.HelpBox(
             "Grid mode:\n" +
             "- Measures / Beats / Subdivisions define the horizontal grid.\n" +
-            "- Currently read-only: showing ChordEvents as colored blocks.\n" +
-            "- Next step: clicking to create / edit events.",
+            "- ChordEvents are shown as colored blocks (per degree).\n" +
+            "- Click on a block to edit it, or on empty space to create a new one.",
             MessageType.Info);
 
         // Reserve a rect where the actual chord lane will be drawn.
@@ -398,11 +412,21 @@ public class ChordProgressionEditorWindow : EditorWindow
         if (totalSteps > 0)
         {
             Handles.BeginGUI();
-            Handles.color = new Color(1f, 1f, 1f, 0.15f);
-
+            // Bar lines
+            Handles.color = new Color(1f, 0.9f, 0.1f, 0.9f);
             for (int bar = 0; bar <= gridMeasures; bar++)
             {
                 float x = gridRect.xMin + bar * stepsPerMeasure * stepWidth;
+                Handles.DrawLine(
+                    new Vector2(x, gridRect.yMin),
+                    new Vector2(x, gridRect.yMax));
+            }
+
+            // Light beat grid
+            Handles.color = new Color(1f, 1f, 1f, 0.05f);
+            for (int s = 0; s <= totalSteps; s++)
+            {
+                float x = gridRect.xMin + s * stepWidth;
                 Handles.DrawLine(
                     new Vector2(x, gridRect.yMin),
                     new Vector2(x, gridRect.yMax));
@@ -444,10 +468,21 @@ public class ChordProgressionEditorWindow : EditorWindow
         // Draw each ChordEvent as a colored block
         if (gridEvents != null && gridEvents.Count > 0)
         {
-            foreach (var e in gridEvents)
+            for (int i = 0; i < gridEvents.Count; i++)
             {
-                int start = Mathf.Clamp(e.startStep, 0, totalSteps - 1);
-                int length = Mathf.Clamp(e.lengthSteps, 1, totalSteps - start);
+                var e = gridEvents[i];
+
+                int originalStart = e.startStep;
+                int originalEnd = e.startStep + e.lengthSteps;
+
+                // Completely outside current grid → don't draw at all
+                if (originalStart >= totalSteps || originalEnd <= 0)
+                    continue;
+
+                // Clip to visible range [0, totalSteps)
+                int start = Mathf.Max(0, originalStart);
+                int end = Mathf.Min(totalSteps, originalEnd);
+                int length = Mathf.Max(1, end - start);
 
                 float x = gridRect.xMin + start * stepWidth;
                 float w = length * stepWidth;
@@ -455,25 +490,256 @@ public class ChordProgressionEditorWindow : EditorWindow
                 int degIndex = Mathf.Clamp((int)e.degree, 0, 6);
                 Color col = degreeColors[degIndex];
 
-                // Borrowed chords: darken the color a bit
-                if (!e.isDiatonic)
+                bool isDiatonic = IsChordDiatonic(e.degree, e.quality);
+                if (!isDiatonic)
                     col = Color.Lerp(col, Color.black, 0.35f);
 
-                var blockRect = new Rect(x, gridRect.yMin, w, gridRect.height);
+                if (gridHasSelection && i == gridSelectedIndex)
+                    col = Color.Lerp(col, Color.white, 0.4f);
+
+                var blockRect = new Rect(
+                    x + 1f,
+                    gridRect.yMin + 2f,
+                    w - 2f,
+                    gridRect.height - 4f);
+
                 EditorGUI.DrawRect(blockRect, col);
 
                 string rn = ToRomanRich(e.degree, e.quality);
-                // Borrowed chords: italic roman numeral
-                if (!e.isDiatonic)
+                if (!isDiatonic)
                     rn = "<i>" + rn + "</i>";
 
                 GUI.Label(blockRect, rn, chordBlockLabelStyle);
             }
         }
 
-        // (Next step will go here: mouse handling inside gridRect to edit/create events.)
+        // Handle mouse clicks for selection / creation
+        HandleGridMouse(gridRect, totalSteps, stepWidth);
+
+        // Inline editor for the currently selected event
+        DrawGridSelectionInspector(totalSteps);
     }
 
+    private int GridTotalSteps()
+    {
+        return Mathf.Max(1, gridMeasures * gridBeatsPerMeasure * gridSubdivisions);
+    }
+
+    private void HandleGridMouse(Rect gridRect, int totalSteps, float stepWidth)
+    {
+        var evt = Event.current;
+        if (evt.type != EventType.MouseDown || evt.button != 0)
+            return;
+
+        if (!gridRect.Contains(evt.mousePosition))
+            return;
+
+        // Convert x → step index
+        float localX = evt.mousePosition.x - gridRect.xMin;
+        int clickedStep = Mathf.Clamp(Mathf.FloorToInt(localX / stepWidth), 0, totalSteps - 1);
+
+        int idx = FindGridEventCovering(clickedStep);
+        if (idx >= 0)
+        {
+            // Editing existing event – copy into working struct
+            var src = gridEvents[idx];
+            gridEditingEvent = new ChordProgressionData.ChordEvent
+            {
+                startStep = src.startStep,
+                lengthSteps = src.lengthSteps,
+                degree = src.degree,
+                quality = src.quality,
+                velocity = src.velocity
+            };
+            gridSelectedIndex = idx;
+            gridHasSelection = true;
+        }
+        else
+        {
+            // Creating a new event at this step
+            int defaultLen = DefaultLenOneMeasureFrom(clickedStep);
+            var defaultDegree = ScaleDegree.Tonic;
+
+            bool preferSeventh =
+                autoDiatonicMode == AutoDiatonicMode.Sevenths;
+
+            var defaultQuality = GetSuggestedQuality(
+                referenceTonality,
+                defaultDegree,
+                preferSeventh);
+
+            gridEditingEvent = new ChordProgressionData.ChordEvent
+            {
+                startStep = clickedStep,
+                lengthSteps = defaultLen,
+                degree = defaultDegree,
+                quality = defaultQuality,
+                velocity = defaultVelocity > 0 ? defaultVelocity : 96
+            };
+
+            gridSelectedIndex = -1; // brand new
+            gridHasSelection = true;
+        }
+
+        GUI.FocusControl(null);
+        evt.Use();
+        Repaint();
+    }
+
+    private void DrawGridSelectionInspector(int totalSteps)
+    {
+        if (!gridHasSelection || gridEditingEvent == null)
+            return;
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Selected Chord Event", EditorStyles.boldLabel);
+
+        using (new EditorGUI.IndentLevelScope())
+        {
+            gridEditingEvent.startStep = 
+                EditorGUILayout.IntField("Start Step", gridEditingEvent.startStep);
+            gridEditingEvent.lengthSteps = 
+                EditorGUILayout.IntField("Length (steps)", gridEditingEvent.lengthSteps);
+
+            // Degree popup
+            var oldDegree = gridEditingEvent.degree;
+            gridEditingEvent.degree =
+                (ScaleDegree)EditorGUILayout.EnumPopup("Degree", gridEditingEvent.degree);
+
+            // If the degree changed, and we are in a diatonic auto mode,
+            // pick a sensible quality for the new degree.
+            if (gridEditingEvent.degree != oldDegree &&
+                autoDiatonicMode != AutoDiatonicMode.None)
+            {
+                bool preferSeventh =
+                    autoDiatonicMode == AutoDiatonicMode.Sevenths;
+
+                gridEditingEvent.quality = GetSuggestedQuality(
+                    referenceTonality,
+                    gridEditingEvent.degree,
+                    preferSeventh);
+            }
+
+            // Quality popup (user can always override the auto choice)
+            gridEditingEvent.quality =
+                (ChordQuality)EditorGUILayout.EnumPopup("Quality", gridEditingEvent.quality);
+
+            gridEditingEvent.velocity = 
+                EditorGUILayout.IntSlider("Velocity", gridEditingEvent.velocity, 1, 127);
+        }
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (GUILayout.Button("OK"))
+            {
+                CommitGridEdit(totalSteps);
+            }
+
+            if (gridSelectedIndex >= 0)
+            {
+                if (GUILayout.Button("Delete"))
+                {
+                    if (gridSelectedIndex >= 0 && gridSelectedIndex < gridEvents.Count)
+                        gridEvents.RemoveAt(gridSelectedIndex);
+
+                    gridHasSelection = false;
+                    gridSelectedIndex = -1;
+                    gridEditingEvent = null;
+                    Repaint();
+                }
+            }
+
+            if (GUILayout.Button("Cancel"))
+            {
+                gridHasSelection = false;
+                gridSelectedIndex = -1;
+                gridEditingEvent = null;
+                Repaint();
+            }
+        }
+    }
+
+    // Commit logic + helpers (find/insert/remove)
+
+    private void CommitGridEdit(int totalSteps)
+    {
+        if (gridEditingEvent == null)
+            return;
+
+        var ev = gridEditingEvent;
+
+        // Bounds
+        ev.startStep = Mathf.Clamp(ev.startStep, 0, totalSteps - 1);
+        ev.lengthSteps = Mathf.Max(1, Mathf.Min(ev.lengthSteps, totalSteps - ev.startStep));
+        ev.velocity = Mathf.Clamp(ev.velocity, 1, 127);
+
+        int endExclusive = ev.startStep + ev.lengthSteps;
+
+        // Remove overlaps
+        RemoveGridOverlaps(ev.startStep, endExclusive);
+
+        // If an event already starts here, update it; otherwise insert new
+        int idx = FindGridEventStarting(ev.startStep);
+        if (idx >= 0)
+        {
+            gridEvents[idx] = ev;
+        }
+        else
+        {
+            InsertGridEvent(ev);
+        }
+
+        gridHasSelection = false;
+        gridSelectedIndex = -1;
+        gridEditingEvent = null;
+
+        Repaint();
+    }
+
+    private int FindGridEventCovering(int step)
+    {
+        for (int i = 0; i < gridEvents.Count; i++)
+        {
+            int s = gridEvents[i].startStep;
+            int e = s + gridEvents[i].lengthSteps;
+            if (step >= s && step < e) return i;
+        }
+        return -1;
+    }
+
+    private int FindGridEventStarting(int step)
+    {
+        for (int i = 0; i < gridEvents.Count; i++)
+            if (gridEvents[i].startStep == step) return i;
+        return -1;
+    }
+
+    private void InsertGridEvent(ChordProgressionData.ChordEvent ev)
+    {
+        gridEvents.Add(ev);
+        gridEvents.Sort((a, b) => a.startStep.CompareTo(b.startStep));
+    }
+
+    private void RemoveGridOverlaps(int start, int endExclusive)
+    {
+        for (int i = gridEvents.Count - 1; i >= 0; i--)
+        {
+            int s = gridEvents[i].startStep;
+            int e = s + gridEvents[i].lengthSteps;
+            if (e > start && s < endExclusive)
+                gridEvents.RemoveAt(i);
+        }
+    }
+
+    // Same idea as in ChordProgressionPanelController.DefaultLenOneMeasureFrom
+    private int DefaultLenOneMeasureFrom(int step)
+    {
+        int stepsPerMeasure = gridBeatsPerMeasure * gridSubdivisions;
+        int currentBarStart = (step / stepsPerMeasure) * stepsPerMeasure;
+        int currentBarEnd = currentBarStart + stepsPerMeasure;
+        int remaining = Mathf.Clamp(currentBarEnd - step, 1, stepsPerMeasure);
+        return remaining;
+    }
 
     // --- Data structures for parsing ---
 
@@ -1384,6 +1650,7 @@ public class ChordProgressionEditorWindow : EditorWindow
             previewMeasures = 0;
             previewSubdivisions = 0;
             previewBeatsPerMeasure = 0;
+            gridInitializedFromAsset = false;
             return;
         }
 
@@ -1413,6 +1680,7 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         // sync grid state from the asset
+        gridInitializedFromAsset = false;
         SyncGridFromAsset(force: true);
 
         // Refresh preview if we have a Roman string
@@ -1622,34 +1890,36 @@ public class ChordProgressionEditorWindow : EditorWindow
             "OK");
     }
 
-    // Keep grid parameters + editable event cache in sync with the target asset.
     private void SyncGridFromAsset(bool force = false)
     {
         if (targetAsset == null)
             return;
 
-        // Init list if needed
         if (gridEvents == null)
             gridEvents = new List<ChordProgressionData.ChordEvent>();
 
-        // When 'force' is true we always pull fresh values from the asset.
-        // Otherwise we only initialise invalid/empty values so the user can
-        // tweak the numbers in the inspector without them being overwritten.
+        // --- Measures / beats / subdivisions ---
+        var tsInfo = TimeSignatureProperties[targetAsset.TimeSignature];
+
         if (force || gridMeasures <= 0)
             gridMeasures = Mathf.Max(1, targetAsset.Measures);
 
-        var tsInfo = TimeSignatureProperties[targetAsset.TimeSignature];
-
-        if (gridBeatsPerMeasure <= 0)
+        if (force || gridBeatsPerMeasure <= 0)
             gridBeatsPerMeasure = tsInfo.BeatsPerMeasure;
 
-        if (gridSubdivisions <= 0)
+        if (force || gridSubdivisions <= 0)
             gridSubdivisions = Mathf.Max(1, targetAsset.subdivisions);
 
-        // Copy events from asset into the local editable cache
-        gridEvents.Clear();
-        if (targetAsset.events != null)
-            gridEvents.AddRange(targetAsset.events);
+        // --- Events cache ---
+        // Only copy from asset when explicitly forced, or the first time.
+        if (force || !gridInitializedFromAsset)
+        {
+            gridEvents.Clear();
+            if (targetAsset.events != null)
+                gridEvents.AddRange(targetAsset.events);
+
+            gridInitializedFromAsset = true;
+        }
     }
 }
 #endif
