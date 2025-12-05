@@ -375,6 +375,29 @@ public class ChordProgressionEditorWindow : EditorWindow
         gridBeatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
         gridSubdivisions = Mathf.Max(1, gridSubdivisions);
 
+        // Optional utility button to clear all events from the grid
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Clear Grid", GUILayout.Width(100)))
+            {
+                if (EditorUtility.DisplayDialog(
+                        "Clear Grid",
+                        "Remove all chord events from the grid?\n\n" +
+                        "Note: this only clears the editor grid; " +
+                        "the asset is not modified until you Apply or Save.",
+                        "Clear",
+                        "Cancel"))
+                {
+                    gridEvents.Clear();
+                    gridHasSelection = false;
+                    gridSelectedIndex = -1;
+                    gridEditingEvent = null;
+                    Repaint();
+                }
+            }
+        }
+
         EditorGUILayout.Space();
 
         EditorGUILayout.HelpBox(
@@ -498,6 +521,13 @@ public class ChordProgressionEditorWindow : EditorWindow
                 EditorGUI.DrawRect(blockRect, col);
 
                 string rn = ToRomanRich(e.degree, e.quality);
+
+                // Prefix accidentals
+                if (e.degreeAccidental < 0)
+                    rn = "b" + rn;
+                else if (e.degreeAccidental > 0)
+                    rn = "#" + rn;
+
                 if (!isDiatonic)
                     rn = "<i>" + rn + "</i>";
 
@@ -596,7 +626,8 @@ public class ChordProgressionEditorWindow : EditorWindow
                 lengthSteps = src.lengthSteps,
                 degree = src.degree,
                 quality = src.quality,
-                velocity = src.velocity
+                velocity = src.velocity,
+                degreeAccidental = src.degreeAccidental,
             };
             gridSelectedIndex = idx;
             gridHasSelection = true;
@@ -621,7 +652,8 @@ public class ChordProgressionEditorWindow : EditorWindow
                 lengthSteps = defaultLen,
                 degree = defaultDegree,
                 quality = defaultQuality,
-                velocity = defaultVelocity > 0 ? defaultVelocity : 96
+                velocity = defaultVelocity > 0 ? defaultVelocity : 96,
+                degreeAccidental = 0
             };
 
             gridSelectedIndex = -1; // brand new
@@ -652,6 +684,13 @@ public class ChordProgressionEditorWindow : EditorWindow
             var oldDegree = gridEditingEvent.degree;
             gridEditingEvent.degree =
                 (ScaleDegree)EditorGUILayout.EnumPopup("Degree", gridEditingEvent.degree);
+
+            // Accidental popup
+            gridEditingEvent.degreeAccidental = EditorGUILayout.IntPopup(
+                "Degree Accidental",
+                gridEditingEvent.degreeAccidental,
+                new[] { "Flat (♭)", "Natural", "Sharp (♯)" },
+                new[] { -1, 0, 1 });
 
             // If the degree changed, and we are in a diatonic auto mode,
             // pick a sensible quality for the new degree.
@@ -951,6 +990,13 @@ public class ChordProgressionEditorWindow : EditorWindow
             var pc = chords[i];
             int chordSteps = Mathf.Max(1, lengthsSteps[i]);
 
+            // rests advance time but don't create events
+            if (pc.isRest)
+            {
+                currentStep += chordSteps;
+                continue;
+            }
+
             var quality = qualityResolver.ResolveChordQuality(pc);
             bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
 
@@ -961,7 +1007,8 @@ public class ChordProgressionEditorWindow : EditorWindow
                 startStep = currentStep,
                 lengthSteps = chordSteps,
                 velocity = defaultVelocity,
-                isDiatonic = isDiatonic
+                isDiatonic = isDiatonic,
+                degreeAccidental = pc.degreeAccidental
             };
 
             targetAsset.events.Add(evt);
@@ -1124,11 +1171,33 @@ public class ChordProgressionEditorWindow : EditorWindow
         for (int i = 0; i < chords.Count; i++)
         {
             var pc = chords[i];
+
+            if (pc.isRest)
+            {
+                // Linear preview: explicit Rest token
+                string label = "Rest";
+                if (Mathf.Abs(pc.durationMeasures - 1f) > 0.0001f)
+                    label += $" ({pc.durationMeasures:g})";
+
+                linearParts.Add(label);
+
+                // For the grid, we won’t use the symbol/colors when isRest == true.
+                chordSymbols.Add(string.Empty);
+                chordColors.Add("ffffff");
+                chordIsDiatonic.Add(true);
+                continue;
+            }
+
             int degIndex = Mathf.Clamp((int)pc.degree, 0, 6);
             var degreeRoot = scaleNotes[degIndex];
 
+            // Apply accidental as a semitone offset
+            degreeRoot = TransposeNoteName(degreeRoot, pc.degreeAccidental);
+
             var quality = qualityResolver.ResolveChordQuality(pc);
-            bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
+
+            bool isDiatonic = (pc.degreeAccidental == 0) &&
+                  qualityResolver.IsChordDiatonic(pc.degree, quality);
 
             string symbol = GetChordSymbolSpelledForDegree(
                 previewRoot, degIndex, degreeRoot, quality);
@@ -1137,22 +1206,20 @@ public class ChordProgressionEditorWindow : EditorWindow
             chordColors.Add(ColorHexForNote(degreeRoot));
             chordIsDiatonic.Add(isDiatonic);
 
-            string label = symbol;
+            string chordLabel = symbol;
             if (!isDiatonic)
-                label = "*" + label; // mark borrowed chord in linear preview
+                chordLabel = "*" + chordLabel; // mark borrowed chord in linear preview
 
             if (Mathf.Abs(pc.durationMeasures - 1f) > 0.0001f)
-                label += $" ({pc.durationMeasures:g})";
+                chordLabel += $" ({pc.durationMeasures:g})";
 
-            linearParts.Add(label);
+            linearParts.Add(chordLabel);
         }
 
         // Simple linear preview
         previewChordNames = string.Join(" | ", linearParts);
 
         // --- Build per-beat grid ---
-
-        int totalBeats = measures * beatsPerMeasure;
         int[] chordByStep = new int[totalSteps];
         int cursor = 0;
         for (int i = 0; i < chords.Count; i++)
@@ -1178,15 +1245,13 @@ public class ChordProgressionEditorWindow : EditorWindow
                     stepIndex = totalSteps - 1;
 
                 int chordIndex = chordByStep[stepIndex];
+                bool restAtBeat = chords[chordIndex].isRest;
 
                 // New chord at this beat?
                 bool isNewChord = (bar == 0 && beat == 0);
                 if (!isNewChord)
                 {
-                    int prevStepIndex = stepIndex - subdivisions;
-                    if (prevStepIndex < 0)
-                        prevStepIndex = 0;
-
+                    int prevStepIndex = Mathf.Max(0, stepIndex - subdivisions);
                     int prevChordIndex = chordByStep[prevStepIndex];
                     isNewChord = chordIndex != prevChordIndex;
                 }
@@ -1194,14 +1259,22 @@ public class ChordProgressionEditorWindow : EditorWindow
                 string cellText = "-";
                 if (isNewChord)
                 {
-                    string sym = chordSymbols[chordIndex];
-                    string col = chordColors[chordIndex];
-                    string colored = $"<color=#{col}>{sym}</color>";
+                    if (restAtBeat)
+                    {
+                        // Grey, italic "Rest" marker for the first beat of a rest span
+                        cellText = "<color=#888888><i>Rest</i></color>";
+                    }
+                    else
+                    {
+                        string sym = chordSymbols[chordIndex];
+                        string col = chordColors[chordIndex];
+                        string colored = $"<color=#{col}>{sym}</color>";
 
-                    if (!chordIsDiatonic[chordIndex])
-                        colored = $"<i>{colored}</i>"; // borrowed: italic
+                        if (!chordIsDiatonic[chordIndex])
+                            colored = $"<i>{colored}</i>";
 
-                    cellText = colored;
+                        cellText = colored;
+                    }
                 }
 
                 sb.Append(" ").Append(cellText).Append(" ");
@@ -1386,10 +1459,18 @@ public class ChordProgressionEditorWindow : EditorWindow
             // Events
             newAsset.events.Clear();
             int currentStep = 0;
+
             for (int i = 0; i < chords.Count; i++)
             {
                 var pc = chords[i];
-                int chordSteps = Mathf.Max(1, lengthsSteps[i]);
+                int steps = Mathf.Max(1, lengthsSteps[i]);
+
+                if (pc.isRest)
+                {
+                    // Silent span: just move the cursor forward.
+                    currentStep += steps;
+                    continue;
+                }
 
                 var quality = qualityResolver.ResolveChordQuality(pc);
                 bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
@@ -1399,13 +1480,14 @@ public class ChordProgressionEditorWindow : EditorWindow
                     degree = pc.degree,
                     quality = quality,
                     startStep = currentStep,
-                    lengthSteps = chordSteps,
+                    lengthSteps = steps,
                     velocity = defaultVelocity,
-                    isDiatonic = isDiatonic
+                    isDiatonic = isDiatonic,
+                    degreeAccidental = pc.degreeAccidental
                 };
 
                 newAsset.events.Add(evt);
-                currentStep += chordSteps;
+                currentStep += steps;
             }
 
             newAsset.UpdateDisplayNameAuto();
@@ -1673,7 +1755,13 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         string suffix = QualitySuffixForToken(e.quality);
-        return roman + suffix;
+
+        // prefix with b / # if this event has an accidental
+        string prefix = e.degreeAccidental < 0 ? "b"
+                       : e.degreeAccidental > 0 ? "#"
+                       : string.Empty;
+
+        return prefix + roman + suffix;
     }
 
     private string BuildRomanStringFromGrid(
@@ -1684,24 +1772,46 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         int beatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
         int stepsPerMeasure = beatsPerMeasure * Mathf.Max(1, gridSubdivisions);
+        int totalSteps = Mathf.Max(1, gridMeasures * stepsPerMeasure);
 
         var tokens = new List<string>();
+        int cursor = 0; // current step position in the grid
 
         foreach (var e in sortedEvents)
         {
-            // duration in measures = steps / (beatsPerMeasure * subdivisions)
+            // 1) Leading gap before this event → rest token
+            if (e.startStep > cursor)
+            {
+                int restSteps = e.startStep - cursor;
+                float restMeasures = restSteps / (float)stepsPerMeasure;
+                string restDurStr = restMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+                // Use "S" as the explicit rest marker
+                tokens.Add($"S ({restDurStr})");
+                cursor += restSteps;
+            }
+
+            // 2) Chord event itself
             float durMeasures = e.lengthSteps / (float)stepsPerMeasure;
             string durStr = durMeasures.ToString("0.##", CultureInfo.InvariantCulture);
 
             string roman = BuildRomanTokenFromEvent(e);
-
-            // Keep it simple: always write an explicit duration
             tokens.Add($"{roman} ({durStr})");
+
+            cursor += e.lengthSteps;
         }
 
-        // Use the same separator you already parse (" – " or "-")
+        // 3) Trailing gap after the last event → rest token
+        if (cursor < totalSteps)
+        {
+            int restSteps = totalSteps - cursor;
+            float restMeasures = restSteps / (float)stepsPerMeasure;
+            string restDurStr = restMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+            tokens.Add($"S ({restDurStr})");
+        }
+
         return string.Join(" – ", tokens);
     }
+
 
     // Maps the editor-facing AutoDiatonicMode to the runtime AutoChordQualityMode.
     private AutoChordQualityMode GetAutoChordQualityMode()

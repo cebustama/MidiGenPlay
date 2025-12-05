@@ -20,12 +20,30 @@ namespace MidiGenPlay.Composition
         public ScaleDegree degree;
         public ChordQuality? explicitQuality;
         public float durationMeasures;
+        public bool isRest;
+        public int degreeAccidental; // -1 = flat, 0 = none, +1 = sharp
 
-        public ParsedChord(ScaleDegree degree, ChordQuality? explicitQuality, float durationMeasures)
+        public ParsedChord(
+            ScaleDegree degree,
+            ChordQuality? explicitQuality,
+            float durationMeasures,
+            bool isRest = false,
+            int degreeAccidental = 0)
         {
             this.degree = degree;
             this.explicitQuality = explicitQuality;
             this.durationMeasures = durationMeasures;
+            this.isRest = isRest;
+            this.degreeAccidental = degreeAccidental;
+        }
+
+        public static ParsedChord MakeRest(float durationMeasures)
+        {
+            return new ParsedChord(
+                ScaleDegree.Tonic, // arbitrary, unused when isRest == true
+                null,
+                durationMeasures,
+                true);
         }
     }
 
@@ -95,15 +113,17 @@ namespace MidiGenPlay.Composition
                     durPart = token.Substring(paren).Trim(); // "(2)" or "(0.5)"
                 }
 
-                if (!TryParseRomanWithQuality(
-                        romanPart,
-                        inferTriadFromCaseWhenNoSuffix,
-                        out var degree,
-                        out var explicitQ,
-                        out var degErr))
+                // ---------- NEW: rest detection ----------
+                bool isRestToken = false;
+                if (string.IsNullOrWhiteSpace(romanPart))
                 {
-                    error = degErr;
-                    return false;
+                    isRestToken = true; // e.g. "(0.5)"
+                }
+                else
+                {
+                    string upper = romanPart.ToUpperInvariant();
+                    if (upper == "S" || upper == "REST" || upper == "R")
+                        isRestToken = true;
                 }
 
                 if (!TryParseDuration(
@@ -116,7 +136,35 @@ namespace MidiGenPlay.Composition
                     return false;
                 }
 
-                chords.Add(new ParsedChord(degree, explicitQ, dur));
+                if (isRestToken)
+                {
+                    // Silent duration, no degree / quality
+                    chords.Add(ParsedChord.MakeRest(dur));
+                    continue;
+                }
+                // ---------- end rest detection ----------
+
+                if (!TryParseRomanWithQuality(
+                        romanPart,
+                        inferTriadFromCaseWhenNoSuffix,
+                        out var degree,
+                        out var explicitQ,
+                        out var accidental,
+                        out var degErr))
+                {
+                    error = degErr;
+                    return false;
+                }
+
+                var pc = new ParsedChord
+                {
+                    degree = degree,
+                    explicitQuality = explicitQ,
+                    durationMeasures = dur,
+                    isRest = false,
+                    degreeAccidental = accidental
+                };
+                chords.Add(pc);
             }
 
             if (chords.Count == 0)
@@ -139,10 +187,12 @@ namespace MidiGenPlay.Composition
             bool inferTriadFromCaseWhenNoSuffix,
             out ScaleDegree degree,
             out ChordQuality? explicitQuality,
+            out int degreeAccidental,
             out string error)
         {
             degree = ScaleDegree.Tonic;
             explicitQuality = null;
+            degreeAccidental = 0;
             error = null;
 
             if (string.IsNullOrWhiteSpace(token))
@@ -155,22 +205,44 @@ namespace MidiGenPlay.Composition
 
             // Split: roman core (I/V/X letters) + whatever remains as quality suffix
             int idx = 0;
+
+            // 1) Optional leading accidental: b / ♭ / # / ♯
+            if (idx < token.Length)
+            {
+                char c = token[idx];
+                if (c == 'b' || c == '♭')
+                {
+                    degreeAccidental = -1;
+                    idx++;
+                }
+                else if (c == '#' || c == '♯')
+                {
+                    degreeAccidental = +1;
+                    idx++;
+                }
+            }
+
+            // 2) Now parse the Roman core starting at 'idx' (I, ii, V, etc.)
+            int startRoman = idx;
             while (idx < token.Length && "IVXivx".IndexOf(token[idx]) >= 0)
                 idx++;
 
-            if (idx == 0)
+            if (idx == startRoman)
             {
-                error = $"Could not find a roman numeral in '{token}'.";
+                error = $"Expected Roman numeral in '{token}'.";
+                degree = ScaleDegree.Tonic;
+                explicitQuality = null;
+                degreeAccidental = 0;
                 return false;
             }
 
-            string roman = token.Substring(0, idx);
+            string romanCore = token.Substring(startRoman, idx - startRoman);
             string suffix = token.Substring(idx); // may be empty, "7", "maj7", "ø7", etc.
 
             // --- Roman → degree index (0..6) ---
-            if (!TryParseRomanToDegreeIndex(roman, out int degIndex))
+            if (!TryParseRomanToDegreeIndex(romanCore, out int degIndex))
             {
-                error = $"Unsupported roman numeral '{roman}' in token '{token}'.";
+                error = $"Unsupported roman numeral '{romanCore}' in token '{token}'.";
                 return false;
             }
             degree = (ScaleDegree)degIndex;
@@ -193,8 +265,8 @@ namespace MidiGenPlay.Composition
                 //   "ii" → minor
                 //   "V"  → major
                 // Mixed case → ignore and leave null.
-                bool anyLower = roman.Any(ch => char.IsLetter(ch) && char.IsLower(ch));
-                bool anyUpper = roman.Any(ch => char.IsLetter(ch) && char.IsUpper(ch));
+                bool anyLower = romanCore.Any(ch => char.IsLetter(ch) && char.IsLower(ch));
+                bool anyUpper = romanCore.Any(ch => char.IsLetter(ch) && char.IsUpper(ch));
 
                 if (anyLower && !anyUpper)
                     explicitQuality = ChordQuality.Minor;

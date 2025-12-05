@@ -12,48 +12,40 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 78f8c0d78658c524fb6baa090014cb46, type: 3}
   m_Name: Test Progression
   m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.ChordProgressionData
-  DisplayName: "Imaj7 (0.5) \u2013 IVmaj7 (0.5) \u2013 IIm7 (1) \u2013 IIm (1) \u2013
-    IIIm (0.5) \u2013 Imaj7 (0.5) [4 bars, FourFour, sub x1, I-D-Ph-L-M-Ae-Lo]"
+  DisplayName: "I (1) \u2013 IV (1) \u2013 V (1) \u2013 I (1) [4 bars, FourFour,
+    sub x1, I-D-Ph-L-M-Ae-Lo]"
   TimeSignature: 0
   Measures: 4
   subdivisions: 1
   events:
   - startStep: 0
-    lengthSteps: 2
+    lengthSteps: 4
     degree: 0
-    quality: 4
+    quality: 0
     velocity: 96
     isDiatonic: 1
-  - startStep: 2
-    lengthSteps: 2
-    degree: 3
-    quality: 4
-    velocity: 96
-    isDiatonic: 1
+    degreeAccidental: 0
   - startStep: 4
     lengthSteps: 4
-    degree: 1
-    quality: 5
+    degree: 3
+    quality: 0
     velocity: 96
     isDiatonic: 1
+    degreeAccidental: 0
   - startStep: 8
     lengthSteps: 4
-    degree: 1
-    quality: 1
+    degree: 4
+    quality: 0
     velocity: 96
     isDiatonic: 1
+    degreeAccidental: 0
   - startStep: 12
-    lengthSteps: 2
-    degree: 2
-    quality: 1
-    velocity: 96
-    isDiatonic: 1
-  - startStep: 14
-    lengthSteps: 2
+    lengthSteps: 4
     degree: 0
-    quality: 4
+    quality: 0
     velocity: 96
     isDiatonic: 1
+    degreeAccidental: 0
   tonalities: 00000000010000000200000003000000040000000500000006000000
-  originalInput: "Imaj7 (0.5) \u2013 IVmaj7 (0.5) \u2013 IIm7 (1) \u2013 IIm (1)
-    \u2013 IIIm (0.5) \u2013 Imaj7 (0.5)"
+  originalInput: "I (1) \u2013 IV (1) \u2013 V (1) \u2013 I (1)"
+  songReferences: []

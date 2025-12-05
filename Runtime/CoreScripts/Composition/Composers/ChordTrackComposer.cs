@@ -108,6 +108,26 @@ namespace MidiGenPlay.Composition
                        ?? (cfg.Parameters?.Pattern as ChordProgressionData);
             }
 
+            // 2b) If the progression constrains tonalities, align the part's mode to it.
+            if (prog != null && prog.tonalities != null && prog.tonalities.Count > 0)
+            {
+                var chosenTonality = PickTonalityFromProgression(part, prog, ctx);
+
+                if (chosenTonality.HasValue && chosenTonality.Value != part.Tonality)
+                {
+                    if (_settings?.logGenerator == true)
+                    {
+                        Debug.Log(
+                            $"<color=cyan>[ChordTrackComposer]</color> " +
+                            $"Overriding part tonality for '{part.Name}': " +
+                            $"{part.Tonality} → {chosenTonality.Value} " +
+                            $"(root={part.RootNote}) based on progression '{prog.DisplayName}'.");
+                    }
+
+                    part.Tonality = chosenTonality.Value;
+                }
+            }
+
             if (_settings?.logGenerator == true)
             {
                 var progName = prog?.DisplayName ?? "(null)";
@@ -177,6 +197,10 @@ namespace MidiGenPlay.Composition
                 foreach (var e in prog.events)
                 {
                     var degreeRoot = scaleNames[(int)e.degree];
+
+                    // Apply accidental from progression event
+                    degreeRoot = TransposeNoteName(degreeRoot, e.degreeAccidental);
+
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                     var playable =
@@ -187,6 +211,9 @@ namespace MidiGenPlay.Composition
                     lastVoicing = playable;
 
                     var rn = ToRomanRich(e.degree, e.quality);
+                    if (e.degreeAccidental < 0) rn = "b" + rn;
+                    else if (e.degreeAccidental > 0) rn = "#" + rn;
+
                     var sym = GetChordSymbol(degreeRoot, e.quality);
                     int degIdx = ((int)e.degree) + 1;
                     string q = e.quality.ToString();
@@ -1073,6 +1100,26 @@ namespace MidiGenPlay.Composition
 
             // Fallback (should be unreachable, but safe)
             return candidates[candidates.Count - 1].entry;
+        }
+
+        private static Tonality? PickTonalityFromProgression(
+            SongConfig.PartConfig part,
+            ChordProgressionData prog,
+            MidiGenerator.GenContext ctx)
+        {
+            if (prog == null || prog.tonalities == null || prog.tonalities.Count == 0)
+                return null;
+
+            var allowed = prog.tonalities;
+
+            // If the part already has a compatible mode, keep it – cards can pre-set it.
+            if (allowed.Contains(part.Tonality))
+                return part.Tonality;
+
+            // Otherwise pick one from the allowed list.
+            var rng = ctx?.rng ?? new System.Random();
+            int idx = rng.Next(allowed.Count);
+            return allowed[idx];
         }
     }
 }

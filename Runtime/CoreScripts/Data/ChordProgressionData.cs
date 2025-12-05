@@ -26,6 +26,10 @@ namespace MidiGenPlay
             [Tooltip("True if this chord’s quality matches the diatonic harmony " +
              "for the reference tonality; false if it is a borrowed/non-diatonic chord.")]
             public bool isDiatonic = true;
+
+            [Range(-1, 1)]
+            [Tooltip("Accidental on the scale degree root: -1 = flat (♭), 0 = natural, +1 = sharp (♯).")]
+            public int degreeAccidental = 0;
         }
 
         [Tooltip("Events in step units (startStep/lengthSteps).")]
@@ -89,7 +93,8 @@ namespace MidiGenPlay
                     lengthSteps = length,
                     degree = deg,
                     quality = qual,
-                    velocity = defaultVelocity
+                    velocity = defaultVelocity,
+                    degreeAccidental = 0
                 });
             }
         }

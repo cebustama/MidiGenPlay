@@ -14,4 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: MidiGenPlay.Runtime::MidiGenPlay.Composition.ChordProgressionPaletteSO
   paletteDisplayName: 
   paletteNotes: 
-  entries: []
+  entries:
+  - progression: {fileID: 11400000, guid: 9cbfac676a256684999eaf28f01d4194, type: 2}
+    weight: 1

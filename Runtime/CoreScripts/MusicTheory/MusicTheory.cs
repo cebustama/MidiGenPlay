@@ -436,5 +436,15 @@ namespace MidiGenPlay.MusicTheory
             ScaleDegree.LeadingTone => "VII",
             _ => "?"
         };
+
+        public static NoteName TransposeNoteName(NoteName root, int semitoneOffset)
+        {
+            if (semitoneOffset == 0) return root;
+
+            int value = (int)root + semitoneOffset;
+            // Wrap into 0..11
+            value = (value % 12 + 12) % 12;
+            return (NoteName)value;
+        }
     }
 }

@@ -1,576 +1,420 @@
-# ChordProgressionEditorWindow – Technical Overview
+# Chord Progression Editor Window – Technical Overview (v3)
 
-_This document summarizes the current `ChordProgressionEditorWindow` implementation, its
-responsibilities, its key methods, and how it interacts with other MIDI Gen Play systems.
-It’s intended as a reference for a future refactor into smaller, SOLID‑friendly pieces._
+_Last updated: 2025‑12‑05_
 
----
+This document describes the current state of the **Chord Progression authoring pipeline** used in **ALWTTT / MidiGenPlay**, focusing on:
 
-## 1. Purpose of the Window
+- `ChordProgressionData` (progression assets)
+- `ChordProgressionPaletteSO` (progression “packs” for cards)
+- `ChordProgressionEditorWindow` (authoring tool)
+- Supporting services: `RomanProgressionParser`, `RhythmGridQuantizer`, `ChordQualityResolver`
+- Runtime use in `BackingCardConfigSO` and the chord track composer
 
-`ChordProgressionEditorWindow` is a Unity editor tool that lets a designer author
-`ChordProgressionData` ScriptableObjects in two complementary ways:
+The goals of the system are:
 
-1. **Roman String Mode (“Roman”)**  
-   Type a Roman‑numeral progression such as  
-   `I – V – vi – IV` or `i (2) – iv (1) – v (1)` and let the tool:
-   - parse degrees, chord qualities and durations,
-   - quantize durations to a rhythmic grid (measures, beats, subdivisions),
-   - fill the `ChordProgressionData.events` list with step‑based `ChordEvent`s,
-   - set allowed tonalities and other metadata,
-   - generate a concrete‑chord preview in a chosen key.
+- Keep the pipeline **SOLID, data‑driven and re‑usable**.
+- Make it easy for non‑programmer composers to author meaningful progressions.
+- Support both **Roman‑string** and **Grid** workflows, including **rests/silent spans**.
+- Provide palette‑based variation that is simple to consume from cards.
 
-2. **Grid Mode (“Grid”)**  
-   Edit a one‑row “piano‑roll” style grid of colored blocks, where each block is a
-   `ChordEvent` (degree, quality, velocity, startStep, lengthSteps). The tool can then:
-   - convert the grid back to an equivalent Roman progression string, with durations,
-   - sync the grid from an existing progression asset,
-   - apply the grid directly into a `ChordProgressionData` asset,
-   - keep both Roman string and grid views in sync.
-
-In addition, the window can:
-
-- **Preview** how the progression sounds harmonically (names + per‑beat ASCII grid).
-- **Integrate** with a `ChordProgressionLibrarySO` so the new asset is automatically
-  registered in the global library used by the game’s composers.
 
 ---
 
-## 2. External Data & Dependencies
+## 1. High‑level mental model
+
+1. Designers/composers author **Chord Progressions** as `ChordProgressionData` assets.
+2. These assets can be:
+   - Created from a **Roman string** (e.g. `I – V – vi – IV`, with optional durations and rests).
+   - Authored/edited in a **Grid** UI (bars, beats, subdivisions, colored chord blocks, gaps for rests).
+3. The same progression assets are grouped into **Palettes** (`ChordProgressionPaletteSO`) representing themed packs (e.g. “Major 4/4 Pop”, “Minor Waltzes 3/4”, “Mixolydian Vamps”).  
+4. A **Backing card** (`BackingCardConfigSO`) may:
+   - Force a specific progression (`progressionOverride`), or
+   - Use a **palette** and let the system pick one variation per song via weights, or
+   - Fall back to library/procedural generation if no override/palette is defined.
+5. At runtime, the **ChordTrackComposer** turns the chosen progression into **MIDI chord notes**, which then feed into the rest of the music system.
+
+The editor window is a **front‑end** over that data model: it never stores logic‑specific state except for authoring parameters (input strings, grid config, preview settings).
+
+
+---
+
+## 2. Data model & dependencies
 
 ### 2.1 `ChordProgressionData`
 
-A ScriptableObject that stores the actual progression:
+Located in `ChordProgressionData.cs`.
 
-- `TimeSignature TimeSignature`
-- `int Measures`
-- `int Subdivisions`
-- `List<ChordEvent> Events`
-- `string DisplayName`
-- `string OriginalInput`
-- `Tonality[] AllowedTonalityModes`
+Represents a **single chord progression template**.
 
-Each `ChordEvent` includes:
+Key fields (simplified):
 
-- `ScaleDegree Degree`
-- `ChordQuality Quality`
-- `int StartStep`
-- `int LengthSteps`
-- `int Velocity`
+- **Meter & grid**
+  - `TimeSignature TimeSignature` – musical meter (FourFour, ThreeFour, etc.).
+  - `int Measures` – number of bars.
+  - `int subdivisions` – timing resolution (steps per beat).  
+    Total steps = `Measures * beatsPerMeasure * subdivisions`.
 
-**Key relations:**
+- **Chord events**
+  - Nested `ChordEvent` class with:
+    - `int startStep`
+    - `int lengthSteps`
+    - `ScaleDegree degree` (I, ii, V, etc.)
+    - `ChordQuality quality` (Major, Minor, Dim, Maj7, m7, etc.)
+    - `int velocity`
+    - `bool isDiatonic` (whether this chord fits the reference mode by default)
+  - `List<ChordEvent> events` – the sequence of chord blocks across the grid.
+  - **Rests / silent spans** are *not* stored as events; they are represented implicitly as gaps between chord events in the grid.
 
-- The editor window **writes into** this asset.
-- The game’s `ChordTrackComposer` **reads from** it at runtime.
+- **Tonality constraints**
+  - `List<Tonality> tonalities` – modes where this progression is considered “compatible” (e.g. Ionian, Mixolydian, Aeolian). Used by runtime systems to filter candidate progressions.
 
-### 2.2 `ChordProgressionLibrarySO`
+- **Authoring metadata**
+  - `string originalInput` – Roman string used to create/last update the asset; used for debugging, display and uniqueness keys.
+  - `string DisplayName` (with `UpdateDisplayNameAuto()`) – human‑friendly label derived from the Roman string and/or asset name.
+  - `List<string> songReferences` – optional per‑progression list of song titles/notes (e.g. “Similar to [X] verse”, “Blues rock turnaround”). Purely authoring‑side for now.
 
-A separate ScriptableObject that holds a list of progression entries:
+This asset intentionally contains **no** playback‑specific info (no MIDI channels, voicings, etc.). It is a pure **harmonic grid description**.
 
-- each entry references a `ChordProgressionData` asset,
-- used as a searchable library by MIDI Gen Play configuration.
-
-**Key relations:**
-
-- The editor window can **optionally add** the current progression into the library.
-
-### 2.3 `RomanProgressionParser` (new service)
-
-A pure‑logic class in the MIDI Gen Play composition layer that:
-
-- parses Roman progression strings into a `List<ParsedChord>`,
-- understands quality suffixes (`m`, `dim`, `Maj7`, `°7`, `ø7`, etc.),
-- applies the `AutoDiatonicMode` rules when no explicit quality is given,
-- parses durations like `(0.5)`, `(2)`, or falls back to the default duration.
-
-The editor window now holds a shared instance of this parser and delegates all Roman‑string
-parsing to it.
-
-### 2.4 `RhythmGridQuantizer` (new service)
-
-A pure‑logic class that:
-
-- accepts a set of durations (in measures) + `beatsPerMeasure`,
-- searches for a valid `subdivisions` value and per‑chord step lengths,
-- returns `lengthSteps`, `totalSteps`, and a failure reason if no consistent grid exists.
-
-The window still has an older `ComputeStepsAndSubdivisions` helper; the plan is to make
-the window call into `RhythmGridQuantizer` everywhere and then delete the duplicate.
-
-### 2.5 `ChordQualityResolver` (new service)
-
-A pure‑logic class that:
-
-- given a `ParsedChord`, a `Tonality`, and an auto‑quality mode, resolves the final
-  `ChordQuality` (triad vs. seventh, etc.),
-- answers whether a chord is diatonic or “borrowed” (same triad family vs. different).
-
-The editor window currently still includes local helpers (`ResolveChordQuality`,
-`IsChordDiatonic`, `TriadFamily`); the intention is to migrate their logic fully into this
-service and just call it from the window.
 
 ---
 
-## 3. High‑Level Workflow
+### 2.2 `ChordProgressionPaletteSO`
 
-At a conceptual level, the editor window implements the following pipeline:
+Located in `ChordProgressionPaletteSO.cs`.
 
-### 3.1 Roman Mode
+Represents a **themed pack** of chord progressions plus weights, intended for **per‑card overrides**.
 
-1. User types a Roman progression string into `progressionInput`.
-2. On **Parse & Preview**:
-   - the window calls `romanParser.TryParse(input, defaultDuration, inferFromCase, out chords, out error)`,
-   - the parser returns a `List<ParsedChord>` or an error message.
-3. If parsing succeeds:
-   - the window/quantizer computes `Measures`, `Subdivisions`, total steps and distribution,
-   - the window builds a preview:
-     - resolves each chord to a concrete root note using `previewRoot` + `referenceTonality`,
-     - resolves the chord quality (diatonic vs explicit/borrowed),
-     - generates human‑readable chord names and a per‑beat grid (ASCII art).
-4. On **Apply**, the window:
-   - reuses parsing/quantization logic,
-   - fills `ChordProgressionData.Events`,
-   - updates `TimeSignature`, `Measures`, `Subdivisions`,
-   - sets `AllowedTonalityModes`,
-   - updates `DisplayName` and `OriginalInput`,
-   - optionally registers the asset in `ChordProgressionLibrarySO`.
+Structure:
 
-### 3.2 Grid Mode
+- `string paletteDisplayName` – optional human label; falls back to asset name.
+- `string paletteNotes` – free text: usage hints, feel, genre (“Usable for rock’n’roll, blues and metal”, etc.).
+- `List<WeightedEntry> entries`:
+  - `ChordProgressionData progression`
+  - `float weight` – relative weight when randomly picking.
 
-1. User switches to Grid tab.
-2. The window builds a simple grid model:
-   - total beats from `TimeSignature` and `Measures`,
-   - total steps = beats × `Subdivisions`,
-   - each `ChordEvent` mapped to a colored segment across steps.
-3. The user:
-   - can click/drag to create or resize chord segments,
-   - can select a segment and change its degree/quality,
-   - can delete segments.
-4. On **Apply Grid to Asset**, the window:
-   - writes the grid back into `ChordProgressionData` as `Events`,
-   - optionally regenerates or updates the Roman string representation.
+Core method:
 
-(At the moment the deeper grid operations live inside the window class; the plan is to
-move them into a dedicated `ChordGridModel`.)
+```csharp
+public ChordProgressionData PickRandomProgression(System.Random rng, bool cloneResult = true)
+```
+
+- Filters out null/zero‑weight entries.
+- Performs a **weighted random selection**.
+- By default returns a **cloned instance** via `ScriptableObject.Instantiate` so runtime modifications never touch the original progression assets.
+
+Palettes are the main way for designers to say “pick any of these few related progressions” without worrying about the global library.
+
 
 ---
 
-## 4. Key Fields in the Window
+### 2.3 `ChordProgressionLibrarySO` (global pool – future‑facing)
 
-> Note: names below reflect the current code; future refactors may rename / split some of
-> them but the conceptual roles should remain similar.
+Located in `ChordProgressionLibrarySO.cs`.
 
-### 4.1 Asset & Library References
+Represents a **global library** of all canonical progressions, with:
 
-- `ChordProgressionData targetAsset`  
-  The asset being edited. May be `null` when starting a new progression from scratch.
+- `List<Entry> entries`, where each `Entry` has:
+  - `string id`
+  - `ChordProgressionData progression`
+  - `float weight`
+  - `List<Tonality> compatibleTonalities`
 
-- `ChordProgressionLibrarySO progressionLibrary`  
-  Optional library asset to which the new/edited progression is added.
+The current editor window **does not write directly into the library**. The plan is for the library to be used by:
 
-### 4.2 Roman Input & Preview State
+- High‑level systems that need “any suitable progression for this context”.
+- Offline tools that batch‑generate or analyze content.
 
-- `string progressionInput`  
-  The Roman progression string typed by the user.
+For now, card‑level authoring uses `ChordProgressionPaletteSO`, while the library lives as a higher‑level, curated collection.
 
-- `float defaultDurationMeasures`  
-  Used when chords don’t specify an explicit `(x)` duration.
-
-- `Tonality referenceTonality`  
-  Mode the Roman degrees are written in (e.g., Ionian, Mixolydian, Aeolian). Drives
-  diatonic degree → quality inference when auto‑modes are used.
-
-- `AutoDiatonicMode autoDiatonicMode`  
-  Enum controlling how much the system infers chord quality from the tonality:
-  - `None` → case is taken as literal quality when no suffix is provided.
-  - `Triads` → standard diatonic triads.
-  - `Sevenths` → diatonic seventh chords (Imaj7, iim7, V7, etc.).
-
-- `NoteName previewRoot`  
-  Which concrete tonic to use for the preview (e.g., C, D♭, E). Doesn’t change the
-  abstract degrees/qualities, only the note labels.
-
-- `string previewChordNames`  
-  Single‑line string containing resolved chord names, durations and borrowed indicators.
-
-- `string previewGridText`  
-  Multi‑line ASCII grid of measures × beats, annotated with chord labels.
-
-- `int previewMeasures, previewSubdivisions, previewBeatsPerMeasure`  
-  Derived values used by the preview grid (and potentially by future visual tooling).
-
-### 4.3 Time / Meter / Grid State
-
-- `TimeSignature timeSignature`  
-  Time signature to use when building new progressions (4/4, 3/4, etc.).
-
-- `int beatsPerMeasure`  
-  Derived from `timeSignature` (e.g., 4 for 4/4, 3 for 3/4).
-
-- Grid‑related variables (currently local to the window) that define:
-  - measures and subdivisions in the grid preview,
-  - pixel sizes and colors for drawing the chord bars.
-
-(Later, these should become parameters of a `ChordGridModel`.)
 
 ---
 
-## 5. Important Methods (Current Implementation)
+## 3. `ChordProgressionEditorWindow` responsibilities
 
-This section highlights key editor methods and how they work today.
+Located in `ChordProgressionEditorWindow.cs`.
 
-### 5.1 `ParseAndPreview(bool onlyPreview)`
+### 3.1 Overview
 
-- Guards against empty input.
-- Uses `autoDiatonicMode` to decide whether to infer from case:
-  - `inferFromCase = (autoDiatonicMode == AutoDiatonicMode.None)`
-- Calls `romanParser.TryParse(...)`:
-  - `romanParser` encapsulates the Roman‑string parsing logic.
-- On parse failure:
-  - shows an `EditorUtility.DisplayDialog` with the error message,
-  - clears preview strings to signal failure.
-- On success:
-  - if `onlyPreview` is `true`, calls `UpdatePreview(chords)`.
-  - otherwise calls `ApplyToAsset()` to write the progression into the asset
-    (which will internally parse/quantize again using the same parser).
+The window is opened via:
 
-**Role:**  
-Provide a high‑level user action for “parse this string and show me the result” with
-optional asset writing.
+```csharp
+[MenuItem("MidiGenPlay/Chord Progression Editor...")]
+public static void Open()
+{
+    GetWindow<ChordProgressionEditorWindow>("Chord Progression Editor");
+}
+```
 
-### 5.2 `ApplyToAsset()`
+It exposes two main input modes:
 
-- Guards against empty input.
-- Re-parses `progressionInput` using `romanParser.TryParse(...)`.
-- If parsing fails, shows an error and aborts.
-- On success:
-  - computes grid timing from the chords (currently via the private
-    `ComputeStepsAndSubdivisions` helper; in the future via `RhythmGridQuantizer`),
-  - chooses an effective `TimeSignature` (reusing `targetAsset.TimeSignature` if possible),
-  - produces a `ChordEvent` list, mapping each `ParsedChord` to a concrete degree/quality,
-  - writes fields on `targetAsset`:
-    - `TimeSignature`, `Measures`, `Subdivisions`,
-    - `Events`,
-    - `DisplayName` and `OriginalInput`,
-    - `AllowedTonalityModes`,
-  - if a `ChordProgressionLibrarySO` is assigned and doesn’t already contain the asset,
-    adds it as a new entry.
+- **Roman** (`InputMode.RomanString`)
+- **Grid** (`InputMode.Grid`)
 
-**Role:**  
-Core “save/apply” operation, which turns the Roman input into the actual asset data.
+Core responsibilities:
 
-### 5.3 `UpdatePreview(List<ParsedChord> chords)`
+1. **Roman mode**
+   - Let the user type a Roman string (`progressionInput`).
+   - Parse it with `RomanProgressionParser` into logical chords and rests.
+   - Quantize durations with `RhythmGridQuantizer` into a consistent grid.
+   - Use tonality flags and `AutoDiatonicMode` to decide chord qualities.
+   - Write results into a `ChordProgressionData` asset (new or existing).
+   - Update preview (text line + colored grid).
 
-- Ensures chords exist; otherwise clears preview fields.
-- Determines the time signature to use:
-  - uses `targetAsset.TimeSignature` if available,
-  - otherwise uses the window’s `timeSignature` field.
-- Calls the same grid‑quantization logic as `ApplyToAsset` to compute:
-  - `beatsPerMeasure`, `subdivisions`, `totalSteps`,
-  - per‑chord length in steps (`lengthsSteps`).
-- Builds a scale (`GetScaleFromTonality`) and concrete degree roots from:
-  - `referenceTonality` and `previewRoot`.
-- Resolves a final `ChordQuality` for each parsed chord using the window’s
-  `ResolveChordQuality` helper (to be replaced by `ChordQualityResolver`):
-  - explicit quality in the parsed chord wins,
-  - otherwise auto‑modes (`Triads` / `Sevenths` / `None`) are applied.
-- Uses `IsChordDiatonic` to mark chords as diatonic or borrowed and affect coloring.
-- Builds:
-  - `previewChordNames` – linear text with chord names and duration info,
-  - `previewGridText` – multi‑line ASCII grid showing which chord occupies each beat.
+2. **Grid mode**
+   - Allow direct editing of a chord grid:
+     - `gridMeasures`, `gridBeatsPerMeasure`, `gridSubdivisions`.
+     - Clickable lane of colored blocks per chord event.
+     - Empty regions between events represent **rests**.
+     - Selection panel with degree, quality, velocity, etc.
+   - Apply grid back into the target asset.
+   - Derive a Roman string from the grid (`BuildRomanStringFromGrid`) for metadata and preview, including explicit rest tokens for gaps.
 
-**Role:**  
-Provide a visual/harmonic preview for the current Roman input without modifying assets.
+3. **Metadata authoring**
+   - Time signature selection (`timeSignature`).
+   - Tonality flags (`tonalityFlags`) which are mirrored into `ChordProgressionData.tonalities`.
+   - `AutoDiatonicMode` setting controlling how empty suffixes are interpreted.
+   - `previewRoot` used only for naming preview chords (Cmaj7, G7, etc.).
+   - **Song references** editor (`DrawSongReferencesSection()`):
+     - Simple list UI allowing designers to add/remove/edit strings stored in `ChordProgressionData.songReferences`.
 
-### 5.4 `OnGUI()`
+4. **Palette integration**
+   - `targetPalette` object field (“Progression Palette (optional)”).
+   - “**Add Current To Palette**” button which appends the current `targetAsset` to the palette as a weighted entry (weight=1 by default), avoiding duplicates.
 
-- Renders the editor UI using IMGUI:
-  - toolbar (Roman/Grid tabs),
-  - fields for `targetAsset`, `progressionLibrary`, `referenceTonality`,
-    `autoDiatonicMode`, `timeSignature`, etc.,
-  - the Roman input text field and buttons for:
-    - Parse & Preview,
-    - Apply (create/update asset).
-  - the preview panel (names + ASCII grid),
-  - the Grid tab with a simple chord‑grid editor.
+5. **Preview**
+   - Maintains a cached preview:
+     - Linear text (Roman → concrete chord symbols, including `Rest` tokens).
+     - Multi‑bar text grid with per‑root color coding and explicit **grey/italic “Rest” markers**.
+   - Scrollable area so long progressions don’t overlap the action buttons.
 
-- Delegates to helper methods like:
-  - `DrawRomanMode()`,
-  - `DrawGridMode()`,
-  - `DrawPreview()`.
+The window itself is a **thin orchestrator**. Almost all domain logic lives in service classes (`RomanProgressionParser`, `RhythmGridQuantizer`, `ChordQualityResolver`) and data types (`ChordProgressionData`, `ChordProgressionPaletteSO`).
 
-**Role:**  
-Coordinator for user interaction. This is the main target for future thinning
-(once logic is moved into services and view helpers).
 
 ---
 
-## 6. Roman Parsing & Quality Inference (Conceptual)
+### 3.2 Main user flows
 
-Although the heavy parsing now lives in `RomanProgressionParser`, the overall conceptual
-model remains as originally described.
+#### A. Create/edit via Roman mode
 
-### 6.1 Roman Tokens & Durations
+1. Choose `inputMode = Roman` and a `TimeSignature` (e.g. FourFour, ThreeFour).
+2. Write a string like:
 
-Supported Roman tokens look like:
+   ```text
+   Imaj7 (0.5) – S (0.5) – IIm7 (1) – (0.5) – IIIm (0.5) – Imaj7 (0.5)
+   ```
 
-- `I`, `ii`, `V7`, `ivø7`, `bVII`, etc.
-- Optional duration in measures:  
-  `I (1)` → 1 measure, `V (0.5)` → half a measure (2 beats in 4/4).
+   Supported **rest syntaxes**:
 
-If no duration is provided, `defaultDurationMeasures` is used.
+   - `S (0.5)`, `s (0.5)`, `Rest (0.5)` or `R (0.5)` – explicit rest token.
+   - A bare duration like `(0.5)` – duration with no Roman part also treated as a rest.
 
-The parser:
+3. Set `Default Duration (measures)` and `Default Velocity` if desired.
+4. Configure:
+   - `Reference Tonality` (e.g. Ionian, Dorian…).
+   - `Auto Diatonic Qualities`:
+     - **None** – treat Roman case literally as triad quality; key is ignored for quality inference.
+     - **Triads** – infer triad quality from mode/degree if no explicit suffix.
+     - **Sevenths** – infer 7th chords likewise.
+   - Toggle allowed tonalities in the “Allowed Tonalities” foldout.
+5. Press **“Parse & Preview (no write)”** to:
+   - Parse via `RomanProgressionParser` (including rests).
+   - Quantize via `RhythmGridQuantizer` (picking subdivisions & total steps).
+   - Build the preview line and colored grid with `UpdatePreview()`:
+     - Chords appear as colored symbols.
+     - Rests appear as **grey italic “Rest”** on the first beat of each silent span.
+6. When satisfied, press **“Apply To Target Asset”**:
+   - If `targetAsset` is null, the window prompts for a new asset path.
+   - Writes:
+     - Time signature, measures, subdivisions.
+     - Event list (degree, quality, start, length, velocity, isDiatonic).
+     - `originalInput` and `DisplayName`.
+   - `tonalities` from current flags.
+   - **Rest items do not become events**; they just advance the internal step cursor so chords end up at the correct grid positions.
+   - Refreshes grid preview and keeps the window synchronized.
+7. Optionally press **“Save As New Asset”** to create a separate asset from the current state, without touching the existing one.
+8. Optionally, assign a `ChordProgressionPaletteSO` and press **“Add Current To Palette”** to register the progression in that palette for use by cards.
 
-1. Splits on `-`/`–`/`—` to get tokens.
-2. For each token:
-   - separates Roman part and duration `(x)` if present,
-   - parses accidental(s), Roman numeral (degree), and quality suffix (if any),
-   - decides explicit quality vs. leaving it `null` (to be inferred later),
-   - parses the duration `(x)` if present or applies the default.
 
-Outputs a list of `ParsedChord`:
+#### B. Author via Grid mode
 
-- `ScaleDegree degree`
-- `ChordQuality? explicitQuality`
-- `float durationMeasures`
+1. Assign a `targetAsset` (the grid editor always reflects an existing progression asset).
+2. Switch `inputMode = Grid`.
+3. Adjust grid parameters:
+   - `Measures`
+   - `Beats Per Measure`
+   - `Subdivisions (steps per beat)`
+   - You can also use the **“Clear Grid”** button in this section to wipe all current grid events (editor‑side only, until you Apply/Save).
+4. Interact with the chord lane:
+   - Clicking empty space creates a new `ChordEvent` at that step.
+   - Clicking an existing block selects it; parameters can be edited (degree, quality, length, velocity).
+   - Blocks are colored by pitch class (via `ColorHexForNote`), and non‑diatonic chords are shown with darker shades / italics.
+   - **Gaps between blocks represent rests**.
+5. When done, press **“Apply To Target Asset”** in Grid mode:
+   - Calls `ApplyGridToTarget()`.
+   - Cleans/clamps events to current grid size.
+   - Copies timing, tonalities and events into `ChordProgressionData`.
+   - Derives a Roman string from the grid and stores it in `originalInput` + UI:
+     - Gaps between events become rest tokens (e.g. `S (0.5)`).
+     - A trailing gap at the end is also turned into a final rest so the total duration matches `Measures`.
+   - Calls `ParseAndPreview(onlyPreview: true)` to rebuild the Roman‑based preview.
+6. “Save As New Asset” can also be used from Grid mode to create a new progression asset from the current grid (including tonalities and derived Roman string).
 
-### 6.2 AutoDiatonicMode
-
-The `AutoDiatonicMode` enum defines how to handle quality when none is explicitly set:
-
-- **None**  
-  - Roman case is literal.  
-  - An uppercase degree without suffix defaults to **Major triad**.  
-  - A lowercase degree without suffix defaults to **Minor triad**.  
-  - The selected tonality is **not** used to infer anything in this mode.
-
-- **Triads**  
-  - Ignore case; use diatonic triads for the selected mode and degree
-    (e.g. in Ionian: I, ii, iii, IV, V, vi, vii°).
-  - Used when you want quick “in‑key” progressions without micromanaging suffixes.
-
-- **Sevenths**  
-  - Ignore case; use diatonic seventh chords for the selected mode and degree
-    (e.g. Ionian: Imaj7, iim7, iiim7, IVmaj7, V7, vim7, viiø7).
-
-An explicit suffix (e.g. `dim`, `m7`, `Maj7`) always wins over auto‑modes.
-
----
-
-## 7. Diatonic vs Borrowed Analysis (Current Logic)
-
-The editor window currently includes local helpers for diatonic analysis, which mirror
-the behaviour of `ChordQualityResolver`:
-
-- `ResolveChordQuality(ParsedChord c)`:
-  - if `c.explicitQuality` is set → return it,
-  - otherwise, apply `AutoDiatonicMode` to pick a triad or seventh quality.
-- `TriadFamily GetTriadFamily(ChordQuality q)`:
-  - groups qualities into families: Major, Minor, Diminished, Augmented, Suspended, Other.
-- `bool IsChordDiatonic(ScaleDegree degree, ChordQuality quality)`:
-  - builds the expected diatonic triad for the degree in the reference tonality,
-  - compares its `TriadFamily` with the actual chord’s family,
-  - if they match → the chord is considered “diatonic”; otherwise “borrowed”.
-
-The plan is for `ChordQualityResolver` to completely own this logic, with the window only
-requesting “resolved quality + diatonic flag” for each parsed chord.
 
 ---
 
-## 8. Responsibilities Summary
+## 4. Supporting services
 
-`ChordProgressionEditorWindow` currently:
+### 4.1 `RomanProgressionParser`
 
-1. **Owns UI** for authoring chord progressions (Roman input + Grid input).
-2. **Parses and normalizes** Roman‑numeral strings into a quantized, step‑based format (now largely delegated to the shared `RomanProgressionParser`).
-3. **Maintains harmony metadata** – tonalities, diatonic vs borrowed chords, qualities.
-4. **Handles grid editing** of chord events (creation, selection, editing, deletion).
-5. **Performs conversions**:
-   - Roman → ParsedChord list → step grid (`ChordEvent`s).
-   - Grid (`ChordEvent`s) → Roman string.
-6. **Writes & updates assets** (`ChordProgressionData`) including `DisplayName` and
-   `OriginalInput`.
-7. **Integrates with** the progression library system (`ChordProgressionLibrarySO`).
+Located in `RomanProgressionParser.cs`.
 
-As a result, the class has grown large and spans several responsibilities that could be
-split into smaller, reusable components.
+Responsibilities:
 
----
+- Parse the textual Roman progression into a sequence of `ParsedChord` items, each containing:
+  - `ScaleDegree degree`
+  - `ChordQuality? explicitQuality` (from suffixes like `maj7`, `dim`, `m7b5`)
+  - `float durationMeasures`
+  - `bool isRest` – **new flag** indicating that this item is a rest/silent span.
+- Understands:
+  - Roman numerals with upper/lower case degrees.
+  - Optional quality suffixes (`maj7`, `min7`, `dim`, `sus4`, etc. – up to your current implementation).
+  - Optional duration suffixes in parentheses: `(0.5)`, `(2)` etc.
+  - Rest syntaxes: `S`, `s`, `Rest`, `R`, and bare durations with no Roman part.
+- Works in conjunction with:
+  - `AutoDiatonicMode` to determine whether to interpret case literally or use mode‑based diatonic qualities.
+  - `ChordQualityResolver` to map `(Tonality, ScaleDegree, AutoDiatonicMode, explicitQuality)` to final triad/7th chord quality.
+- Returns informative parse errors used by the editor to show dialogs.
 
-## 9. Refactoring Recommendations (SOLID‑Oriented)
+The editor never manually parses or infers degrees/qualities; it always goes through this service.
 
-This section lists potential refactors you can explore in the new conversation.
-
-### 9.0 Refactors implemented so far (Dec 2025)
-
-Since the previous version of this document, several of the planned extractions have already been applied:
-
-- **RomanProgressionParser (DONE, in `MidiGenPlay.Composition`)**  
-  The heavy Roman-string parsing logic (`TryParseProgression`, `TryParseRomanWithQuality`, duration parsing, quality suffix handling, etc.) now lives in a dedicated `RomanProgressionParser` class. The editor window holds a shared instance (`romanParser`) and uses it from:
-  - `ParseAndPreview(bool onlyPreview)`
-  - `ApplyToAsset()`
-
-  This keeps parsing pure and testable and removes most of the string/token handling from the window.
-
-- **RhythmGridQuantizer (IMPLEMENTED as a reusable service, not yet fully wired)**  
-  The "duration → step grid" logic was extracted into `RhythmGridQuantizer`, a utility that takes durations in measures and finds a suitable `subdivisions` value and per-chord step lengths. At the moment the editor window still contains its legacy `ComputeStepsAndSubdivisions` method; a next step is to route all quantization through `RhythmGridQuantizer` and then delete the duplicate code from the window.
-
-- **ChordQualityResolver (IMPLEMENTED, logic duplicated for now)**  
-  A dedicated `ChordQualityResolver` class now encapsulates the rules for:
-  - inferring chord quality from degree + tonality when not explicitly specified, and
-  - deciding whether a chord is diatonic (same triad family) or borrowed.
-
-  The editor window currently still carries local equivalents (`ResolveChordQuality`, `IsChordDiatonic`, `TriadFamily`). A follow‑up refactor will make the window use `ChordQualityResolver` instead, so that quality/diatonic logic lives in one place.
-
-- **Auto-diatonic quality mode clarified**  
-  The `AutoDiatonicMode` enum now clearly separates:
-  - `None` → respect case in the Roman string as literal triad quality when no suffix is given; key is ignored in that situation.
-  - `Triads` → ignore case and use diatonic triads for the selected mode/degree.
-  - `Sevenths` → ignore case and use diatonic seventh chords for the selected mode/degree.
-
-  This behaviour is used consistently both when writing the asset and when building previews.
-
-These changes move a good chunk of parsing/theory work out of the window and prepare the ground for the remaining extractions (grid model, preview builder, formatter, etc.).
-
-### 9.1 Separate Pure Logic From Editor UI (status & next steps)
-
-We already have several non‑editor classes in a runtime/editor‑agnostic assembly (`MidiGenPlay.Composition`):
-
-1. **`RomanProgressionParser` (DONE)**  
-   - Responsibility: parse a Roman progression string into a `List<ParsedChord>` (degree, optional explicit quality, duration in measures).
-   - Used by the editor window in `ParseAndPreview` and `ApplyToAsset`.
-   - Possible future extensions:
-     - expose options for allowed quality suffix aliases,
-     - plug in a future `RomanProgressionFormatter` for round‑tripping and pretty‑printing.
-
-2. **`RhythmGridQuantizer` (DONE, not yet used by the window)**  
-   - Responsibility: take a list of durations in measures plus `beatsPerMeasure` and compute:
-     - `subdivisions` in a configurable range,
-     - `lengthSteps` per duration,
-     - `totalSteps`,
-     - or an error string when the durations cannot be represented with an integer grid.
-   - This is essentially the extracted `ComputeStepsAndSubdivisions` logic.
-   - **Next step:** replace the calls to `ComputeStepsAndSubdivisions` in `ApplyToAsset` and `UpdatePreview` with a shared `RhythmGridQuantizer` instance and then remove the private method from the window.
-
-3. **`ChordQualityResolver` (DONE, to be wired into the window)**  
-   - Responsibility: given a `ParsedChord`, a reference tonality and an `AutoChordQualityMode`:
-     - resolve the final `ChordQuality`, and
-     - answer whether the chord is diatonic or borrowed.
-   - **Next step:** make the editor window use `ChordQualityResolver` instead of its local `ResolveChordQuality` / `IsChordDiatonic` helpers, and eventually remove those helpers from the window.
-
-The following pure components are still **to be implemented** and shared across future tools (rhythm patterns, melodic phrases, etc.):
-
-4. **`ChordGridModel` (TODO)**  
-   - Holds grid parameters and a list of `ChordEvent`s.
-   - Knows how to:
-     - clamp events to the grid,
-     - sort and merge overlapping events,
-     - convert to/from `ChordProgressionData`,
-     - build a Roman string from the grid (`BuildRomanStringFromGrid`).
-   - No direct GUI calls; purely data‑oriented.
-
-5. **`ChordProgressionPreviewBuilder` (TODO)**  
-   - Given a sequence of chords (degrees, qualities, durations), a tonality and a root note, builds:
-     - a linear chord‑name preview string,
-     - a per‑beat / per‑bar textual grid representation,
-     - and later possibly a small MIDI clip for quick audition.
-   - This would own the preview‑building logic currently in `UpdatePreview`.
-
-6. **`RomanProgressionFormatter` (NEW, TODO)**  
-   - Responsibility: go from the structured model (e.g. `ParsedChord` list or `ChordEvent` grid) back to a normalized Roman string.
-   - Would centralize decisions about:
-     - dash / spacing conventions,
-     - when to emit explicit durations `(x)` vs. rely on defaults,
-     - how to print chord qualities (e.g. `Maj7` vs `M7` vs `Δ`).
-   - Used both for:
-     - regenerating the Roman field from the grid, and
-     - keeping round‑tripping behaviour consistent across tools.
-
-The editor window should progressively delegate to these services so `OnGUI` becomes mostly orchestration and state display rather than business logic.
-
-### 9.2 Slice the Editor Window by Concern
-
-Once more of the logic has been pushed into services, you can slice the window into
-view‑oriented helpers. Examples:
-
-1. **`RomanModeView` / `GridModeView`**
-   - Each view receives a small model/state object and callbacks.
-   - Responsible solely for drawing and capturing user input.
-   - Does not handle parsing, quantization, or asset persistence.
-
-2. **Partial classes** for `ChordProgressionEditorWindow`
-   - E.g. `ChordProgressionEditorWindow.Roman.cs`, `.Grid.cs`, `.Preview.cs`.
-   - Keeps each file small and topic‑focused while still sharing private fields.
-
-This will dramatically reduce the cognitive load of `OnGUI()` and make changes to Roman
-or Grid mode safer and more localized.
-
-### 9.3 Introduce a Shared Editor Model
-
-Define a lightweight model that is independent of IMGUI but represents the editor state:
-
-- `ChordProgressionEditorState`
-  - `ChordProgressionData TargetAsset`
-  - `string RomanInput`
-  - `List<ParsedChord> ParsedChords`
-  - `List<ChordEvent> GridEvents`
-  - `TimeSignature TimeSignature`
-  - `Tonality ReferenceTonality`
-  - `AutoDiatonicMode AutoDiatonicMode`
-  - `NoteName PreviewRoot`
-  - etc.
-
-The window then:
-
-- binds UI controls to this model,
-- passes the model to services (`RomanProgressionParser`, `ChordGridModel`, etc.),
-- keeps the model as the single source of truth for the editor state.
-
-### 9.4 Reuse Logic Across Other Pattern Editors
-
-Because you plan similar editors for:
-
-- **Rhythm Patterns**, and
-- **Melodic Phrases**,
-
-it is worth investing in reusable building blocks:
-
-- a generic **grid editor** component that:
-  - draws measure/beat subdivisions,
-  - draws draggable segments with labels,
-  - supports selection, cloning, deleting, snapping.
-- shared **duration quantization** and **grid/preview** utilities.
-
-These can be packaged as:
-
-- a small runtime assembly (`MidiGenPlay.Composition` / `MidiGenPlay.Grids`),
-- an editor assembly (`MidiGenPlay.Editor.Grids`).
-
-### 9.5 Future Extensions
-
-Once the above refactors are in place, you can consider:
-
-- pluggable preview styles (e.g., actual piano‑roll rendering, small audio audition),
-- localization of chord naming (e.g., Do–Re–Mi, H vs. B, etc.),
-- support for modal mixture / secondary dominants as first‑class concepts in parsing,
-- richer metadata per progression (tags, difficulty, “mood” descriptors, etc.).
 
 ---
 
-## 10. How To Use This Document in the New Thread
+### 4.2 `RhythmGridQuantizer`
 
-When you start the new conversation:
+Located in `RhythmGridQuantizer.cs`.
 
-1. Paste or attach this markdown as context.
-2. Decide whether you want to:
-   - (a) first extract pure logic into separate classes, or  
-   - (b) first split the window into partial classes / nested views.
-3. We can then work incrementally, e.g.:
-   - Step 1: Switch the editor window over to the existing `RhythmGridQuantizer` and `ChordQualityResolver` services and remove the duplicate private helpers.
-   - Step 2: Introduce `ChordGridModel` and move grid operations there (including Grid → Roman conversion).
-   - Step 3: Extract `ChordProgressionPreviewBuilder` and `RomanProgressionFormatter`, and make preview / string‑regen logic delegate to them.
-   - Step 4: Simplify `OnGUI()` to delegate to thinner `RomanView` / `GridView` helpers or partial classes.
+Given:
 
-This way we preserve behavior while reducing complexity and moving toward a more
-SOLID architecture.
+- A list of `ParsedChord` with `durationMeasures` (including rest items).
+- `beatsPerMeasure` from the chosen `TimeSignature`.
+
+It:
+
+1. Finds a **subdivisions** value such that all durations map cleanly to integer **steps**.
+2. Outputs:
+   - `int subdivisions`
+   - `List<int> lengthsSteps`
+   - `int totalSteps`
+3. This defines a consistent grid so each item (chord or rest) can be represented as a span of `(startStep, lengthSteps)`.
+
+The editor uses this for both:
+
+- Creating new assets from Roman mode.
+- Computing preview layout (how many bars, how many cells per bar, etc.).
+
+
+---
+
+### 4.3 `ChordQualityResolver`
+
+Located in `MusicTheory.ChordQualityResolver.cs`.
+
+Encapsulates the logic for turning mode/degree/flags into a final `ChordQuality` and “is diatonic?” information. Typical use:
+
+- For each parsed chord:
+  - If `isRest` is true → skip quality resolution (rests never become events).
+  - Else, if explicit quality is present → trust it.
+  - Otherwise, when `AutoDiatonicMode` is Triads/Sevenths, look up the diatonic triad/7th for `(Tonality, ScaleDegree)`.
+  - Mark chords as diatonic/non‑diatonic accordingly.
+
+The preview code then can display:
+
+- **Diatonic** chords in normal style.
+- **Borrowed / non‑diatonic** chords differently (e.g. italics, darker color).
+
+This separation makes it easier to reuse harmonic logic in other systems (e.g. melody generation, reharmonization tools).
+
+
+---
+
+## 5. Palette and card integration
+
+### 5.1 `BackingCardConfigSO`
+
+Located in `BackingCardConfigSO.cs`.
+
+Extends `TrackStyleBundleSO` with harmonic overrides for Backing tracks:
+
+- `ChordProgressionData progressionOverride` – explicit progression for this card.
+- `ChordProgressionPaletteSO progressionPalette` – palette used if `progressionOverride` is null.
+
+Key method:
+
+```csharp
+public ChordProgressionData PickProgressionOverride(System.Random rng)
+```
+
+Priority order:
+
+1. If `progressionOverride` is set → clone and return it.
+2. Else if `progressionPalette` is set → call `PickRandomProgression(rng, cloneResult: true)`.
+3. Else → return `null` and let the composer use library/procedural generation.
+
+This means palette assets are the **main way for card designers to say “pick any of these few related progressions”**.
+
+
+### 5.2 Chord track composer (runtime)
+
+In `ChordTrackComposer.cs`, the typical flow is:
+
+1. Ask the active card’s `BackingCardConfigSO` for a progression via `PickProgressionOverride`.
+2. If null, fall back to library/procedural generation as before.
+3. Use `ChordProgressionData`:
+   - Iterate over `events`.
+   - For each chord event, compute concrete MIDI notes from `(degree, quality)` and the current song key (via `MusicTheory` utilities).
+   - Schedule chords into the MIDI pattern using `startStep` / `lengthSteps`, scaled into beats/seconds according to tempo and subdivisions.
+
+The important part: **the composer is agnostic** about how the progression was authored (Roman or Grid). Rests are simply regions where there are no events, so no notes are emitted.
+
+
+---
+
+## 6. Song references metadata
+
+The `songReferences` list in `ChordProgressionData` is exposed through `ChordProgressionEditorWindow.DrawSongReferencesSection()`:
+
+- Designers can maintain a small list of free‑form strings, such as:
+  - “Inspired by [band] – [song] chorus”
+  - “Classic ii–V–I turnaround (jazz)”
+  - “Pop pre‑chorus, mid‑tempo”
+- This field is **optional** and has no runtime effect for now.
+- It serves as **documentation** for other designers and as a bridge to listening references when assigning progressions to palettes or cards.
+
+
+---
+
+## 7. Latest changes (this work session)
+
+Relative to the previous version of this document:
+
+1. **Support for rests / silent spans**
+   - `RomanProgressionParser` now recognizes explicit rest tokens (`S`, `Rest`, `R`) and bare durations with no Roman part.
+   - Parsed items now carry a `bool isRest` flag.
+   - `RhythmGridQuantizer` is rest‑agnostic and uses only durations; rests contribute to the total grid length.
+   - `ApplyToAsset` and `SaveAsNewAsset` in Roman mode **skip** creating `ChordEvent`s for rest items, but still advance the step cursor, so timing is correct.
+   - `ChordTrackComposer` simply sees gaps between `ChordEvent`s and produces silence during those spans.
+
+2. **Roman ↔ Grid rest round‑trip**
+   - `BuildRomanStringFromGrid` now inserts rest tokens (`S (x)`) for gaps between grid events and for trailing space at the end of the progression.
+   - `Parse & Preview` in Grid mode converts the grid to Roman, then uses the same Roman pipeline to quantize and preview, so round‑tripping is consistent.
+
+3. **Preview styling for rests**
+   - The linear preview line now includes `Rest` entries with their durations.
+   - The per‑beat grid preview shows the first beat of each rest span as **grey italic “Rest”**, making silent areas visually obvious.
+
+4. **Clear Grid button**
+   - A **“Clear Grid”** button was added under the Grid Parameters section.
+   - It clears the editor‑side `gridEvents` list (with a confirmation dialog) without modifying the underlying asset until the user presses “Apply” or “Save As New Asset”.
+
+These changes make it much easier to author progressions that include **space and silence**, both from Roman strings and from the grid, while keeping the runtime representation clean and compatible with the existing chord track composer.
