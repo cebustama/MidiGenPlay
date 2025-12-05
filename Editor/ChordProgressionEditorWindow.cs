@@ -33,8 +33,7 @@ public class ChordProgressionEditorWindow : EditorWindow
     }
 
     [SerializeField] private ChordProgressionData targetAsset;
-    [SerializeField] private ChordProgressionLibrarySO targetLibrary;
-    [SerializeField] private int selectedLibraryIndex = -1;
+    [SerializeField] private ChordProgressionPaletteSO targetPalette;
     private enum InputMode { RomanString, Grid }
     [SerializeField] private InputMode inputMode = InputMode.RomanString;
 
@@ -84,14 +83,14 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     [SerializeField] private Vector2 mainScroll;
 
+    // Services
+    private RomanProgressionParser romanParser = new RomanProgressionParser();
+    private RhythmGridQuantizer rhythmQuantizer = new RhythmGridQuantizer();
+
     private bool showAllowedTonalities = true; // foldout state
     private GUIStyle gridPreviewStyle;
     private GUIStyle chordBlockLabelStyle;
-
     private ChordProgressionData lastLoadedAsset;
-
-    // Scroll position for the grid preview area so long progressions don't
-    // push the buttons over the text.
     private Vector2 previewGridScroll;
 
     private void OnEnable()
@@ -123,54 +122,13 @@ public class ChordProgressionEditorWindow : EditorWindow
             OnTargetAssetChanged();
         }
 
-        targetLibrary = (ChordProgressionLibrarySO)EditorGUILayout.ObjectField(
-            new GUIContent("Progression Library (optional)",
-                "Used for 'Clone From Library' and 'Add Current To Library'."),
-            targetLibrary, typeof(ChordProgressionLibrarySO), false);
-
-        if (targetLibrary != null &&
-            targetLibrary.entries != null &&
-            targetLibrary.entries.Count > 0)
-        {
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Clone From Library", EditorStyles.boldLabel);
-
-            var entries = targetLibrary.entries;
-            var labels = new string[entries.Count];
-            for (int i = 0; i < entries.Count; i++)
-            {
-                var e = entries[i];
-                string label = !string.IsNullOrWhiteSpace(e.id)
-                    ? e.id
-                    : (e.progression != null
-                        ? (!string.IsNullOrWhiteSpace(e.progression.DisplayName)
-                            ? e.progression.DisplayName
-                            : e.progression.name)
-                        : $"Entry {i}");
-
-                labels[i] = label;
-            }
-
-            selectedLibraryIndex = Mathf.Clamp(selectedLibraryIndex, -1, entries.Count - 1);
-            selectedLibraryIndex = EditorGUILayout.Popup(
-                new GUIContent("Library Entry",
-                    "Select an existing progression template to copy into the editor string."),
-                selectedLibraryIndex,
-                labels);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                GUI.enabled = selectedLibraryIndex >= 0 &&
-                              selectedLibraryIndex < entries.Count;
-
-                if (GUILayout.Button("Load Selected Into Editor"))
-                {
-                    CloneFromLibraryEntry(entries[selectedLibraryIndex]);
-                }
-
-                GUI.enabled = true;
-            }
-        }
+        targetPalette = (ChordProgressionPaletteSO)EditorGUILayout.ObjectField(
+            new GUIContent("Progression Palette (optional)",
+                "Palette asset where you can add this progression as a " +
+                "weighted entry for card designers."),
+            targetPalette,
+            typeof(ChordProgressionPaletteSO),
+            false);
 
         inputMode = (InputMode)GUILayout.Toolbar(
             (int)inputMode,
@@ -231,6 +189,11 @@ public class ChordProgressionEditorWindow : EditorWindow
             }
             EditorGUI.indentLevel--;
         }
+
+        EditorGUILayout.Space();
+
+        // Optional authoring metadata on the current asset
+        DrawSongReferencesSection();
 
         EditorGUILayout.Space();
 
@@ -297,13 +260,38 @@ public class ChordProgressionEditorWindow : EditorWindow
         {
             if (GUILayout.Button("Parse & Preview (no write)"))
             {
-                ParseAndPreview(onlyPreview: true);
+                if (inputMode == InputMode.RomanString)
+                {
+                    // Just parse the text field as before.
+                    ParseAndPreview(onlyPreview: true);
+                }
+                else // Grid mode
+                {
+                    // 1) Turn the grid into a Roman string
+                    var cleaned = GetSortedGridEvents();
+                    var romanFromGrid = BuildRomanStringFromGrid(cleaned);
+
+                    // 2) Store it in the shared progressionInput field
+                    progressionInput = romanFromGrid;
+
+                    // 3) Reuse the existing Roman pipeline for the previews
+                    ParseAndPreview(onlyPreview: true);
+                }
             }
 
             GUI.enabled = targetAsset != null;
-            if (GUILayout.Button("Save"))
+            if (GUILayout.Button("Apply To Target Asset"))
             {
-                ParseAndPreview(onlyPreview: false);
+                if (inputMode == InputMode.RomanString)
+                {
+                    // Roman pipeline: Parse & write into asset via ApplyToAsset()
+                    ParseAndPreview(onlyPreview: false);
+                }
+                else
+                {
+                    // Grid pipeline: write grid directly into the asset
+                    ApplyGridToTarget();
+                }
             }
             GUI.enabled = true;
         }
@@ -315,10 +303,10 @@ public class ChordProgressionEditorWindow : EditorWindow
                 SaveAsNewAsset();
             }
 
-            GUI.enabled = targetLibrary != null && targetAsset != null;
-            if (GUILayout.Button("Add Current To Library"))
+            GUI.enabled = targetPalette != null && targetAsset != null;
+            if (GUILayout.Button("Add Current To Palette"))
             {
-                AddCurrentToLibrary();
+                AddCurrentToPalette();
             }
             GUI.enabled = true;
         }
@@ -468,6 +456,10 @@ public class ChordProgressionEditorWindow : EditorWindow
         // Draw each ChordEvent as a colored block
         if (gridEvents != null && gridEvents.Count > 0)
         {
+            var qualityResolver = new ChordQualityResolver(
+                referenceTonality,
+                GetAutoChordQualityMode());
+
             for (int i = 0; i < gridEvents.Count; i++)
             {
                 var e = gridEvents[i];
@@ -490,7 +482,7 @@ public class ChordProgressionEditorWindow : EditorWindow
                 int degIndex = Mathf.Clamp((int)e.degree, 0, 6);
                 Color col = degreeColors[degIndex];
 
-                bool isDiatonic = IsChordDiatonic(e.degree, e.quality);
+                bool isDiatonic = qualityResolver.IsChordDiatonic(e.degree, e.quality);
                 if (!isDiatonic)
                     col = Color.Lerp(col, Color.black, 0.35f);
 
@@ -520,9 +512,64 @@ public class ChordProgressionEditorWindow : EditorWindow
         DrawGridSelectionInspector(totalSteps);
     }
 
-    private int GridTotalSteps()
+    private void DrawSongReferencesSection()
     {
-        return Mathf.Max(1, gridMeasures * gridBeatsPerMeasure * gridSubdivisions);
+        if (targetAsset == null)
+            return;
+
+        if (targetAsset.songReferences == null)
+            targetAsset.songReferences = new List<string>();
+
+        EditorGUILayout.LabelField(
+            "Song References (optional)", EditorStyles.boldLabel);
+
+        EditorGUILayout.HelpBox(
+            "List songs that use (or approximate) this progression so " +
+            "designers/composers can quickly listen to examples.",
+            MessageType.None);
+
+        int removeIndex = -1;
+
+        for (int i = 0; i < targetAsset.songReferences.Count; i++)
+        {
+            EditorGUILayout.BeginHorizontal();
+
+            EditorGUI.BeginChangeCheck();
+            string newValue = EditorGUILayout.TextField(
+                $"Ref {i + 1}", targetAsset.songReferences[i]);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(targetAsset, "Edit Song Reference");
+                targetAsset.songReferences[i] = newValue;
+                EditorUtility.SetDirty(targetAsset);
+            }
+
+            if (GUILayout.Button("X", GUILayout.Width(22)))
+            {
+                Undo.RecordObject(targetAsset, "Remove Song Reference");
+                removeIndex = i;
+            }
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        if (removeIndex >= 0 &&
+            removeIndex < targetAsset.songReferences.Count)
+        {
+            targetAsset.songReferences.RemoveAt(removeIndex);
+            EditorUtility.SetDirty(targetAsset);
+        }
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Add Reference", GUILayout.Width(120)))
+            {
+                Undo.RecordObject(targetAsset, "Add Song Reference");
+                targetAsset.songReferences.Add(string.Empty);
+                EditorUtility.SetDirty(targetAsset);
+            }
+        }
     }
 
     private void HandleGridMouse(Rect gridRect, int totalSteps, float stepWidth)
@@ -741,15 +788,6 @@ public class ChordProgressionEditorWindow : EditorWindow
         return remaining;
     }
 
-    // --- Data structures for parsing ---
-
-    private struct ParsedChord
-    {
-        public ScaleDegree degree;
-        public ChordQuality? explicitQuality; // null = let system infer
-        public float durationMeasures; // in measures
-    }
-
     // --- Main application logic ---
 
     /// <summary>
@@ -771,12 +809,15 @@ public class ChordProgressionEditorWindow : EditorWindow
             return;
         }
 
-        // Try to parse the Roman string into ParsedChord entries
-        if (!TryParseProgression(
-                progressionInput,
-                defaultDurationMeasures,
-                out var chords,
-                out var parseError))
+        // Try to parse the Roman string into ParsedChord entries using the shared parser.
+        bool inferFromCase = (autoDiatonicMode == AutoDiatonicMode.None);
+
+        if (!romanParser.TryParse(
+            progressionInput,
+            defaultDurationMeasures,
+            inferFromCase,
+            out List<ParsedChord> chords,
+            out string parseError))
         {
             // Show parse error and clear previews so it's obvious something failed
             if (!string.IsNullOrEmpty(parseError))
@@ -801,7 +842,6 @@ public class ChordProgressionEditorWindow : EditorWindow
             // - computes the timing grid,
             // - fills ChordProgressionData.events,
             // - updates DisplayName, originalInput, tonalities,
-            // - adds the asset to the library if configured.
             ApplyToAsset();
         }
     }
@@ -815,13 +855,16 @@ public class ChordProgressionEditorWindow : EditorWindow
             return;
         }
 
-        if (!TryParseProgression(
-            progressionInput, 
-            defaultDurationMeasures,     
-            out var chords, 
-            out var parseError))
+        bool inferFromCase = (autoDiatonicMode == AutoDiatonicMode.None);
+
+        if (!romanParser.TryParse(
+                progressionInput,
+                defaultDurationMeasures,
+                inferFromCase,
+                out List<ParsedChord> chords,
+                out string parseError))
         {
-            EditorUtility.DisplayDialog("Parse Error", 
+            EditorUtility.DisplayDialog("Parse Error",
                 parseError ?? "Unknown error.", "OK");
             return;
         }
@@ -844,13 +887,13 @@ public class ChordProgressionEditorWindow : EditorWindow
         int beatsPerMeasure = tsInfo.BeatsPerMeasure;
 
         // Quantize chord durations into integer steps and pick a subdivisions value.
-        if (!ComputeStepsAndSubdivisions(
-            chords, 
-            beatsPerMeasure,
-            out int subdivisions,
-            out List<int> lengthsSteps, 
-            out int totalSteps, 
-            out var durError))
+        if (!rhythmQuantizer.TryQuantizeChordDurations(
+                chords,
+                beatsPerMeasure,
+                out int subdivisions,
+                out List<int> lengthsSteps,
+                out int totalSteps,
+                out string durError))
         {
             EditorUtility.DisplayDialog("Quantization Error",
                 durError ?? "Could not find a consistent grid (steps / subdivisions).",
@@ -899,13 +942,17 @@ public class ChordProgressionEditorWindow : EditorWindow
         targetAsset.events.Clear();
         int currentStep = 0;
 
+        var qualityResolver = new ChordQualityResolver(
+            referenceTonality,
+            GetAutoChordQualityMode());
+
         for (int i = 0; i < chords.Count; i++)
         {
             var pc = chords[i];
             int chordSteps = Mathf.Max(1, lengthsSteps[i]);
 
-            var quality = ResolveChordQuality(pc);
-            bool isDiatonic = IsChordDiatonic(pc.degree, quality);
+            var quality = qualityResolver.ResolveChordQuality(pc);
+            bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
 
             var evt = new ChordProgressionData.ChordEvent
             {
@@ -936,489 +983,76 @@ public class ChordProgressionEditorWindow : EditorWindow
         UpdatePreview(chords);
     }
 
-    // --- Parsing: "i (2) – iv (1) – v (1)" ---> List<ParsedChord> ---
-
-    private bool TryParseProgression(
-        string input,
-        float defaultMeasuresPerChord,
-        out List<ParsedChord> chords,
-        out string error)
-    {
-        chords = new List<ParsedChord>();
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            error = "Input string is empty.";
-            return false;
-        }
-
-        input = input.Replace('\n', ' ');
-
-        string[] tokens = input
-            .Split(new[] { '–', '-', '—' }, StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var raw in tokens)
-        {
-            var token = raw.Trim();
-            if (string.IsNullOrEmpty(token)) continue;
-
-            // pattern: "I", "I (2)", "V7", "iiø7 (0.5)", etc.
-            string romanPart = token;
-            string durPart = null;
-
-            int paren = token.IndexOf('(');
-            if (paren >= 0)
-            {
-                romanPart = token.Substring(0, paren).Trim();
-                durPart = token.Substring(paren).Trim(); // "(2)" or "(0.5)"
-            }
-
-            if (!TryParseRomanWithQuality(romanPart, out var degree,
-                                          out var explicitQ, out var degErr))
-            {
-                error = degErr;
-                return false;
-            }
-
-            if (!TryParseDuration(durPart, defaultMeasuresPerChord,
-                                  out float dur, out var durErr))
-            {
-                error = durErr;
-                return false;
-            }
-
-            chords.Add(new ParsedChord
-            {
-                degree = degree,
-                explicitQuality = explicitQ,
-                durationMeasures = dur
-            });
-        }
-
-        if (chords.Count == 0)
-        {
-            error = "No valid chords found in the input.";
-            return false;
-        }
-
-        error = null;
-        return true;
-    }
-
-    private bool TryParseRomanWithQuality(
-    string token,
-    out ScaleDegree degree,
-    out ChordQuality? explicitQuality,
-    out string error)
-    {
-        degree = ScaleDegree.Tonic;
-        explicitQuality = null;
-        error = null;
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            error = "Empty chord token.";
-            return false;
-        }
-
-        token = token.Trim();
-
-        // Split: roman core (I/V/X letters) + whatever remains as quality suffix
-        int idx = 0;
-        while (idx < token.Length && "IVXivx".IndexOf(token[idx]) >= 0)
-            idx++;
-
-        if (idx == 0)
-        {
-            error = $"Could not find a roman numeral in '{token}'.";
-            return false;
-        }
-
-        string roman = token.Substring(0, idx);
-        string suffix = token.Substring(idx); // may be empty, "7", "maj7", "ø7", etc.
-
-        // --- Roman → degree index (0..6) ---
-        if (!TryParseRomanToDegreeIndex(roman, out int degIndex))
-        {
-            error = $"Unsupported roman numeral '{roman}' in token '{token}'.";
-            return false;
-        }
-        degree = (ScaleDegree)degIndex;
-
-        // --- Quality from suffix (optional, highest priority) ---
-        bool hasExplicitFromSuffix = false;
-        suffix = suffix.Trim();
-        if (!string.IsNullOrEmpty(suffix) && TryParseQualitySuffix(suffix, out var q))
-        {
-            explicitQuality = q;
-            hasExplicitFromSuffix = true;
-        }
-
-        // --- In None mode, if there was no suffix, use case as explicit triad quality ---
-        if (!hasExplicitFromSuffix && autoDiatonicMode == AutoDiatonicMode.None)
-        {
-            char c0 = roman[0];
-            if (char.IsLetter(c0))
-            {
-                // all-lowercase → minor, all-uppercase → major
-                bool anyLower = roman.Any(ch => char.IsLetter(ch) && char.IsLower(ch));
-                bool anyUpper = roman.Any(ch => char.IsLetter(ch) && char.IsUpper(ch));
-
-                if (anyLower && !anyUpper)
-                    explicitQuality = ChordQuality.Minor;
-                else if (anyUpper && !anyLower)
-                    explicitQuality = ChordQuality.Major;
-                // mixed case or weird → leave null, will fall back later
-            }
-        }
-
-        return true;
-    }
-
-
     /// <summary>
-    /// Parses classic roman numerals I..VII to a degree index (0..6).
-    /// Case is ignored.
+    /// Writes the current Grid state into the existing targetAsset.
+    /// Also regenerates originalInput (Roman string) and DisplayName.
     /// </summary>
-    private bool TryParseRomanToDegreeIndex(string roman, out int index)
+    private void ApplyGridToTarget()
     {
-        index = 0;
-        roman = roman.Trim().ToUpperInvariant();
-
-        switch (roman)
+        if (gridEvents == null || gridEvents.Count == 0)
         {
-            case "I": index = 0; return true;
-            case "II": index = 1; return true;
-            case "III": index = 2; return true;
-            case "IV": index = 3; return true;
-            case "V": index = 4; return true;
-            case "VI": index = 5; return true;
-            case "VII": index = 6; return true;
-            default:
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Maps common chord notation suffixes (7, maj7, M7, m7, dim, °, ø7, sus2, sus4, etc.)
-    /// to the internal ChordQuality enum.
-    /// </summary>
-    private bool TryParseQualitySuffix(string suffix, out ChordQuality quality)
-    {
-        // Default – will be ignored if we return false
-        quality = ChordQuality.Major;
-
-        if (string.IsNullOrWhiteSpace(suffix))
-            return false;
-
-        // Normalize: remove spaces, to lower, replace some unicode aliases
-        string s = suffix.Replace(" ", "")
-                         .Replace("Δ", "maj")
-                         .Replace("∆", "maj")
-                         .ToLowerInvariant();
-
-        // Some people write just "M" / "maj" / "m" etc.
-        switch (s)
-        {
-            // --- Triads ---
-            case "":       // shouldn't reach here
-            case "maj":
-            case "ma":
-            case "mjr":
-            case "mja":
-            case "m":   // NOTE: only when written after roman like "IM"
-            case "M":
-                quality = ChordQuality.Major;
-                return true;
-
-            case "min":
-            case "mi":
-            case "mn":
-            case "-":
-            case "min3":
-            case "mtri":
-            case "mtriad":
-                quality = ChordQuality.Minor;
-                return true;
-
-            case "dim":
-            case "o":
-            case "°":
-                quality = ChordQuality.Diminished;
-                return true;
-
-            case "aug":
-            case "+":
-            case "+5":
-                quality = ChordQuality.Augmented;
-                return true;
-
-            // --- Sevenths ---
-            case "7":
-            case "dom":
-            case "dom7":
-                quality = ChordQuality.Dominant7;
-                return true;
-
-            case "maj7":
-            case "ma7":
-            case "m7+": // sometimes seen in lead sheets
-            case "mM7":
-            case "mmaj7":
-            case "M7":
-                quality = ChordQuality.Major7;
-                return true;
-
-            case "m7":
-            case "-7":
-            case "min7":
-                quality = ChordQuality.Minor7;
-                return true;
-
-            case "ø":
-            case "ø7":
-            case "m7b5":
-            case "min7b5":
-                quality = ChordQuality.HalfDiminished7;
-                return true;
-
-            case "dim7":
-            case "o7":
-            case "°7":
-                quality = ChordQuality.Diminished7;
-                return true;
-
-            // --- Suspended / other ---
-            case "sus2":
-                quality = ChordQuality.Sus2;
-                return true;
-
-            case "sus4":
-            case "sus":
-                quality = ChordQuality.Sus4;
-                return true;
-
-            default:
-                // Unknown: let caller fall back to diatonic inference.
-                Debug.LogWarning($"[ChordProgressionEditor] " +
-                    $"Unrecognized chord quality suffix '{suffix}'. " +
-                    $"Falling back to diatonic / default quality.");
-
-                return false;
-        }
-    }
-
-    // --- Duration → subdivisions / steps ---
-
-    /// <summary>
-    /// Parses a duration token into measures.
-    /// - rawDur can be null/empty (use default)
-    /// - or something like "(2)", "(0.5)" or just "2"
-    /// Durations are in *measures*.
-    /// </summary>
-    private bool TryParseDuration(
-        string rawDur,
-        float defaultMeasuresPerChord,
-        out float duration,
-        out string error)
-    {
-        error = null;
-
-        // Sensible default if somebody configured 0 or negative
-        if (defaultMeasuresPerChord <= 0f)
-            defaultMeasuresPerChord = 1f;
-
-        // No explicit duration → use default
-        if (string.IsNullOrWhiteSpace(rawDur))
-        {
-            duration = defaultMeasuresPerChord;
-            return true;
+            EditorUtility.DisplayDialog(
+                "Grid Empty",
+                "There are no ChordEvents in the grid to apply.",
+                "OK");
+            return;
         }
 
-        // Clean up string
-        string s = rawDur.Trim();
-
-        // Accept "(2)" or "(0.5)" as well as plain "2"
-        if (s.StartsWith("(") && s.EndsWith(")"))
+        if (targetAsset == null)
         {
-            if (s.Length <= 2)
-            {
-                error = $"Malformed duration '{rawDur}'. " +
-                    $"Expected something like '(2)' or '(0.5)'.";
-                duration = 0f;
-                return false;
-            }
-
-            s = s.Substring(1, s.Length - 2).Trim();
-        }
-        else if (s.StartsWith("(") || s.EndsWith(")"))
-        {
-            // One parenthesis but not the other → clearly a typo
-            error = $"Malformed duration '{rawDur}'. Expected '(number)'.";
-            duration = 0f;
-            return false;
+            EditorUtility.DisplayDialog(
+                "No Target Asset",
+                "Assign a Target Asset in the object field or use 'Save As New Asset' instead.",
+                "OK");
+            return;
         }
 
-        // Use invariant culture so 0.5 always works
-        if (!float.TryParse(
-                s,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out duration))
+        // Clean + clamp events to current grid size
+        var cleaned = GetSortedGridEvents();
+
+        Undo.RecordObject(targetAsset, "Apply Grid To Chord Progression");
+
+        // Timing from grid parameters
+        int beatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
+        int subdivisions = Mathf.Max(1, gridSubdivisions);
+        int stepsPerMeasure = beatsPerMeasure * subdivisions;
+
+        targetAsset.TimeSignature = timeSignature;      // use window TS
+        targetAsset.Measures = Mathf.Max(1, gridMeasures);
+        targetAsset.subdivisions = subdivisions;
+
+        // Copy tonalities from toggle dictionary
+        if (targetAsset.tonalities == null)
+            targetAsset.tonalities = new List<Tonality>();
+        else
+            targetAsset.tonalities.Clear();
+
+        foreach (var kv in tonalityFlags)
         {
-            error = $"Could not parse duration '{rawDur}'. " +
-                $"Use a number like '(2)' or '(0.5)' " +
-                "with a dot as decimal separator.";
-            duration = 0f;
-            return false;
+            if (kv.Value)
+                targetAsset.tonalities.Add(kv.Key);
         }
 
-        if (duration <= 0f)
-        {
-            error = $"Duration must be > 0 in '{rawDur}'.";
-            duration = 0f;
-            return false;
-        }
+        // Copy events from grid
+        if (targetAsset.events == null)
+            targetAsset.events = new List<ChordProgressionData.ChordEvent>();
+        else
+            targetAsset.events.Clear();
 
-        return true;
-    }
+        targetAsset.events.AddRange(cleaned);
 
-    /// <summary>
-    /// For each chord (durationMeasures), finds a suitable subdivisions value (1..8)
-    /// and computes integer step lengths so that:
-    ///  lengthSteps = durationMeasures * beatsPerMeasure * subdivisions
-    /// And the total adds up to a whole number of measures.
-    /// </summary>
-    private bool ComputeStepsAndSubdivisions(
-        List<ParsedChord> chords,
-        int beatsPerMeasure,
-        out int subdivisions,
-        out List<int> lengthsSteps,
-        out int totalSteps,
-        out string error)
-    {
-        subdivisions = 1;
-        lengthsSteps = new List<int>();
-        totalSteps = 0;
-        error = null;
+        // Build Roman string from the grid for metadata (originalInput + DisplayName)
+        string romanFromGrid = BuildRomanStringFromGrid(cleaned);
+        progressionInput = romanFromGrid;   // keep UI in sync
+        targetAsset.originalInput = romanFromGrid;
+        targetAsset.UpdateDisplayNameAuto();
 
-        if (chords == null || chords.Count == 0)
-        {
-            error = "No chords to compute durations for.";
-            return false;
-        }
+        EditorUtility.SetDirty(targetAsset);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
 
-        // Try subdivisions from 1 to 8 (ChordProgressionData clamps 1..8).
-        for (int sub = 1; sub <= 8; sub++)
-        {
-            bool ok = true;
-            lengthsSteps.Clear();
-            totalSteps = 0;
-
-            foreach (var c in chords)
-            {
-                // duration (measures) → steps
-                float stepsF = c.durationMeasures * beatsPerMeasure * sub;
-                int stepsInt = Mathf.RoundToInt(stepsF);
-
-                // require that it's "close enough" to an integer
-                if (Mathf.Abs(stepsF - stepsInt) > 0.001f || stepsInt <= 0)
-                {
-                    ok = false;
-                    break;
-                }
-
-                lengthsSteps.Add(stepsInt);
-                totalSteps += stepsInt;
-            }
-
-            if (!ok)
-                continue;
-
-            // Check totalSteps corresponds to a whole number of measures
-            int stepsPerMeasure = beatsPerMeasure * sub;
-            if (totalSteps % stepsPerMeasure != 0)
-                continue;
-
-            subdivisions = sub;
-            return true;
-        }
-
-        error =
-            "Could not find a valid 'subdivisions' value (1..8) for these durations.\n" +
-            "Make sure the sum of durations is an integer number of measures " +
-            "and each duration is a rational multiple of a beat.";
-        return false;
-    }
-
-    private ChordQuality ResolveChordQuality(ParsedChord c)
-    {
-        // 1) Explicit quality (suffix or, in None mode, case) always wins.
-        if (c.explicitQuality.HasValue)
-            return c.explicitQuality.Value;
-
-        // 2) Otherwise, infer from selected auto mode.
-        switch (autoDiatonicMode)
-        {
-            case AutoDiatonicMode.Triads:
-                // Diatonic triad for this mode+degree
-                return GetDiatonicTriadQuality(referenceTonality, c.degree);
-
-            case AutoDiatonicMode.Sevenths:
-                // Diatonic 7th chord (Imaj7, iim7, V7, etc.)
-                return GetDiatonicSeventhQuality(referenceTonality, c.degree);
-
-            case AutoDiatonicMode.None:
-            default:
-                // Literal mode: no inference → default to plain major if nothing else is specified.
-                return ChordQuality.Major;
-        }
-    }
-
-
-    // Used only for analysis (diatonic vs borrowed)
-    private enum TriadFamily { Major, Minor, Diminished, Augmented, Suspended, Other }
-
-    private TriadFamily GetTriadFamily(ChordQuality q)
-    {
-        switch (q)
-        {
-            case ChordQuality.Major:
-            case ChordQuality.Major7:
-            case ChordQuality.Dominant7:
-                return TriadFamily.Major;
-
-            case ChordQuality.Minor:
-            case ChordQuality.Minor7:
-                return TriadFamily.Minor;
-
-            case ChordQuality.Diminished:
-            case ChordQuality.Diminished7:
-            case ChordQuality.HalfDiminished7:
-                return TriadFamily.Diminished;
-
-            case ChordQuality.Augmented:
-                return TriadFamily.Augmented;
-
-            case ChordQuality.Sus2:
-            case ChordQuality.Sus4:
-                return TriadFamily.Suspended;
-
-            default:
-                return TriadFamily.Other;
-        }
-    }
-
-    /// <summary>
-    /// Returns true if 'quality' belongs to the same triad family as the
-    /// diatonic triad for (referenceTonality, degree). This is our notion of
-    /// "non-borrowed" versus "borrowed / modal mixture".
-    /// </summary>
-    private bool IsChordDiatonic(ScaleDegree degree, ChordQuality quality)
-    {
-        var expectedTriad = GetDiatonicTriadQuality(referenceTonality, degree);
-        var expectedFamily = GetTriadFamily(expectedTriad);
-        var actualFamily = GetTriadFamily(quality);
-        return expectedFamily == actualFamily;
+        // Also refresh the previews based on the new Roman string
+        ParseAndPreview(onlyPreview: true);
     }
 
     /// <summary>
@@ -1447,13 +1081,13 @@ public class ChordProgressionEditorWindow : EditorWindow
         int beatsPerMeasure = tsInfo.BeatsPerMeasure;
 
         // Compute timing grid for preview only
-        if (!ComputeStepsAndSubdivisions(
-            chords,
-            beatsPerMeasure,
-            out int subdivisions,
-            out List<int> lengthsSteps,
-            out int totalSteps,
-            out var durError))
+        if (!rhythmQuantizer.TryQuantizeChordDurations(
+                chords,
+                beatsPerMeasure,
+                out int subdivisions,
+                out List<int> lengthsSteps,
+                out int totalSteps,
+                out string durError))
         {
             previewChordNames = $"[Grid error: {durError}]";
             previewGridText = "";
@@ -1477,6 +1111,11 @@ public class ChordProgressionEditorWindow : EditorWindow
                             .Select(n => n.NoteName)
                             .ToArray();
 
+        // One resolver per preview call (tonality + auto mode)
+        var qualityResolver = new ChordQualityResolver(
+            referenceTonality,
+            GetAutoChordQualityMode());
+
         var chordSymbols = new List<string>(chords.Count);
         var chordColors = new List<string>(chords.Count);
         var chordIsDiatonic = new List<bool>(chords.Count);
@@ -1488,11 +1127,11 @@ public class ChordProgressionEditorWindow : EditorWindow
             int degIndex = Mathf.Clamp((int)pc.degree, 0, 6);
             var degreeRoot = scaleNotes[degIndex];
 
-            var q = ResolveChordQuality(pc);
-            bool isDiatonic = IsChordDiatonic(pc.degree, q);
+            var quality = qualityResolver.ResolveChordQuality(pc);
+            bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
 
             string symbol = GetChordSymbolSpelledForDegree(
-                previewRoot, degIndex, degreeRoot, q);
+                previewRoot, degIndex, degreeRoot, quality);
 
             chordSymbols.Add(symbol);
             chordColors.Add(ColorHexForNote(degreeRoot));
@@ -1571,45 +1210,6 @@ public class ChordProgressionEditorWindow : EditorWindow
         }
 
         previewGridText = sb.ToString();
-    }
-
-    /// <summary>
-    /// Loads an existing library entry into the editor:
-    /// - Copies its original Roman string (if available) into progressionInput
-    /// - Syncs time signature and allowed tonalities
-    /// </summary>
-    private void CloneFromLibraryEntry(ChordProgressionLibrarySO.Entry entry)
-    {
-        if (entry == null || entry.progression == null)
-            return;
-
-        var prog = entry.progression;
-
-        // Prefer the original Roman string; fallback to DisplayName / id.
-        if (!string.IsNullOrWhiteSpace(prog.originalInput))
-            progressionInput = prog.originalInput;
-        else if (!string.IsNullOrWhiteSpace(prog.DisplayName))
-            progressionInput = prog.DisplayName;
-        else if (!string.IsNullOrWhiteSpace(entry.id))
-            progressionInput = entry.id;
-        else
-            progressionInput = prog.name;
-
-        // Sync meter
-        timeSignature = prog.TimeSignature;
-
-        // Sync allowed tonalities into the toggles
-        if (tonalityFlags == null)
-            OnEnable();
-
-        var progTonalities = prog.tonalities ?? new List<Tonality>();
-        foreach (var key in tonalityFlags.Keys.ToList())
-        {
-            tonalityFlags[key] = progTonalities.Contains(key);
-        }
-
-        // Keep previewRoot & referenceTonality as-is for now.
-        Repaint();
     }
 
     private static string ColorHexForNote(NoteName note)
@@ -1692,203 +1292,254 @@ public class ChordProgressionEditorWindow : EditorWindow
 
     /// <summary>
     /// Creates a brand new ChordProgressionData asset from the current editor state.
-    /// Does NOT add it to any library (use AddCurrentToLibrary for that).
+    /// - In Roman mode: parses progressionInput and quantizes as before.
+    /// - In Grid mode: saves the current grid events directly and also derives a Roman string.
+    /// Does NOT add it to any palette (use AddCurrentToPalette for that).
     /// </summary>
     private void SaveAsNewAsset()
     {
-        if (string.IsNullOrWhiteSpace(progressionInput))
+        // ----------------------------
+        // 1) Roman-string pipeline
+        // ----------------------------
+        if (inputMode == InputMode.RomanString)
         {
-            EditorUtility.DisplayDialog("Error",
-                "Progression input string is empty.", "OK");
+            if (string.IsNullOrWhiteSpace(progressionInput))
+            {
+                EditorUtility.DisplayDialog("Error",
+                    "Progression input string is empty.", "OK");
+                return;
+            }
+
+            // Use case as explicit triad quality only when AutoDiatonicMode == None
+            bool inferFromCase = (autoDiatonicMode == AutoDiatonicMode.None);
+
+            if (!romanParser.TryParse(
+                    progressionInput,
+                    defaultDurationMeasures,
+                    inferFromCase,
+                    out List<ParsedChord> chords,
+                    out string parseError))
+            {
+                EditorUtility.DisplayDialog("Parse Error",
+                    parseError ?? "Unknown error.", "OK");
+                return;
+            }
+
+            if (chords == null || chords.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Parse Error",
+                    "No chords were parsed from the input.", "OK");
+                return;
+            }
+
+            // For a new asset, use the window's timeSignature field
+            TimeSignature effectiveTs = timeSignature;
+            var tsInfo = TimeSignatureProperties[effectiveTs];
+            int beatsPerMeasure = tsInfo.BeatsPerMeasure;
+
+            if (!rhythmQuantizer.TryQuantizeChordDurations(
+                    chords,
+                    beatsPerMeasure,
+                    out int subdivisions,
+                    out List<int> lengthsSteps,
+                    out int totalSteps,
+                    out string durError))
+            {
+                EditorUtility.DisplayDialog("Quantization Error",
+                    durError ?? "Could not find a consistent grid (steps / subdivisions).",
+                    "OK");
+                return;
+            }
+
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Save Chord Progression As...",
+                "New Chord Progression Data",
+                "asset",
+                "Choose where to save the new progression asset.");
+
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            var newAsset = ScriptableObject.CreateInstance<ChordProgressionData>();
+            AssetDatabase.CreateAsset(newAsset, path);
+
+            Undo.RecordObject(newAsset, "Create Chord Progression");
+
+            int stepsPerMeasure = beatsPerMeasure * subdivisions;
+            int totalMeasures = Mathf.Max(1, totalSteps / Mathf.Max(1, stepsPerMeasure));
+
+            newAsset.TimeSignature = effectiveTs;
+            newAsset.Measures = totalMeasures;
+            newAsset.subdivisions = subdivisions;
+            newAsset.originalInput = progressionInput;
+
+            // Tonalities from toggles
+            newAsset.tonalities.Clear();
+            foreach (var kv in tonalityFlags)
+                if (kv.Value)
+                    newAsset.tonalities.Add(kv.Key);
+
+            var qualityResolver = new ChordQualityResolver(
+                referenceTonality,
+                GetAutoChordQualityMode());
+
+            // Events
+            newAsset.events.Clear();
+            int currentStep = 0;
+            for (int i = 0; i < chords.Count; i++)
+            {
+                var pc = chords[i];
+                int chordSteps = Mathf.Max(1, lengthsSteps[i]);
+
+                var quality = qualityResolver.ResolveChordQuality(pc);
+                bool isDiatonic = qualityResolver.IsChordDiatonic(pc.degree, quality);
+
+                var evt = new ChordProgressionData.ChordEvent
+                {
+                    degree = pc.degree,
+                    quality = quality,
+                    startStep = currentStep,
+                    lengthSteps = chordSteps,
+                    velocity = defaultVelocity,
+                    isDiatonic = isDiatonic
+                };
+
+                newAsset.events.Add(evt);
+                currentStep += chordSteps;
+            }
+
+            newAsset.UpdateDisplayNameAuto();
+
+            // Point the window to the new asset and sync grid
+            targetAsset = newAsset;
+            SyncGridFromAsset(force: true);
+            OnTargetAssetChanged();
+
+            EditorUtility.SetDirty(newAsset);
+            AssetDatabase.SaveAssets();
             return;
         }
 
-        if (!TryParseProgression(
-            progressionInput,
-            defaultDurationMeasures,
-            out var chords,
-            out var parseError))
+        // ----------------------------
+        // 2) Grid pipeline
+        // ----------------------------
+        if (gridEvents == null || gridEvents.Count == 0)
         {
-            EditorUtility.DisplayDialog("Parse Error",
-                parseError ?? "Unknown error.", "OK");
+            EditorUtility.DisplayDialog("Grid Empty",
+                "There are no ChordEvents in the grid to save.", "OK");
             return;
         }
 
-        if (chords == null || chords.Count == 0)
-        {
-            EditorUtility.DisplayDialog("Parse Error",
-                "No chords were parsed from the input.", "OK");
-            return;
-        }
-
-        // For a new asset, use the window's timeSignature field
-        TimeSignature effectiveTs = timeSignature;
-
-        var tsInfo = TimeSignatureProperties[effectiveTs];
-        int beatsPerMeasure = tsInfo.BeatsPerMeasure;
-
-        if (!ComputeStepsAndSubdivisions(
-            chords,
-            beatsPerMeasure,
-            out int subdivisions,
-            out List<int> lengthsSteps,
-            out int totalSteps,
-            out var durError))
-        {
-            EditorUtility.DisplayDialog("Quantization Error",
-                durError ?? "Could not find a consistent grid (steps / subdivisions).",
-                "OK");
-            return;
-        }
-
-        string path = EditorUtility.SaveFilePanelInProject(
+        string gridPath = EditorUtility.SaveFilePanelInProject(
             "Save Chord Progression As...",
             "New Chord Progression Data",
             "asset",
             "Choose where to save the new progression asset.");
 
-        if (string.IsNullOrEmpty(path))
+        if (string.IsNullOrEmpty(gridPath))
             return;
 
-        var newAsset = ScriptableObject.CreateInstance<ChordProgressionData>();
-        AssetDatabase.CreateAsset(newAsset, path);
+        var assetFromGrid = ScriptableObject.CreateInstance<ChordProgressionData>();
+        AssetDatabase.CreateAsset(assetFromGrid, gridPath);
 
-        Undo.RecordObject(newAsset, "Create Chord Progression");
+        Undo.RecordObject(assetFromGrid, "Create Chord Progression (from grid)");
 
-        int stepsPerMeasure = beatsPerMeasure * subdivisions;
-        int totalMeasures = Mathf.Max(1, totalSteps / Mathf.Max(1, stepsPerMeasure));
+        // Timing from grid
+        int gBeatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
+        int gSubdivisions = Mathf.Max(1, gridSubdivisions);
 
-        newAsset.TimeSignature = effectiveTs;
-        newAsset.Measures = totalMeasures;
-        newAsset.subdivisions = subdivisions;
-        newAsset.originalInput = progressionInput;
+        assetFromGrid.TimeSignature = timeSignature;
+        assetFromGrid.Measures = Mathf.Max(1, gridMeasures);
+        assetFromGrid.subdivisions = gSubdivisions;
 
         // Tonalities from toggles
-        newAsset.tonalities.Clear();
+        assetFromGrid.tonalities.Clear();
         foreach (var kv in tonalityFlags)
             if (kv.Value)
-                newAsset.tonalities.Add(kv.Key);
+                assetFromGrid.tonalities.Add(kv.Key);
 
-        // Events
-        newAsset.events.Clear();
-        int currentStep = 0;
-        for (int i = 0; i < chords.Count; i++)
-        {
-            var pc = chords[i];
-            int chordSteps = Mathf.Max(1, lengthsSteps[i]);
+        // Events from cleaned grid
+        var cleanedEvents = GetSortedGridEvents();
+        assetFromGrid.events.Clear();
+        assetFromGrid.events.AddRange(cleanedEvents);
 
-            var quality = ResolveChordQuality(pc);
-            bool isDiatonic = IsChordDiatonic(pc.degree, quality);
+        // Derive Roman string for metadata
+        string romanFromGrid2 = BuildRomanStringFromGrid(cleanedEvents);
+        progressionInput = romanFromGrid2;
+        assetFromGrid.originalInput = romanFromGrid2;
+        assetFromGrid.UpdateDisplayNameAuto();
 
-            var evt = new ChordProgressionData.ChordEvent
-            {
-                degree = pc.degree,
-                quality = quality,
-                startStep = currentStep,
-                lengthSteps = chordSteps,
-                velocity = defaultVelocity,
-                isDiatonic = isDiatonic
-            };
-
-            newAsset.events.Add(evt);
-            currentStep += chordSteps;
-        }
-
-        newAsset.UpdateDisplayNameAuto();
-
-        // Keep grid view in sync with the newly created asset
-        targetAsset = newAsset;
-        SyncGridFromAsset();
-
-        EditorUtility.SetDirty(newAsset);
-        AssetDatabase.SaveAssets();
-
-        // Make this the current target and sync UI/preview
-        targetAsset = newAsset;
+        // Make the window edit this new asset
+        targetAsset = assetFromGrid;
+        SyncGridFromAsset(force: true);
         OnTargetAssetChanged();
+
+        EditorUtility.SetDirty(assetFromGrid);
+        AssetDatabase.SaveAssets();
     }
 
     /// <summary>
-    /// Adds the current targetAsset to targetLibrary if not already present
-    /// with the same originalInput string (ignoring case/whitespace).
+    /// Adds the current targetAsset as a weighted entry to the assigned palette.
+    /// Uses DisplayName (or asset name) as display label and a default weight of 1.
     /// </summary>
-    private void AddCurrentToLibrary()
+    private void AddCurrentToPalette()
     {
-        if (targetLibrary == null)
+        if (targetPalette == null)
         {
-            EditorUtility.DisplayDialog("No Library Assigned",
-                "Assign a ChordProgressionLibrarySO in the 'Progression Library' field first.",
+            EditorUtility.DisplayDialog(
+                "No Palette Assigned",
+                "Assign a ChordProgressionPaletteSO in the 'Progression Palette' field first.",
                 "OK");
             return;
         }
 
         if (targetAsset == null)
         {
-            EditorUtility.DisplayDialog("No Target Asset",
+            EditorUtility.DisplayDialog(
+                "No Target Asset",
                 "There is no ChordProgressionData to add. " +
                 "Apply or Save As first.",
                 "OK");
             return;
         }
 
-        if (targetLibrary.entries == null)
-            targetLibrary.entries = new List<ChordProgressionLibrarySO.Entry>();
+        if (targetPalette.entries == null)
+            targetPalette.entries = new List<ChordProgressionPaletteSO.WeightedEntry>();
 
-        // Key string: prefer the asset's originalInput; fallback to current editor string.
-        string keyString = !string.IsNullOrWhiteSpace(targetAsset.originalInput)
-            ? targetAsset.originalInput.Trim()
-            : (progressionInput ?? string.Empty).Trim();
-
-        if (string.IsNullOrEmpty(keyString))
-        {
-            EditorUtility.DisplayDialog("Missing Original String",
-                "The progression has no original input string to use as a uniqueness key.\n" +
-                "Set 'originalInput' or the editor string first.",
-                "OK");
-            return;
-        }
-
-        // Duplicate if ANY existing entry’s progression has the same originalInput
-        bool duplicate = targetLibrary.entries.Any(e =>
-            e != null &&
-            e.progression != null &&
-            !string.IsNullOrWhiteSpace(e.progression.originalInput) &&
-            string.Equals(
-                e.progression.originalInput.Trim(),
-                keyString,
-                StringComparison.OrdinalIgnoreCase));
+        // Avoid duplicate entries for the same asset
+        bool duplicate = targetPalette.entries.Any(e =>
+            e != null && e.progression == targetAsset);
 
         if (duplicate)
         {
-            EditorUtility.DisplayDialog("Already In Library",
-                "Another entry in this library already has the same original input string.\n" +
-                "If you really want a variation, change the string slightly and try again.",
+            EditorUtility.DisplayDialog(
+                "Already In Palette",
+                "This progression is already present in the selected palette.",
                 "OK");
             return;
         }
 
-        var entry = new ChordProgressionLibrarySO.Entry
+        string label = !string.IsNullOrWhiteSpace(targetAsset.DisplayName)
+            ? targetAsset.DisplayName
+            : targetAsset.name;
+
+        var entry = new ChordProgressionPaletteSO.WeightedEntry
         {
-            id = string.IsNullOrWhiteSpace(targetAsset.DisplayName)
-            ? targetAsset.name
-            : targetAsset.DisplayName,
             progression = targetAsset,
-            weight = 1f,
-            compatibleTonalities =
-            (targetAsset.tonalities == null || targetAsset.tonalities.Count == 0)
-                ? new List<Tonality>()
-                : new List<Tonality>(targetAsset.tonalities)
+            weight = 1f
         };
 
-        targetLibrary.entries.Add(entry);
+        targetPalette.entries.Add(entry);
 
-        EditorUtility.SetDirty(targetLibrary);
+        EditorUtility.SetDirty(targetPalette);
         AssetDatabase.SaveAssets();
 
-        EditorUtility.DisplayDialog("Added To Library",
-            $"Added '{entry.id}' to '{targetLibrary.name}'.",
+        EditorUtility.DisplayDialog(
+            "Added To Palette",
+            $"Added '{label}' to palette '{targetPalette.name}'.",
             "OK");
     }
+
 
     private void SyncGridFromAsset(bool force = false)
     {
@@ -1919,6 +1570,153 @@ public class ChordProgressionEditorWindow : EditorWindow
                 gridEvents.AddRange(targetAsset.events);
 
             gridInitializedFromAsset = true;
+        }
+    }
+
+    private List<ChordProgressionData.ChordEvent> GetSortedGridEvents()
+    {
+        int beatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
+        int stepsPerMeasure = beatsPerMeasure * Mathf.Max(1, gridSubdivisions);
+        int totalSteps = Mathf.Max(1, gridMeasures * stepsPerMeasure);
+
+        return gridEvents
+            .Where(e => e != null)
+            .Select(e =>
+            {
+                var copy = new ChordProgressionData.ChordEvent();
+                copy.startStep = Mathf.Clamp(e.startStep, 0, totalSteps - 1);
+                copy.lengthSteps = Mathf.Clamp(e.lengthSteps, 1, totalSteps - copy.startStep);
+                copy.degree = e.degree;
+                copy.quality = e.quality;
+                copy.velocity = Mathf.Clamp(e.velocity, 0, 127);
+                return copy;
+            })
+            .OrderBy(e => e.startStep)
+            .ToList();
+    }
+
+    private static readonly string[] DegreeToRoman =
+    {
+        "I", "II", "III", "IV", "V", "VI", "VII"
+    };
+
+    private bool IsSeventhQuality(ChordQuality q)
+    {
+        switch (q)
+        {
+            case ChordQuality.Major7:
+            case ChordQuality.Minor7:
+            case ChordQuality.Dominant7:
+            case ChordQuality.HalfDiminished7:
+            case ChordQuality.Diminished7:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private string QualitySuffixForToken(ChordQuality q)
+    {
+        // IMPORTANT: use only strings your TryParseQualitySuffix already supports.
+        switch (q)
+        {
+            // Triads
+            case ChordQuality.Major:
+                return "";        // plain roman
+            case ChordQuality.Minor:
+                return "m";
+            case ChordQuality.Diminished:
+                return "dim";
+            case ChordQuality.Augmented:
+                return "aug";
+            case ChordQuality.Sus2:
+                return "sus2";
+            case ChordQuality.Sus4:
+                return "sus4";
+
+            // Sevenths
+            case ChordQuality.Dominant7:
+                return "7";
+            case ChordQuality.Major7:
+                return "maj7";
+            case ChordQuality.Minor7:
+                return "m7";
+            case ChordQuality.HalfDiminished7:
+                return "ø7";      // or "m7b5" if that’s what you parse
+            case ChordQuality.Diminished7:
+                return "dim7";
+
+            default:
+                return "";
+        }
+    }
+
+    private string BuildRomanTokenFromEvent(ChordProgressionData.ChordEvent e)
+    {
+        // Degree → base roman
+        int idx = Mathf.Clamp((int)e.degree, 0, DegreeToRoman.Length - 1);
+        string roman = DegreeToRoman[idx];
+
+        // Case for auto-diatonic NONE: major vs minor families
+        if (autoDiatonicMode == AutoDiatonicMode.None)
+        {
+            var family = ChordQualityResolver.GetTriadFamily(e.quality);
+
+            if (family == TriadFamily.Minor || family == TriadFamily.Diminished)
+                roman = roman.ToLowerInvariant();
+            else
+                roman = roman.ToUpperInvariant();
+        }
+        else
+        {
+            roman = roman.ToUpperInvariant();
+        }
+
+        string suffix = QualitySuffixForToken(e.quality);
+        return roman + suffix;
+    }
+
+    private string BuildRomanStringFromGrid(
+        IReadOnlyList<ChordProgressionData.ChordEvent> sortedEvents)
+    {
+        if (sortedEvents == null || sortedEvents.Count == 0)
+            return string.Empty;
+
+        int beatsPerMeasure = Mathf.Max(1, gridBeatsPerMeasure);
+        int stepsPerMeasure = beatsPerMeasure * Mathf.Max(1, gridSubdivisions);
+
+        var tokens = new List<string>();
+
+        foreach (var e in sortedEvents)
+        {
+            // duration in measures = steps / (beatsPerMeasure * subdivisions)
+            float durMeasures = e.lengthSteps / (float)stepsPerMeasure;
+            string durStr = durMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+
+            string roman = BuildRomanTokenFromEvent(e);
+
+            // Keep it simple: always write an explicit duration
+            tokens.Add($"{roman} ({durStr})");
+        }
+
+        // Use the same separator you already parse (" – " or "-")
+        return string.Join(" – ", tokens);
+    }
+
+    // Maps the editor-facing AutoDiatonicMode to the runtime AutoChordQualityMode.
+    private AutoChordQualityMode GetAutoChordQualityMode()
+    {
+        switch (autoDiatonicMode)
+        {
+            case AutoDiatonicMode.Triads:
+                return AutoChordQualityMode.DiatonicTriads;
+
+            case AutoDiatonicMode.Sevenths:
+                return AutoChordQualityMode.DiatonicSevenths;
+
+            case AutoDiatonicMode.None:
+            default:
+                return AutoChordQualityMode.None;
         }
     }
 }

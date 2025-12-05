@@ -16,27 +16,18 @@ namespace MidiGenPlay.Composition
                  "instead of library/procedural generation.")]
         public ChordProgressionData progressionOverride;
 
-        [Serializable]
-        public class WeightedProgression
-        {
-            [Tooltip("Candidate progression template for this card.")]
-            public ChordProgressionData progression;
-
-            [Tooltip("Relative weight when randomly picking among candidates.")]
-            public float weight = 1f;
-        }
-
-        [Tooltip("Optional pool of candidate progressions. " +
-                 "If 'progressionOverride' is null and this list has valid entries, " +
-                 "one will be picked at random using the given weights.")]
-        public List<WeightedProgression> progressionPool = new List<WeightedProgression>();
+        [Tooltip("Optional palette of candidate progressions for this card. " +
+                 "If 'progressionOverride' is null, one will be picked at random " +
+                 "from this palette using its internal weights.")]
+        public ChordProgressionPaletteSO progressionPalette;
 
         /// <summary>
         /// Picks a chord progression override for this card, if any.
         /// Priority:
         /// 1) progressionOverride (always wins if not null).
-        /// 2) Weighted pick from progressionPool.
-        /// 3) null => no override; composer should fall back to library/procedural.
+        /// 2) progressionPalette (weighted pick from palette asset).
+        /// 3) progressionPool (legacy per-card list; to be phased out).
+        /// 4) null => no override; composer should fall back to library/procedural.
         /// 
         /// Returns an instantiated (cloned) progression so runtime mutations never
         /// affect the asset in the project.
@@ -49,33 +40,13 @@ namespace MidiGenPlay.Composition
                 return ScriptableObject.Instantiate(progressionOverride);
             }
 
-            // 2) Weighted pool
-            if (progressionPool != null && progressionPool.Count > 0)
+            // 2) Palette-based override
+            if (progressionPalette != null)
             {
-                var valid = progressionPool
-                    .Where(e => e != null && e.progression != null && e.weight > 0f)
-                    .ToList();
-
-                if (valid.Count > 0)
-                {
-                    var r = rng ?? new System.Random();
-
-                    float total = 0f;
-                    foreach (var e in valid) total += e.weight;
-
-                    double pick = r.NextDouble() * total;
-
-                    foreach (var e in valid)
-                    {
-                        if (pick <= e.weight)
-                            return ScriptableObject.Instantiate(e.progression);
-
-                        pick -= e.weight;
-                    }
-
-                    // Safety fallback
-                    return ScriptableObject.Instantiate(valid[valid.Count - 1].progression);
-                }
+                var picked = progressionPalette.PickRandomProgression(
+                    rng, cloneResult: true);
+                if (picked != null)
+                    return picked;
             }
 
             // 3) No override defined

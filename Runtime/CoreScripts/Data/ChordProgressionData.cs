@@ -42,6 +42,10 @@ namespace MidiGenPlay
         [TextArea(1, 3)]
         public string originalInput;
 
+        [Tooltip("Optional song references that use this progression or something close " +
+                 "to it. Useful for designers/composers as listening references.")]
+        public List<string> songReferences = new();
+
         public int TotalSteps(int beatsPerMeasure)
             => Mathf.Max(0, Measures) * Mathf.Max(1, beatsPerMeasure) * Mathf.Max(1, subdivisions);
 
