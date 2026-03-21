@@ -30,6 +30,11 @@ namespace MidiGenPlay.Composition
         [TextArea]
         public string paletteNotes;
 
+        [Header("TS-aware Selection")]
+        [Tooltip("If enabled, TS-aware selection prefers exact Time Signature matches first (Tier A). " +
+                 "If disabled, exact TS is skipped and selection starts from Tier B fallback heuristic.")]
+        public bool preferExactTsMatches = true;
+
         [Header("Progressions")]
         [Tooltip("Weighted list of candidate progressions for this palette.")]
         public List<WeightedEntry> entries = new();

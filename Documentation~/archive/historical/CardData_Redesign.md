@@ -1,3 +1,5 @@
+> HISTORICAL — preserved for traceability only. `CardData` is legacy/obsolete and this document is not active package authority.
+
 # 🎴 Rediseño de CardData — A Long Way to the Top
 
 ## 🧩 Resumen general

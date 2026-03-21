@@ -1,3 +1,5 @@
+> ABSORBED SOURCE — preserved during governance migration. Use current SSoTs in `runtime/` and `authoring/` as the active authorities.
+
 
 # Melody Composition Pipeline
 

@@ -37,6 +37,19 @@ public class MidiGenPlayConfig : ScriptableObject
     public TimeSignature defaultTimeSignature = TimeSignature.FourFour;
     public int defaultMeasures = 4;
     public int defaultChordSubdivisions = 1;
+
+    [Header("Time Signature Normalization (Normalized Bar Time)")]
+    [Min(1)]
+    [Tooltip("Minimum harmonic grid resolution (steps per beat) used when reprojecting chord progressions across time signatures. Higher values reduce quantization artifacts in odd meters.")]
+    public int minHarmonicSubdivisions = 4;
+
+    [Tooltip("Optional: snap chord accents to bar/beat boundaries after reprojection (MVP: not yet used).")]
+    public bool enableAccentSnap = false;
+
+    [Min(0)]
+    [Tooltip("Optional: tolerance in steps for accent snapping (MVP: not yet used).")]
+    public int accentSnapToleranceSteps = 0;
+
     [Tooltip("If true, the chord popup suggests diatonic 7ths when appropriate.")]
     public bool preferSeventhInUI = false;
 

@@ -67,7 +67,7 @@ namespace MidiGenPlay
         }
 
         /// Rebuild 'events' from an anchor mask and a parallel degree/quality list
-        public void RebuildFromAnchors(bool[] anchors, 
+        public void RebuildFromAnchors(bool[] anchors,
             IReadOnlyList<(ScaleDegree deg, ChordQuality q)> id, int defaultVelocity = 64)
         {
             events.Clear();
@@ -102,9 +102,9 @@ namespace MidiGenPlay
         /// Finds the chord event active at an absolute tick within the part.
         /// Returns null if no events exist.
         public ChordEvent FindChordEventAt(
-            TempoMap tempoMap,
-            MusicTheory.MusicTheory.TimeSignature timeSignature,
-            long absoluteTicks)
+    TempoMap tempoMap,
+    MusicTheory.MusicTheory.TimeSignature timeSignature,
+    long absoluteTicks)
         {
             if (events == null || events.Count == 0)
                 return null;
@@ -116,8 +116,8 @@ namespace MidiGenPlay
             if (totalSteps <= 0)
                 return events[0];
 
-            // ticks → beats → steps
-            long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, tempoMap);
+            // ticks → beats → steps (beat-unit aware)
+            long ticksPerBeat = TimeConverter.ConvertFrom(GetBeatSpan(timeSignature), tempoMap);
             if (ticksPerBeat <= 0) return events[0];
 
             double beats = absoluteTicks / (double)ticksPerBeat;

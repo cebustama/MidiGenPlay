@@ -1,3 +1,5 @@
+> ABSORBED SOURCE — preserved during governance migration. Use current SSoTs in `runtime/` and `authoring/` as the active authorities.
+
 # Chord Progression Editor Window – Technical Overview (v3)
 
 _Last updated: 2025‑12‑05_

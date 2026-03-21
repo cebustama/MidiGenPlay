@@ -1,4 +1,3 @@
-
 # Deep Research Prompt — Refactor & Integrate **MidiMusicManager** (ALWTTT ⇄ MidiGenPlay)
 
 _Last updated: 2025‑10‑14_

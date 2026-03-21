@@ -26,6 +26,13 @@ namespace MidiGenPlay.Composition
         [Range(0f, 1f)] public float kickDensity = 0.5f;
         [Range(0f, 1f)] public float snareGhostNoteChance = 0.0f;
         [Range(0f, 1f)] public float hatSubdivisionBias = 0.5f; // 0=quarters, 1=16ths, in-between = 8ths/shuffle
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            appliesTo = TrackRole.Rhythm;
+        }
+#endif
     }
 }
 

@@ -82,7 +82,8 @@ namespace MidiGenPlay.Composition
 
                 // Precompute part duration (ticks)
                 int beatsPerBar = GetTimeSignatureDetails(part.TimeSignature, bpm).BeatsPerMeasure;
-                long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, partTempo);
+                var beatSpan = GetBeatSpan(part.TimeSignature);
+                long ticksPerBeat = TimeConverter.ConvertFrom(beatSpan, partTempo);
                 long ticksPerMeasure = ticksPerBeat * beatsPerBar;
                 long partTicks = ticksPerMeasure * Math.Max(1, part.Measures);
 
@@ -278,7 +279,8 @@ namespace MidiGenPlay.Composition
             int usPerQuarter = Mathf.RoundToInt(60000000f / Mathf.Max(1, bpm));
             metaMgr.Objects.Add(new TimedEvent(new SetTempoEvent(usPerQuarter), 0));
 
-            long ticksPerBeat = TimeConverter.ConvertFrom(MusicalTimeSpan.Quarter, tempoMap);
+            var beatSpan = GetBeatSpan(part.TimeSignature);
+            long ticksPerBeat = TimeConverter.ConvertFrom(beatSpan, tempoMap);
             long ticksPerMeasure = ticksPerBeat * tsNum;
             long partTicks = ticksPerMeasure * Math.Max(1, part.Measures);
 
@@ -478,6 +480,16 @@ namespace MidiGenPlay.Composition
 
             TrimFileToLength(trackFile, partTicks);
             TagTrackWithMusician(trackFile, cfg.MusicianId);
+
+            if (_settings?.logGenerator == true)
+            {
+                var (tracks0, notes0, last0) = Inspect(trackFile);
+                Debug.Log(
+                    $"{LogTag} Trimmed [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' " +
+                    $"pattern='{PatternName(cfg)}' tracks={tracks0} notes={notes0} " +
+                    $"lastTickRelative={last0} lenTicks={partTicks}");
+            }
+
             ShiftFile(trackFile, cursorTicks);
             MergeInto(fullSong, trackFile);
 
@@ -486,8 +498,10 @@ namespace MidiGenPlay.Composition
             if (_settings?.logGenerator == true)
             {
                 var (tracks, notes, last) = Inspect(trackFile);
-                Debug.Log($"{LogTag} Merged [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' pattern='{PatternName(cfg)}' " +
-                          $"tracks={tracks} notes={notes} lastTick={last}");
+                Debug.Log(
+                    $"{LogTag} Merged [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' " +
+                    $"pattern='{PatternName(cfg)}' tracks={tracks} notes={notes} " +
+                    $"lastTickAbsolute={last} cursorTicks={cursorTicks} lenTicks={partTicks}");
             }
         }
 
@@ -505,8 +519,13 @@ namespace MidiGenPlay.Composition
 
             var pb = new PatternBuilder().MoveToStart();
             for (int m = 0; m < measures; m++)
+            {
                 for (int beat = 0; beat < ts.BeatsPerMeasure; beat++)
-                    pb.Note(beat == 0 ? tic : tac, MusicalTimeSpan.Quarter);
+                {
+                    var beatSpan = GetBeatSpan(timeSignature);
+                    pb.Note(beat == 0 ? tic : tac, beatSpan);
+                }
+            }
 
             var pattern = pb.Build();
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -709,6 +728,16 @@ namespace MidiGenPlay.Composition
                         $"Progression chords for part '{p.Name}': {seqChords}</color>");
                 }
             };
+        }
+
+        private static MusicalTimeSpan GetBeatSpan(MusicTheory.MusicTheory.TimeSignature ts)
+        {
+            int unit = TimeSignatureProperties[ts].BeatUnit;
+            if (unit == 2) return MusicalTimeSpan.Half;
+            if (unit == 4) return MusicalTimeSpan.Quarter;
+            if (unit == 8) return MusicalTimeSpan.Eighth;
+            if (unit == 16) return MusicalTimeSpan.Sixteenth;
+            return MusicalTimeSpan.Quarter;
         }
     }
 }

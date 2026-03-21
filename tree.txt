@@ -1,0 +1,491 @@
+Folder PATH listing for volume SSD 2
+Volume serial number is 54D1-92B7
+D:.
+|   Documentation~.zip
+|   make-tree.bat
+|   package.json
+|   README.md
+|   tree.txt
+|   
++---Backing
++---Documentation~
+|   |   changelog-ssot.md
+|   |   coverage-matrix.md
+|   |   CURRENT_STATE.md
+|   |   README.md
+|   |   SSoT_CONTRACTS.md
+|   |   SSoT_INDEX.md
+|   |   
+|   +---archive
+|   |   |   README.md
+|   |   |   
+|   |   +---absorbed
+|   |   |       251012 MidiGenPlay-Architecture.md
+|   |   |       ChordProgressionEditorWindow_Overview.md
+|   |   |       melody_pipeline.md
+|   |   |       MidiGenPlay_MIDI_Generation_Pipeline.md
+|   |   |       README.md
+|   |   |       SSoT_Composer_BackingChordTrack.md
+|   |   |       SSoT_Composer_RhythmTrack.md
+|   |   |       SSoT_CompositionAuthoringTools.md
+|   |   |       
+|   |   +---historical
+|   |   |       CardData_Redesign.md
+|   |   |       README.md
+|   |   |       
+|   |   \---superseded
+|   |           README.md
+|   |           
+|   +---authoring
+|   |       README.md
+|   |       SSoT_Authoring_Chord_Progressions.md
+|   |       SSoT_Authoring_Melody_Composition.md
+|   |       SSoT_Authoring_Rhythm_Patterns.md
+|   |       SSoT_Authoring_Tools.md
+|   |       
+|   +---planning
+|   |   |   README.md
+|   |   |   
+|   |   +---active
+|   |   |       README.md
+|   |   |       Roadmap_Documentation_Migration.md
+|   |   |       Roadmap_Rhythm_Authoring_MVP.md
+|   |   |       
+|   |   \---archive
+|   |           README.md
+|   |           
+|   +---reference
+|   |   |   README.md
+|   |   |   
+|   |   +---cross-project
+|   |   |   |   README.md
+|   |   |   |   
+|   |   |   \---ALWTTT
+|   |   |           ALWTTT_Melody_Authoring_Pipeline.md
+|   |   |           README.md
+|   |   |           SSoT_CompositionCards_TrackStyleBundles.md
+|   |   |           SSoT_CompositionSystem_INDEX.md
+|   |   |           SSoT_Runtime_CompositionSession_Bridge.md
+|   |   |           
+|   |   \---package
+|   |           Documentation_Update_Protocol_Addendum.md
+|   |           README.md
+|   |           
+|   +---research
+|   |       Deep_Research_Prompt_MidiMusicManager.md
+|   |       MIDI_Jamplay_Runtime_Composition_Design-1.md
+|   |       README.md
+|   |       
+|   \---runtime
+|           README.md
+|           SSoT_Composer_Backing_Track.md
+|           SSoT_Composer_Melody_Track.md
+|           SSoT_Composer_Rhythm_Track.md
+|           SSoT_Runtime_Generation_Orchestration.md
+|           SSoT_Runtime_Song_Model_and_Config.md
+|           
++---Editor
+|       BankDropdownDrawer.cs
+|       ChordProgressionEditorWindow.cs
+|       DrumPatternEditorWindow.cs
+|       MidiGenPlay.Editor.asmdef
+|       PatchDropdownDrawer.cs
+|       SoundFontCacheSOEditor.cs
+|       SoundFontDropdownDrawer.cs
+|       
++---Runtime
+|   |   
+|   +---CoreScripts
+|   |   |   EmotionalGenerationPanel.cs
+|   |   |   EnhancedPatternBuilder.cs
+|   |   |   MIDIGeneratorManager.cs
+|   |   |   MidiGenPlay.Runtime.asmdef
+|   |   |   MidiGenPlayPanel.cs
+|   |   |   MIDIMusicSystem.cs
+|   |   |   MIDISong.cs
+|   |   |   MIDISongPart.cs
+|   |   |   MIDITrack.cs
+|   |   |   ModeProfiles.cs
+|   |   |   MusicTheory.zip
+|   |   |   PassthroughMixController.cs
+|   |   |   PatternRepository.cs
+|   |   |   SoundFontUtility.cs
+|   |   |   
+|   |   +---Attributes
+|   |   |       BankDropdownAttribute.cs
+|   |   |       PatchDropdownAttribute.cs
+|   |   |       SoundFontDropdownAttribute.cs
+|   |   |       
+|   |   +---Composition
+|   |   |   |   ChordQualityResolver.cs
+|   |   |   |   MidiGenerator.cs
+|   |   |   |   PhrasePlanner.cs
+|   |   |   |   RhythmGridQuantizer.cs
+|   |   |   |   RomanProgressionParser.cs
+|   |   |   |   SongOrchestrator.cs
+|   |   |   |   
+|   |   |   +---Composers
+|   |   |   |       BassTrackComposer.cs
+|   |   |   |       ChordTrackComposer.cs
+|   |   |   |       HarmonyTrackComposer.cs
+|   |   |   |       MelodyTrackComposer.cs
+|   |   |   |       RhythmTrackComposer.cs
+|   |   |   |       
+|   |   |   +---Data
+|   |   |   |   |   BackingCardConfigSO.cs
+|   |   |   |   |   ChordProgressionLibrarySO.cs
+|   |   |   |   |   ChordProgressionPaletteSO.cs
+|   |   |   |   |   HarmonicLeadingConfig.cs
+|   |   |   |   |   HarmonyCardConfigSO.cs
+|   |   |   |   |   MelodicLeadingConfig.cs
+|   |   |   |   |   MelodicStyleSO.cs
+|   |   |   |   |   MelodyCardConfigSO.cs
+|   |   |   |   |   RhythmCardConfigSO.cs
+|   |   |   |   |   TrackStyleBundleSO.cs
+|   |   |   |   |   VoiceLeadingConfig.cs
+|   |   |   |   |   
+|   |   |   |   +---Card Configs
+|   |   |   |   \---Phrases
+|   |   |   |           BurstThenHoldPhraseSO.cs
+|   |   |   |           EvenFlowPhraseSO.cs
+|   |   |   |           PhraseArchetypeSO.cs
+|   |   |   |           PhrasePaletteSO.cs
+|   |   |   |           SustainLeadInPhraseSO.cs
+|   |   |   |           
+|   |   |   +---Factories
+|   |   |   |       ComposerFactories.cs
+|   |   |   |       
+|   |   |   +---Interfaces
+|   |   |   |       IChordVoicer.cs
+|   |   |   |       IHarmonyStrategy.cs
+|   |   |   |       IMelodyStrategy.cs
+|   |   |   |       ITrackComposer.cs
+|   |   |   |       
+|   |   |   +---Mutators
+|   |   |   |       AlternateTrackMutator.cs
+|   |   |   |       IntroMutator.cs
+|   |   |   |       OutroMutator.cs
+|   |   |   |       SoloMutator.cs
+|   |   |   |       
+|   |   |   +---Personalities
+|   |   |   |       NeutralPersonality.cs
+|   |   |   |       
+|   |   |   +---Post Processors
+|   |   |   |       HumanizationPostProcessor.cs
+|   |   |   |       TempoScalePostProcessor.cs
+|   |   |   |       
+|   |   |   +---Strategies
+|   |   |   |   |   NearestChordToneHarmonyStrategy.cs
+|   |   |   |   |   NearestDifferentChordToneHarmonyStrategy.cs
+|   |   |   |   |   VoiceLeading.cs
+|   |   |   |   |   
+|   |   |   |   \---Melody
+|   |   |   |           AscendingClimbMelodyStrategy.cs
+|   |   |   |           ConstrainedMelodyStrategy.cs
+|   |   |   |           NearestChordToneMelodyStrategy.cs
+|   |   |   |           ScaleFlowMelodyStrategy.cs
+|   |   |   |           
+|   |   |   \---Styles
+|   |   |           BackingStyles.cs
+|   |   |           RhythmStyleRegistry.cs
+|   |   |           RhythmStyles.cs
+|   |   |           
+|   |   +---Data
+|   |   |       ChordProgressionData.cs
+|   |   |       ChordProgressionsList.cs
+|   |   |       DrumPatternData.cs
+|   |   |       DrumPatternsList.cs
+|   |   |       EmotionMusicalData.cs
+|   |   |       MelodyPatternData.cs
+|   |   |       MelodyPatternsList.cs
+|   |   |       MidiGenPlayConfig.cs
+|   |   |       PatternDataSO.cs
+|   |   |       SongConfig.cs
+|   |   |       SongConfigSO.cs
+|   |   |       TonalityProfileSO.cs
+|   |   |       
+|   |   +---Interfaces
+|   |   |       IArrangementMutator.cs
+|   |   |       IChordGridAdapter.cs
+|   |   |       IInstrumentRepository.cs
+|   |   |       IMidiPlayback.cs
+|   |   |       IMidiPostProcessor.cs
+|   |   |       IMixController.cs
+|   |   |       IMusicianPersonality.cs
+|   |   |       IPatternRepository.cs
+|   |   |       IPlayMidi.cs
+|   |   |       ISequenceSerializer.cs
+|   |   |       ISongConfigStore.cs
+|   |   |       ITrackPatternConfigStore.cs
+|   |   |       ITrackRoleUIController.cs
+|   |   |       
+|   |   +---Managers
+|   |   |       SongConfigManager.cs
+|   |   |       
+|   |   +---MusicTheory
+|   |   |       MusicTheory.ChordQuality.cs
+|   |   |       MusicTheory.cs
+|   |   |       MusicTheory.NormalizedBarTime.cs
+|   |   |       MusicTheory.ScaleDegree.cs
+|   |   |       MusicTheory.TimeSignature.cs
+|   |   |       MusicTheory.Tonality.cs
+|   |   |       
+|   |   +---ScriptableObjects
+|   |   |       MIDIInstrumentSO.cs
+|   |   |       MIDIPercussionInstrumentSO.cs
+|   |   |       SoundFontCacheSO.cs
+|   |   |       
+|   |   +---Services
+|   |   |       InstrumentRepositoryResources.cs
+|   |   |       MidiPlayback.cs
+|   |   |       PatternRepositoryResources.cs
+|   |   |       SequenceSerializer.cs
+|   |   |       SongConfigStoreResources.cs
+|   |   |       TrackPatternConfigStoreResources.cs
+|   |   |       
+|   |   \---UI
+|   |       |   ChordEventPanel.cs
+|   |       |   ChordGridAdapter.cs
+|   |       |   ChordLabelOverlay.cs
+|   |       |   PatternGrid.cs
+|   |       |   PatternGridCell.cs
+|   |       |   PianoKeysPanel.cs
+|   |       |   RhythmRowHeader.cs
+|   |       |   
+|   |       \---Controllers
+|   |               BackingRoleUIController.cs
+|   |               ChordProgressionPanelController.cs
+|   |               LeadRoleUIController.cs
+|   |               RhythmPatternPanelController.cs
+|   |               RhythmRoleUIController.cs
+|   |               
+|   +---Melanchall
+|   |   |   
+|   |   \---DryWetMIDI
+|   |       |   DryWetMidi.asmdef
+|   |       |   Melanchall.DryWetMidi.dll
+|   |       |   Melanchall.DryWetMidi.xml
+|   |       |   Melanchall_DryWetMidi_Native32.dll
+|   |       |   Melanchall_DryWetMidi_Native64.dll
+|   |       |   Melanchall_DryWetMidi_Native64.dylib
+|   |       |   README.txt
+|   |       |   
+|   |       \---Demo
+|   |               DemoScene.unity
+|   |               DemoScript.cs
+|   |               
+|   +---Prefabs
+|   |       ChordEventPanel.prefab
+|   |       ChordPatternGrid.prefab
+|   |       ChordsSettingsPanel.prefab
+|   |       LabelPrefab.prefab
+|   |       MidiGenPlayPanel.prefab
+|   |       PatternGrid.prefab
+|   |       PatternGridCell.prefab
+|   |       PercussionElementDropdown.prefab
+|   |       
+|   \---Resources
+|       |   
+|       \---ScriptableObjects
+|           |   Melodic Style - Test 1.asset
+|           |   
+|           +---Chord Progressions
+|           |   |   I (0.25) – II (0.25) – III (0.25) – IV (0.25) – V (0.25) – VI (0.25) – VII° (0.25) – I (0.25).asset
+|           |   |   I (2) – vi (1) – IV (1).asset
+|           |   |   I – IV – V – I.asset
+|           |   |   I – vi – IV – V.asset
+|           |   |   iv (2) – V - I.asset
+|           |   |   Test Progression.asset
+|           |   |   _ChordProgressionLibrary.asset
+|           |   |   
+|           |   \---Palettes
+|           |           Test Palette.asset
+|           |           
+|           +---MIDI Instruments
+|           |   |   _SoundFont Cache.asset
+|           |   |   
+|           |   +---Backing
+|           |   |   |   
+|           |   |   +---Basses
+|           |   |   |       Acoustic Bass.asset
+|           |   |   |       Fingered Bass.asset
+|           |   |   |       Fretless Bass.asset
+|           |   |   |       Picked Bass.asset
+|           |   |   |       Slap Bass 1.asset
+|           |   |   |       Slap Bass 2.asset
+|           |   |   |       Synth Bass 1.asset
+|           |   |   |       Synth Bass 2.asset
+|           |   |   |       
+|           |   |   +---Guitars
+|           |   |   |       Banjo.asset
+|           |   |   |       Clean Guitar.asset
+|           |   |   |       Guitar Mutes.asset
+|           |   |   |       Jazz Guitar.asset
+|           |   |   |       Nylon Guitar.asset
+|           |   |   |       Steel Guitar.asset
+|           |   |   |       
+|           |   |   +---Piano and Organs
+|           |   |   |       Church Organ.asset
+|           |   |   |       Clavinet.asset
+|           |   |   |       Electric Piano 1.asset
+|           |   |   |       Electric Piano 2.asset
+|           |   |   |       Glockenspiel.asset
+|           |   |   |       Harpsichord.asset
+|           |   |   |       Honky-tonk.asset
+|           |   |   |       Music Box.asset
+|           |   |   |       Organ 1.asset
+|           |   |   |       Organ 2.asset
+|           |   |   |       Organ 3.asset
+|           |   |   |       Piano 1.asset
+|           |   |   |       Piano 2.asset
+|           |   |   |       Piano 3.asset
+|           |   |   |       Reed Organ.asset
+|           |   |   |       Vibraphone.asset
+|           |   |   |       
+|           |   |   +---Strings
+|           |   |   |       Cello.asset
+|           |   |   |       Contra Bass.asset
+|           |   |   |       Harp.asset
+|           |   |   |       Pizzicato Strings.asset
+|           |   |   |       Slow Strings.asset
+|           |   |   |       Strings.asset
+|           |   |   |       Synth Strings 1.asset
+|           |   |   |       Synth Strings 2.asset
+|           |   |   |       Tremolo Strings.asset
+|           |   |   |       Viola.asset
+|           |   |   |       Violin.asset
+|           |   |   |       
+|           |   |   \---Synths and SFX
+|           |   |           5th Saw Wave.asset
+|           |   |           Bass and Lead.asset
+|           |   |           Bowed Glass.asset
+|           |   |           Fantasia.asset
+|           |   |           Poly Synth.asset
+|           |   |           Saw Wave.asset
+|           |   |           Soundtrack.asset
+|           |   |           Space Voice.asset
+|           |   |           Square Wave.asset
+|           |   |           Warm Pad.asset
+|           |   |           
+|           |   +---Lead
+|           |   |   |   
+|           |   |   +---Brass and Woodwinds
+|           |   |   |       Alto Sax.asset
+|           |   |   |       Baritone Sax.asset
+|           |   |   |       Bassoon.asset
+|           |   |   |       Clarinet.asset
+|           |   |   |       English Horn.asset
+|           |   |   |       Flute.asset
+|           |   |   |       French Horns.asset
+|           |   |   |       Mute Trumpet.asset
+|           |   |   |       Oboe.asset
+|           |   |   |       Piccolo.asset
+|           |   |   |       Recorder.asset
+|           |   |   |       Soprano Sax.asset
+|           |   |   |       Tenor Sax.asset
+|           |   |   |       Trombone.asset
+|           |   |   |       Trumpet.asset
+|           |   |   |       Tuba.asset
+|           |   |   |       
+|           |   |   \---Guitars
+|           |   |           Distortion Guitar.asset
+|           |   |           Guitar Harmonics.asset
+|           |   |           Overdrive Guitar.asset
+|           |   |           
+|           |   \---Percussion
+|           |           Brush Kit.asset
+|           |           Electronic Kit.asset
+|           |           Jazz Kit.asset
+|           |           Orchestra Kit.asset
+|           |           Power Kit.asset
+|           |           Room Kit.asset
+|           |           SFX Kit.asset
+|           |           Standard Drum Kit.asset
+|           |           TR-808 Kit.asset
+|           |           
+|           +---Patterns
+|           |   |   
+|           |   +---Chords
+|           |   |       ChordProgression-DefaultFiveFour.asset
+|           |   |       ChordProgression-DefaultFourFour.asset
+|           |   |       ChordProgression-DefaultNineEight.asset
+|           |   |       ChordProgression-DefaultSevenEight.asset
+|           |   |       ChordProgression-DefaultSixEight.asset
+|           |   |       ChordProgression-DefaultThreeFour.asset
+|           |   |       ChordProgression-DefaultTwelveEight.asset
+|           |   |       ChordProgression-DefaultTwoFour.asset
+|           |   |       _Chord Progressions List.asset
+|           |   |       
+|           |   +---Drums
+|           |   |       DrumPattern-DefaultFiveFour.asset
+|           |   |       DrumPattern-DefaultFourFour.asset
+|           |   |       DrumPattern-DefaultNineEight.asset
+|           |   |       DrumPattern-DefaultSevenEight.asset
+|           |   |       DrumPattern-DefaultSixEight.asset
+|           |   |       DrumPattern-DefaultThreeFour.asset
+|           |   |       DrumPattern-DefaultTwelveEight.asset
+|           |   |       DrumPattern-DefaultTwoFour.asset
+|           |   |       _Drum Patterns List.asset
+|           |   |       
+|           |   +---Emotions
+|           |   |       Bravery.asset
+|           |   |       Calm.asset
+|           |   |       Confidence.asset
+|           |   |       Despair.asset
+|           |   |       Fear.asset
+|           |   |       Hope.asset
+|           |   |       Insecurity.asset
+|           |   |       Joy.asset
+|           |   |       Sadness.asset
+|           |   |       Wrath.asset
+|           |   |       
+|           |   \---Melodies
+|           |           BasicMelodyPattern 2.asset
+|           |           BasicMelodyPattern 3.asset
+|           |           BasicMelodyPattern 4.asset
+|           |           BasicMelodyPattern 5.asset
+|           |           BasicMelodyPattern 6.asset
+|           |           BasicMelodyPattern 7.asset
+|           |           FourFourMelody1.asset
+|           |           FourFourMelody2.asset
+|           |           FourFourMelody3.asset
+|           |           OrangePeelBass.asset
+|           |           ThreeFourMelody1.asset
+|           |           ThreeFourMelody2.asset
+|           |           _Melody Patterns List.asset
+|           |           
+|           +---Phrases
+|           |       DefaultPhrasePalette.asset
+|           |       Phrase - Burst Then Hold  - Default.asset
+|           |       Phrase - Even Flow - Default.asset
+|           |       Phrase - Sustain Lead In - Default.asset
+|           |       
+|           +---Song Configs
+|           \---Tonality Profiles
+|                   Aeolian.asset
+|                   Dorian.asset
+|                   Ionian.asset
+|                   Locrian.asset
+|                   Lydian.asset
+|                   Mixolydian.asset
+|                   Phrygian.asset
+|                   
++---Samples
+|   |   GenerateMidiSongPanel.cs
+|   |   GenerateMidiSongPanel.prefab
+|   |   MidiGenPlay.Samples.asmdef
+|   |   PartTabButton.cs
+|   |   SampleScene.unity
+|   |   TabButtonBase.cs
+|   |   TrackTabButton.cs
+|   |   
+|   \---UI
+|           PartListController.cs
+|           PartSettingsPanelController.cs
+|           TrackDetailsPanel.cs
+|           TrackListController.cs
+|           
+\---Soundfonts
+        8MBGMSFX.SF2
+        ALWTTT.sf2
+        

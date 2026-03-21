@@ -1,3 +1,5 @@
+> ABSORBED SOURCE — preserved during governance migration. Use current SSoTs in `runtime/` and `authoring/` as the active authorities.
+
 # MidiGenPlay — Runtime Architecture & API Guide (Event‑Driven)
 
 > Version: post–SongConfigManager refactor (event‑driven), Unity runtime–friendly.

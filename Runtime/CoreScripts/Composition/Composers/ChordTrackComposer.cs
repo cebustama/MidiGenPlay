@@ -1,12 +1,11 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-
-using Melanchall.DryWetMidi.Common;
+﻿using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;   // ITimeSpan
 using Melanchall.DryWetMidi.MusicTheory;
-
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 using ChordQuality = MidiGenPlay.MusicTheory.MusicTheory.ChordQuality;
@@ -33,7 +32,7 @@ namespace MidiGenPlay.Composition
             public readonly NoteName root;
             public readonly string roman;
             public readonly string symbol;
-            public DiaChord(ScaleDegree d, ChordQuality q, NoteName r, 
+            public DiaChord(ScaleDegree d, ChordQuality q, NoteName r,
                 string rn, string sym)
             { degree = d; quality = q; root = r; roman = rn; symbol = sym; }
         }
@@ -49,6 +48,125 @@ namespace MidiGenPlay.Composition
             _settings = settings;
             _voicer = voicer;
             _vl = settings != null ? settings.voiceLeading : null;
+        }
+
+
+        // ---------------------------------------------------------------------
+        // TS normalization (Normalized Bar Time) — runtime reprojection (no asset mutation)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Creates a runtime clone if the progression was authored under a different TS (or if we need to upsample
+        /// harmonic subdivisions). Events are reprojected by normalized bar time (fraction of a measure):
+        ///   bars = step / stepsPerMeasure(src)
+        ///   stepDst = Quantize(bars * stepsPerMeasure(dst))
+        ///
+        /// Durations are rebuilt from start anchors to avoid overlaps/gaps after quantization.
+        /// </summary>
+        private ChordProgressionData NormalizeProgressionForPartIfNeeded(
+    SongConfig.PartConfig part,
+    ChordProgressionData srcProg)
+        {
+            if (part == null || srcProg == null) return srcProg;
+
+            int srcSub = Mathf.Max(1, srcProg.subdivisions);
+            int minSub = Mathf.Max(1, _settings != null ? _settings.minHarmonicSubdivisions : 4);
+            int dstSub = Mathf.Max(srcSub, minSub);
+
+            var srcTS = srcProg.TimeSignature;
+            var dstTS = part.TimeSignature;
+
+            bool tsChanged = srcTS != dstTS;
+            bool subChanged = dstSub != srcSub;
+
+            if (!tsChanged && !subChanged)
+                return srcProg;
+
+            int measures = Mathf.Max(1, srcProg.Measures);
+
+            int srcStepsPerMeasure = StepsPerMeasure(srcTS, srcSub);
+            int dstStepsPerMeasure = StepsPerMeasure(dstTS, dstSub);
+
+            int srcTotal = Mathf.Max(1, srcStepsPerMeasure * measures);
+            int dstTotal = Mathf.Max(1, dstStepsPerMeasure * measures);
+
+            var dst = ScriptableObject.CreateInstance<ChordProgressionData>();
+            dst.DisplayName = srcProg.DisplayName;
+            dst.TimeSignature = dstTS;
+            dst.Measures = measures;
+            dst.subdivisions = dstSub;
+
+            dst.originalInput = srcProg.originalInput;
+            dst.songReferences = srcProg.songReferences != null
+                ? new List<string>(srcProg.songReferences)
+                : new List<string>();
+            dst.tonalities = srcProg.tonalities != null
+                ? new List<Tonality>(srcProg.tonalities)
+                : new List<Tonality>();
+            dst.events = new List<ChordProgressionData.ChordEvent>();
+
+            if (srcProg.events == null || srcProg.events.Count == 0)
+                return dst;
+
+            var mapped = new List<(int start, double bars, ChordProgressionData.ChordEvent ev)>(srcProg.events.Count);
+
+            foreach (var e in srcProg.events.OrderBy(x => x.startStep))
+            {
+                int s = e.startStep;
+
+                s %= srcTotal;
+                if (s < 0) s += srcTotal;
+
+                double bars = s / (double)srcStepsPerMeasure;
+                int startDst = (int)System.Math.Round(bars * dstStepsPerMeasure, MidpointRounding.AwayFromZero);
+                startDst = Mathf.Clamp(startDst, 0, dstTotal - 1);
+
+                mapped.Add((startDst, bars, e));
+            }
+
+            mapped = mapped.OrderBy(m => m.start).ThenBy(m => m.bars).ToList();
+
+            var uniq = new List<(int start, ChordProgressionData.ChordEvent ev)>(mapped.Count);
+            int lastStart = -1;
+            foreach (var m in mapped)
+            {
+                if (m.start == lastStart) continue;
+                uniq.Add((m.start, m.ev));
+                lastStart = m.start;
+            }
+
+            if (uniq.Count == 0)
+                return dst;
+
+            for (int i = 0; i < uniq.Count; i++)
+            {
+                int start = uniq[i].start;
+                int end = (i + 1 < uniq.Count) ? uniq[i + 1].start : dstTotal;
+                int len = Mathf.Max(1, end - start);
+
+                var se = uniq[i].ev;
+
+                dst.events.Add(new ChordProgressionData.ChordEvent
+                {
+                    startStep = start,
+                    lengthSteps = len,
+                    degree = se.degree,
+                    quality = se.quality,
+                    velocity = se.velocity,
+                    isDiatonic = se.isDiatonic,
+                    degreeAccidental = se.degreeAccidental
+                });
+            }
+
+            if (_settings?.logGenerator == true)
+            {
+                Debug.Log(
+                    $"[ChordTrackComposer] NormalizedBarTime reprojection: '{srcProg.DisplayName}' " +
+                    $"TS {srcTS} → {dstTS} | sub x{srcSub} → x{dstSub} | measures={measures} " +
+                    $"| tsChanged={tsChanged} subChanged={subChanged}");
+            }
+
+            return dst;
         }
 
         /// <summary>
@@ -80,7 +198,12 @@ namespace MidiGenPlay.Composition
             if (backingStyle != null)
             {
                 var rng = ctx?.rng ?? new System.Random();
-                prog = backingStyle.PickProgressionOverride(rng);
+                prog = backingStyle.PickProgressionOverride(
+                    rng,
+                    part.TimeSignature,
+                    _settings,
+                    verbose: _settings?.logGenerator == true
+                );
 
                 if (prog != null)
                 {
@@ -128,6 +251,32 @@ namespace MidiGenPlay.Composition
                 }
             }
 
+
+            // 2c) TS normalization (bar-normalized reprojection + min harmonic subdivisions)
+            // If the progression was authored in a different TS (or has too-low subdivisions),
+            // create a runtime clone and reproject its events to the Part TS.
+            if (prog != null)
+            {
+                if (_settings?.logGenerator == true)
+                    Debug.Log($"[ChordTrackComposer] PRE-NORM progTS={prog.TimeSignature} sub={prog.subdivisions} partTS={part.TimeSignature}");
+
+                var runtimeProg = NormalizeProgressionForPartIfNeeded(part, prog);
+                bool changed = !ReferenceEquals(runtimeProg, prog);
+
+                // Upgrade cache only if it is empty or points to the same (un-normalized) progression.
+                if (changed)
+                {
+                    var cached = ctx?.GetProgressionForPart?.Invoke(part);
+                    if (cached == null || ReferenceEquals(cached, prog))
+                        ctx?.SetProgressionForPart?.Invoke(part, runtimeProg);
+                }
+
+                prog = runtimeProg;
+
+                if (_settings?.logGenerator == true)
+                    Debug.Log($"[ChordTrackComposer] POST-NORM progTS={prog.TimeSignature} sub={prog.subdivisions} changed={changed}");
+            }
+
             if (_settings?.logGenerator == true)
             {
                 var progName = prog?.DisplayName ?? "(null)";
@@ -169,6 +318,7 @@ namespace MidiGenPlay.Composition
             // Grid info
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+            var beatSpan = GetBeatSpan(part.TimeSignature);
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
@@ -177,7 +327,32 @@ namespace MidiGenPlay.Composition
             int patternTotalSteps = patternMeasures * stepsPerMeasure;
             int numRepeats = Mathf.Max(1, Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
 
-            var chordMarkers = 
+            int coveredSteps = 0;
+            if (prog.events != null && prog.events.Count > 0)
+            {
+                coveredSteps = prog.events.Max(e =>
+                    Mathf.Max(0, e.startStep) + Mathf.Max(1, e.lengthSteps));
+            }
+
+            int tailSteps = Mathf.Max(0, patternTotalSteps - coveredSteps);
+
+            if (_settings?.logGenerator == true)
+            {
+                var tempoMapForGrid = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+                long ticksPerBeat = TimeConverter.ConvertFrom(beatSpan, tempoMapForGrid);
+                long lenTicksExpected = ticksPerBeat * beatsPerBar * Mathf.Max(1, part.Measures);
+
+                Debug.Log(
+                    $"[ChordTrackComposer] GRID part='{part.Name}' " +
+                    $"partTS={part.TimeSignature} progTS={prog.TimeSignature} " +
+                    $"stepsPerBeat={stepsPerBeat} stepsPerMeasure={stepsPerMeasure} " +
+                    $"patternMeasures={patternMeasures} patternTotalSteps={patternTotalSteps} " +
+                    $"partTotalSteps={partTotalSteps} repeats={numRepeats} " +
+                    $"coveredSteps={coveredSteps} tailSteps={tailSteps} " +
+                    $"lenTicksExpected={lenTicksExpected}");
+            }
+
+            var chordMarkers =
                 new List<(ITimeSpan when, string roman, string symbol, int deg, string quality)>();
             var pb = new PatternBuilder();
 
@@ -222,8 +397,8 @@ namespace MidiGenPlay.Composition
                     double startBeats = (double)startStepAbs / stepsPerBeat;
                     double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
 
-                    var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
-                    var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
+                    var startTime = beatSpan.Multiply(startBeats);
+                    var duration = beatSpan.Multiply(durBeats);
 
                     pb.MoveToTime(startTime);
                     pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
@@ -407,7 +582,7 @@ namespace MidiGenPlay.Composition
         {
             // Scale degrees → scale note names (root mapped per degree)
             var scale = GetScaleFromTonality(mode, rootNote);
-            var scaleNames = 
+            var scaleNames =
                 GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName).ToArray();
 
             var tri = new List<DiaChord>(7);
@@ -565,6 +740,8 @@ namespace MidiGenPlay.Composition
             var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
             prog.Measures = measures;
             prog.subdivisions = subdivisions;
+
+            prog.TimeSignature = part.TimeSignature;
             prog.events = new List<ChordProgressionData.ChordEvent>();
 
             // walk 'anchors' and 'pickedPerBar' and produces proper startStep/lengthSteps/etc.
@@ -586,8 +763,8 @@ namespace MidiGenPlay.Composition
             for (int i = 0; i < 7; i++)
             {
                 float w = 1f;
-                if (profile.baseDegreeWeights != null 
-                    && i < profile.baseDegreeWeights.Count 
+                if (profile.baseDegreeWeights != null
+                    && i < profile.baseDegreeWeights.Count
                     && profile.baseDegreeWeights[i] > 0f)
                     w = profile.baseDegreeWeights[i];
 
@@ -597,7 +774,7 @@ namespace MidiGenPlay.Composition
                 if (i == profile.supportDegree)
                     w += profile.supportBonus;
 
-                if (profile.characteristicDegrees != null 
+                if (profile.characteristicDegrees != null
                     && profile.characteristicDegrees.Contains(i))
                     w += profile.characteristicBonus;
 
@@ -753,8 +930,8 @@ namespace MidiGenPlay.Composition
                 if (useVamp && vampRuntime.barsRemaining > 0)
                 {
                     // iterate the vamp's degree sequence across bars
-                    for (int i = 0; 
-                        i < vampRuntime.degreesSequence.Count && bar < measures; 
+                    for (int i = 0;
+                        i < vampRuntime.degreesSequence.Count && bar < measures;
                         i++, bar++)
                     {
                         int degIdx = vampRuntime.degreesSequence[i];
@@ -841,6 +1018,8 @@ namespace MidiGenPlay.Composition
             var prog = ScriptableObject.CreateInstance<ChordProgressionData>();
             prog.Measures = measures;
             prog.subdivisions = subdivisions;
+
+            prog.TimeSignature = part.TimeSignature;
             prog.events = new List<ChordProgressionData.ChordEvent>();
             prog.RebuildFromAnchors(anchors, pickedDegrees, defaultVelocity);
 
@@ -899,9 +1078,15 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx,
             VoiceLeadingConfig vlOverride)
         {
+            // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
+            // reproject to a runtime clone before rendering.
+            prog = NormalizeProgressionForPartIfNeeded(part, prog);
+
+
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+            var beatSpan = GetBeatSpan(part.TimeSignature);
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
 
             int partTotalSteps = Mathf.Max(1, part.Measures) * stepsPerMeasure;
@@ -946,8 +1131,8 @@ namespace MidiGenPlay.Composition
                     double startBeats = (double)startStepAbs / stepsPerBeat;
                     double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
 
-                    var startTime = MusicalTimeSpan.Quarter.Multiply(startBeats);
-                    var duration = MusicalTimeSpan.Quarter.Multiply(durBeats);
+                    var startTime = beatSpan.Multiply(startBeats);
+                    var duration = beatSpan.Multiply(durBeats);
 
                     pb.MoveToTime(startTime);
                     pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
@@ -994,7 +1179,7 @@ namespace MidiGenPlay.Composition
             // TODO:  Choose based on loop iteration number, part number, etc
 
             int partBars = Mathf.Max(1, part.Measures);
-            var candidates = new List<(ChordProgressionLibrarySO.Entry entry, float score)>();
+            var candidates = new List<(ChordProgressionLibrarySO.Entry entry, float score, bool tsExact)>();
 
             // ------------------------------------------------------------
             // 2. Score each entry based on tonality, length, usage, profile
@@ -1052,7 +1237,7 @@ namespace MidiGenPlay.Composition
 
                 // 2.d) Cadence preference from TonalityProfile, if present
                 float cadenceScore = 1f;
-                if (profile != null && profile.forceCadenceToTonic && 
+                if (profile != null && profile.forceCadenceToTonic &&
                     prog.events != null && prog.events.Count > 0)
                 {
                     var lastEvt = prog.events[prog.events.Count - 1];
@@ -1062,18 +1247,36 @@ namespace MidiGenPlay.Composition
                         cadenceScore = 0.9f;   // ends elsewhere: slightly penalize
                 }
 
-                // 2.e) Base weight from entry
+                // 2.e) TimeSignature compatibility (two-step)
+                // Tier A: exact TS match is preferred. If none exist, we rank fallbacks by a heuristic score.
+                bool tsExact = (prog.TimeSignature == part.TimeSignature);
+                float tsMult = tsExact ? 1.35f : ComputeTimeSignatureFallbackMultiplier(part, prog);
+
+                // 2.f) Base weight from entry
                 float baseWeight = Mathf.Max(0f, e.weight);
 
-                float finalScore = baseWeight * lengthScore * usageScore * cadenceScore;
+                float finalScore = baseWeight * lengthScore * usageScore * cadenceScore * tsMult;
                 if (finalScore <= 0f)
                     continue;
 
-                candidates.Add((e, finalScore));
+                candidates.Add((e, finalScore, tsExact));
             }
 
             if (candidates.Count == 0)
                 return null;
+
+            // Two-step TS selection: if ANY exact-TS candidates exist, restrict to them.
+            bool anyExactTs = candidates.Any(c => c.tsExact);
+            if (anyExactTs)
+            {
+                candidates = candidates.Where(c => c.tsExact).ToList();
+                if (verbose)
+                    Debug.Log($"[ChordTrackComposer] Template selection tier=ExactTS (count={candidates.Count}) part='{part.Name}' TS={part.TimeSignature}.");
+            }
+            else if (verbose)
+            {
+                Debug.Log($"[ChordTrackComposer] Template selection tier=FallbackTS (ranked) (count={candidates.Count}) part='{part.Name}' TS={part.TimeSignature}.");
+            }
 
             // ------------------------------------------------------------
             // 3. Roulette selection by score
@@ -1101,6 +1304,122 @@ namespace MidiGenPlay.Composition
             // Fallback (should be unreachable, but safe)
             return candidates[candidates.Count - 1].entry;
         }
+
+
+        // ---------------------------------------------------------------------
+        // TS fallback heuristic — used only when no exact-TS template exists
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Multiplier for ranking fallback templates when no progression matches the Part TS exactly.
+        /// This does NOT change the Part TS; it only affects which template we pick before we reproject it
+        /// via Normalized Bar Time.
+        ///
+        /// Heuristics (rough priority):
+        /// - Prefer equal bar duration (e.g., 3/4 ≈ 6/8; both 3 quarter-notes per bar)
+        /// - Prefer same beat unit (denominator)
+        /// - Prefer odd-with-odd / even-with-even
+        /// - Prefer closer numerators
+        /// - Prefer higher subdivisions (less quantization artifacts)
+        /// - Prefer chord-starts-per-bar close to an expected grouping count (helpful for 5/4 as 3+2)
+        /// </summary>
+        private static float ComputeTimeSignatureFallbackMultiplier(SongConfig.PartConfig part, ChordProgressionData prog)
+        {
+            if (part == null || prog == null) return 1f;
+
+            var partProps = TimeSignatureProperties[part.TimeSignature];
+            var progProps = TimeSignatureProperties[prog.TimeSignature];
+
+            int partNum = partProps.BeatsPerMeasure;
+            int partDen = partProps.BeatUnit;
+            int progNum = progProps.BeatsPerMeasure;
+            int progDen = progProps.BeatUnit;
+
+            double partBarQN = GetBarDurationInQuarterNotes(partNum, partDen);
+            double progBarQN = GetBarDurationInQuarterNotes(progNum, progDen);
+            double barDiff = System.Math.Abs(partBarQN - progBarQN);
+
+            float mult = 1.0f;
+
+            // 1) Bar-duration equivalence (strong)
+            if (barDiff < 0.001)
+                mult *= 1.55f;
+            else
+                mult *= Mathf.Clamp((float)(1.35 / (1.0 + 0.55 * barDiff)), 0.70f, 1.20f);
+
+            // 2) Same beat unit (denominator)
+            if (partDen == progDen) mult *= 1.18f;
+
+            // 3) Odd/even numerator parity match (mild)
+            bool partOdd = (partNum & 1) == 1;
+            bool progOdd = (progNum & 1) == 1;
+            if (partOdd == progOdd) mult *= 1.08f;
+
+            // 4) Numerator closeness
+            int numDiff = System.Math.Abs(partNum - progNum);
+            mult *= Mathf.Clamp(1.15f / (1f + 0.22f * numDiff), 0.75f, 1.15f);
+
+            // 5) Prefer higher subdivisions
+            int sub = Mathf.Max(1, prog.subdivisions);
+            float subBonus = 1f + 0.05f * Mathf.Log(sub, 2f);
+            mult *= Mathf.Clamp(subBonus, 1.0f, 1.20f);
+
+            // 6) Match chord starts per bar to an expected grouping count (optional but cheap)
+            int expectedGroups = GetExpectedGroupingCount(partNum, partDen);
+            int startsPerBar = EstimateChordStartsPerBar(prog, progNum);
+
+            if (expectedGroups > 0 && startsPerBar > 0)
+            {
+                int diff = System.Math.Abs(expectedGroups - startsPerBar);
+                if (diff == 0) mult *= 1.12f;
+                else if (diff == 1) mult *= 1.03f;
+                else mult *= 0.92f;
+            }
+
+            return Mathf.Clamp(mult, 0.55f, 2.10f);
+        }
+
+        private static double GetBarDurationInQuarterNotes(int numerator, int denominator)
+            => numerator * (4.0 / System.Math.Max(1, denominator));
+
+        /// <summary>
+        /// Minimal grouping-count presets used only for scoring (Phase 6).
+        /// Phase 5 (optional) will carry explicit grouping per Part.
+        /// </summary>
+        private static int GetExpectedGroupingCount(int numerator, int denominator)
+        {
+            // Common feels. You can tweak these later without touching the reprojection contract.
+            if (numerator == 6 && denominator == 8) return 2;  // 3+3
+            if (numerator == 5 && denominator == 4) return 2;  // 3+2 (or 2+3)
+            if (numerator == 4 && denominator == 4) return 2;  // 2+2 (strong on 1 & 3)
+            if (numerator == 3 && denominator == 4) return 1;  // strong on 1
+            if (numerator == 12 && denominator == 8) return 5; // 3+3+2+2+2 (flamenco-ish)
+            return 1;
+        }
+
+        /// <summary>
+        /// Rough estimate: how many chord events start within the FIRST bar of the progression.
+        /// Uses the progression's authored numerator + its subdivisions.
+        /// </summary>
+        private static int EstimateChordStartsPerBar(ChordProgressionData prog, int beatsPerBar)
+        {
+            if (prog == null || prog.events == null || prog.events.Count == 0)
+                return 0;
+
+            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+            int stepsPerBar = Mathf.Max(1, beatsPerBar) * stepsPerBeat;
+
+            int count = 0;
+            for (int i = 0; i < prog.events.Count; i++)
+            {
+                int s = prog.events[i].startStep;
+                if (s >= 0 && s < stepsPerBar)
+                    count++;
+            }
+
+            return Mathf.Max(1, count);
+        }
+
 
         private static Tonality? PickTonalityFromProgression(
             SongConfig.PartConfig part,

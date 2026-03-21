@@ -10,6 +10,9 @@ namespace MidiGenPlay
     /// Re-composes one musician's track by injecting a small pattern variant.
     /// - partIndexOrAll: -1 => apply to all parts, else just that part index.
     /// - strategyId (optional): hint for variant type ("rotate2", "rotate3", "busier", "sparser").
+    ///
+    /// Compile-fix: lane.steps is now List&lt;StepState&gt;.
+    /// No behavioral change. This pipeline is not part of the active roadmap.
     /// </summary>
     public sealed class AlternateTrackMutator : IArrangementMutator
     {
@@ -31,7 +34,7 @@ namespace MidiGenPlay
 
         public SongConfig Mutate(SongConfig cfg, IArrangementContext ctx)
         {
-            if (cfg == null || cfg.Parts == null || cfg.Parts.Count == 0 
+            if (cfg == null || cfg.Parts == null || cfg.Parts.Count == 0
                 || string.IsNullOrEmpty(musicianId))
                 return cfg;
 
@@ -58,9 +61,8 @@ namespace MidiGenPlay
                     var clone = CloneTrack(tr);
                     clone.Parameters = CloneParams(tr.Parameters);
 
-                    // Mutate only this track's pattern; keep instrument bindings intact.
                     if (clone.Parameters?.Pattern != null)
-                        clone.Parameters.Pattern = 
+                        clone.Parameters.Pattern =
                             MutatePattern(clone.Parameters.Pattern, part, rng, strategyId);
 
                     part.Tracks[t] = clone;
@@ -91,7 +93,7 @@ namespace MidiGenPlay
             if (p == null) return null;
             return new TrackParameters
             {
-                Pattern = p.Pattern // we’ll replace when variant is built
+                Pattern = p.Pattern
             };
         }
 
@@ -113,7 +115,7 @@ namespace MidiGenPlay
                     return cClone;
 
                 default:
-                    return original; // unknown type → no-op
+                    return original;
             }
         }
 
@@ -131,7 +133,8 @@ namespace MidiGenPlay
             foreach (var l in p.lanes)
             {
                 var src = l.steps;
-                var rotated = new bool[src.Count];
+                // Compile-fix: was bool[], now StepState[]
+                var rotated = new DrumPatternData.StepState[src.Count];
                 for (int i = 0; i < src.Count; i++)
                     rotated[(i + shift) % src.Count] = src[i];
                 l.steps = rotated.ToList();
@@ -139,9 +142,9 @@ namespace MidiGenPlay
 
             // 2) Micro-variation off the strong beats
             float addProb = 0.06f, removeProb = 0.06f;
-            if (string.Equals(strategyId, "busier", StringComparison.OrdinalIgnoreCase)) 
+            if (string.Equals(strategyId, "busier", StringComparison.OrdinalIgnoreCase))
             { addProb = 0.12f; removeProb = 0.04f; }
-            if (string.Equals(strategyId, "sparser", StringComparison.OrdinalIgnoreCase)) 
+            if (string.Equals(strategyId, "sparser", StringComparison.OrdinalIgnoreCase))
             { addProb = 0.03f; removeProb = 0.12f; }
 
             foreach (var l in p.lanes)
@@ -149,13 +152,18 @@ namespace MidiGenPlay
                 for (int i = 0; i < l.steps.Count; i++)
                 {
                     bool strongBeat = (i % (p.subdivisions * p.beatsPerMeasure)) % p.subdivisions == 0;
-                    if (l.steps[i])
+                    // Compile-fix: was l.steps[i] (bool), now l.steps[i].active
+                    if (l.steps[i].active)
                     {
-                        if (!strongBeat && rng.NextDouble() < removeProb) l.steps[i] = false;
+                        if (!strongBeat && rng.NextDouble() < removeProb)
+                            l.steps[i] = DrumPatternData.StepState.Off;
                     }
                     else
                     {
-                        if (rng.NextDouble() < addProb) l.steps[i] = true;
+                        if (rng.NextDouble() < addProb)
+                            // Compile-fix: was l.steps[i] = true, now StepState.On()
+                            // velocity 0 = defer to lane default, consistent with panel behavior
+                            l.steps[i] = DrumPatternData.StepState.On();
                     }
                 }
             }
@@ -168,8 +176,8 @@ namespace MidiGenPlay
             clone.DisplayName = src.DisplayName;
             clone.Measures = src.Measures;
             clone.subdivisions = src.subdivisions;
-            clone.tonalities = src.tonalities != null ? 
-                new List<Tonality>(src.tonalities) : 
+            clone.tonalities = src.tonalities != null ?
+                new List<Tonality>(src.tonalities) :
                 new List<Tonality>();
             clone.events = new List<ChordProgressionData.ChordEvent>(src.events?.Count ?? 0);
 
@@ -195,13 +203,12 @@ namespace MidiGenPlay
         {
             if (p == null || p.events == null || p.events.Count == 0) return;
 
-            // one-beat rotation in steps (uses time signature for beats/measure)
             var tsInfo = TimeSignatureProperties[part.TimeSignature];
             int stepsPerBeat = Math.Max(1, p.subdivisions);
             int stepsPerMeasure = stepsPerBeat * tsInfo.BeatsPerMeasure;
             int totalSteps = Math.Max(stepsPerMeasure, p.Measures * stepsPerMeasure);
 
-            int shift = stepsPerBeat; // rotate by one beat by default
+            int shift = stepsPerBeat;
             if (string.Equals(strategyId, "rotate2", StringComparison.OrdinalIgnoreCase)) shift *= 2;
             if (string.Equals(strategyId, "rotate3", StringComparison.OrdinalIgnoreCase)) shift *= 3;
 

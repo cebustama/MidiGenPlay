@@ -14,6 +14,10 @@ namespace MidiGenPlay.UI
     /// - Edits a runtime clone of DrumPatternData (runtime-first editing).
     /// - Paints a multi-row PatternGrid; click/toggle = hit on/off.
     /// - Save overwrites original asset; SaveAs creates a new local asset.
+    ///
+    /// Secondary tool: this panel is the legacy runtime-scene path.
+    /// DrumPatternEditorWindow is now the primary package authoring entry point.
+    /// Compile-fix: lane.steps is now List&lt;StepState&gt;; bool reads/writes updated accordingly.
     /// </summary>
     public class RhythmPatternPanelController : MonoBehaviour
     {
@@ -40,7 +44,7 @@ namespace MidiGenPlay.UI
         [SerializeField] private Button addLaneButton;
         [SerializeField] private Button removeLaneButton;
         [SerializeField] private PatternGrid grid;
-        
+
         private ScrollRect gridScroll;
         private bool _syncingScroll;
 
@@ -113,9 +117,9 @@ namespace MidiGenPlay.UI
                 grid.OnRebuilt -= SyncHeaderHeightsToGrid;
             }
 
-            if (addLaneButton != null) 
+            if (addLaneButton != null)
                 addLaneButton.onClick.RemoveListener(AddLaneFromCommonList);
-            if (removeLaneButton != null) 
+            if (removeLaneButton != null)
                 removeLaneButton.onClick.RemoveListener(RemoveLastLaneUI);
 
             if (gridScroll != null && _gridScrollHandler != null)
@@ -134,7 +138,6 @@ namespace MidiGenPlay.UI
                                    : ScriptableObject.CreateInstance<DrumPatternData>();
             runtime.InitializeIfEmpty();
 
-            // ensure grid is sized to runtime’s own signature
             SetSignature(runtime.beatsPerMeasure, runtime.Measures, runtime.subdivisions);
 
             patternPreview = runtime;
@@ -173,7 +176,7 @@ namespace MidiGenPlay.UI
         {
 #if UNITY_EDITOR
             if (originalAsset == null || runtime == null) return;
-            CopyRuntimeInto(originalAsset);                       // <-- use helper
+            CopyRuntimeInto(originalAsset);
             UnityEditor.EditorUtility.SetDirty(originalAsset);
             UnityEditor.AssetDatabase.SaveAssets();
             Bind(originalAsset);
@@ -182,7 +185,6 @@ namespace MidiGenPlay.UI
 
         /// <summary>
         /// Save runtime as a NEW asset (always to local folder). Returns the created asset.
-        /// Pass a folder from settings (e.g., settings.GetDrumWriteFolder()).
         /// </summary>
         public DrumPatternData SaveRuntimeAsNewAsset(string folderPath = null)
         {
@@ -199,7 +201,7 @@ namespace MidiGenPlay.UI
             string path = UnityEditor.AssetDatabase.GenerateUniqueAssetPath(candidate);
 
             var asset = ScriptableObject.CreateInstance<DrumPatternData>();
-            CopyRuntimeInto(asset, name);                         // <-- use helper
+            CopyRuntimeInto(asset, name);
 
             UnityEditor.AssetDatabase.CreateAsset(asset, path);
             UnityEditor.AssetDatabase.SaveAssets();
@@ -209,7 +211,7 @@ namespace MidiGenPlay.UI
             Debug.Log($"[RhythmPanel] Created new DrumPattern asset at {path}");
             return asset;
 #else
-    return null;
+            return null;
 #endif
         }
 
@@ -232,7 +234,8 @@ namespace MidiGenPlay.UI
                     if (runtime.lanes == null || r >= runtime.lanes.Count) return false;
                     var lane = runtime.lanes[r];
                     if (lane.steps == null || s >= lane.steps.Count) return false;
-                    return lane.steps[s];
+                    // Compile-fix: was bool, now StepState.active
+                    return lane.steps[s].active;
                 }
             );
 
@@ -245,21 +248,27 @@ namespace MidiGenPlay.UI
 
         private void HandleCellToggled(int row, int step, bool on)
         {
-            Debug.Log($"[RhythmGrid] TOGGLED r={row} s={step} -> {(on ? "On" : "Off")}");   
+            Debug.Log($"[RhythmGrid] TOGGLED r={row} s={step} -> {(on ? "On" : "Off")}");
             if (runtime == null || runtime.lanes == null) return;
             if (row < 0 || row >= runtime.lanes.Count) return;
 
             var lane = runtime.lanes[row];
-            while (lane.steps.Count <= step) lane.steps.Add(false);
-            lane.steps[step] = on;
+            while (lane.steps.Count <= step) lane.steps.Add(DrumPatternData.StepState.Off);
+
+            // Compile-fix: was bool assign, now StepState.
+            // Preserves any existing per-step velocity when toggling back on.
+            var existing = lane.steps[step];
+            lane.steps[step] = on
+                ? DrumPatternData.StepState.On(existing.velocity)
+                : DrumPatternData.StepState.Off;
 
             PatternChanged?.Invoke();
         }
 
-        // --- Lane utilities (for step 3 headers / buttons) ---
+        // --- Lane utilities ---
 
         public void AddLane(
-            GeneralMidiPercussion instrument = GeneralMidiPercussion.ClosedHiHat, 
+            GeneralMidiPercussion instrument = GeneralMidiPercussion.ClosedHiHat,
             int velocity = 100)
         {
             if (runtime == null) return;
@@ -268,7 +277,8 @@ namespace MidiGenPlay.UI
             {
                 instrument = instrument,
                 defaultVelocity = Mathf.Clamp(velocity, 1, 127),
-                steps = new List<bool>(new bool[runtime.TotalSteps])
+                steps = new List<DrumPatternData.StepState>(
+                    new DrumPatternData.StepState[runtime.TotalSteps])
             };
             runtime.lanes.Add(l);
             RebuildGridFromRuntime();
@@ -280,7 +290,6 @@ namespace MidiGenPlay.UI
         {
             if (runtime == null) { AddLane(); return; }
 
-            // pick the next instrument not already in use (fallback to cycle)
             var used = new HashSet<GeneralMidiPercussion>();
             foreach (var l in runtime.lanes) used.Add(l.instrument);
 
@@ -333,7 +342,8 @@ namespace MidiGenPlay.UI
             {
                 var l = runtime.lanes[i];
                 var onIdx = new List<int>(l.steps.Count);
-                for (int s = 0; s < l.steps.Count; s++) if (l.steps[s]) onIdx.Add(s);
+                // Compile-fix: was bool check, now StepState.active
+                for (int s = 0; s < l.steps.Count; s++) if (l.steps[s].active) onIdx.Add(s);
                 list.Add((l.instrument, l.defaultVelocity, onIdx));
             }
             return list.ToArray();
@@ -354,7 +364,6 @@ namespace MidiGenPlay.UI
 
         private string BuildKeyName()
         {
-            // ex: Drum_4-4_4m_HatSnareKick
             string ts = $"{runtime.beatsPerMeasure}-{runtime.subdivisions}";
             string ins = (runtime.lanes == null || runtime.lanes.Count == 0)
                 ? "none"
@@ -365,7 +374,6 @@ namespace MidiGenPlay.UI
 
         private static string Abbrev(GeneralMidiPercussion gmp)
         {
-            // very short tags for file names
             switch (gmp)
             {
                 case GeneralMidiPercussion.ClosedHiHat: return "CH";
@@ -394,7 +402,7 @@ namespace MidiGenPlay.UI
                 {
                     instrument = l.instrument,
                     defaultVelocity = l.defaultVelocity,
-                    steps = new List<bool>(l.steps)
+                    steps = new List<DrumPatternData.StepState>(l.steps)
                 });
             }
             dst.EnsureSizes();
@@ -405,7 +413,6 @@ namespace MidiGenPlay.UI
         {
             if (percussionElementList == null || runtime == null) return;
 
-            // destroy old
             foreach (var h in headers) Destroy(h.gameObject);
             headers.Clear();
 
@@ -418,7 +425,6 @@ namespace MidiGenPlay.UI
                 h.RemoveClicked += RemoveLane;
                 headers.Add(h);
 
-                // Size the header to match row height
                 var rt = h.GetComponent<RectTransform>();
                 rt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, rowHeight);
 
@@ -429,15 +435,15 @@ namespace MidiGenPlay.UI
                 le.flexibleHeight = 0f;
             }
 
-            // Only order it if it's actually inside the list
             if (buttonsRoot != null && buttonsRoot.parent == percussionElementList)
             {
                 buttonsRoot.SetAsLastSibling();
             }
 
-            ResizeHeadersContentToRows();     // <— size content vertically
-            SnapHeadersToTop();               // <— put viewport at the top
+            ResizeHeadersContentToRows();
+            SnapHeadersToTop();
         }
+
         private void ResizeHeadersContentToRows()
         {
             if (percussionElementList == null) return;
@@ -457,11 +463,9 @@ namespace MidiGenPlay.UI
         {
             if (headersScroll != null)
                 headersScroll.verticalNormalizedPosition = 1f;
-            // ensure content anchored to top-left
             var rt = percussionElementList;
             rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, 0f);
         }
-
 
         private void SyncHeaderHeightsToGrid()
         {

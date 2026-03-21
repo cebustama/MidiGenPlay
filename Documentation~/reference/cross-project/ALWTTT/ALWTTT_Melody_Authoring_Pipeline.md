@@ -1,3 +1,4 @@
+> CROSS-PROJECT REFERENCE — preserved for ALWTTT integration context. This file is not primary MidiGenPlay package authority.
 
 # ALWTTT · Melody Authoring Pipeline (Concise Guide)
 
@@ -157,4 +158,3 @@ This keeps **phrasing** (timing/shape) in **Archetypes/Palettes** and **pitch po
 - Style‑level swing/humanize applied at MIDI emission stage.  
 - Cadence targets (“aim for tonic in 2 slots”).  
 - Cross‑chord archetypes once allowed by `allowCrossChordPhrases`.
-
