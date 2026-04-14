@@ -1,5 +1,57 @@
 # changelog-ssot
 
+## 2026-04-12 — ssot-drift-auditor remediation batch
+
+### Deleted: arrangement mutator / post-processor / personality cluster
+
+**Affected code (deleted):**
+- `Runtime/CoreScripts/Composition/Mutators/AlternateTrackMutator.cs`
+- `Runtime/CoreScripts/Composition/Mutators/IntroMutator.cs`
+- `Runtime/CoreScripts/Composition/Mutators/OutroMutator.cs`
+- `Runtime/CoreScripts/Composition/Mutators/SoloMutator.cs`
+- `Runtime/CoreScripts/Interfaces/IArrangementMutator.cs`
+- `Runtime/CoreScripts/Composition/Post Processors/HumanizationPostProcessor.cs`
+- `Runtime/CoreScripts/Composition/Post Processors/TempoScalePostProcessor.cs`
+- `Runtime/CoreScripts/Interfaces/IMidiPostProcessor.cs`
+- `Runtime/CoreScripts/Interfaces/IMixController.cs` — **retained**
+- `Runtime/CoreScripts/Interfaces/IMusicianPersonality.cs`
+- `Runtime/CoreScripts/Composition/Personalities/NeutralPersonality.cs`
+
+**Reason:** The entire mutator/post-processor/personality pipeline was implemented but never
+governed by any package SSoT. The pipeline was not on the active roadmap and was explicitly
+marked "unrouted legacy" in coverage-matrix.md. All references removed from `MidiMusicManager.cs`.
+`IMixController` was retained — it is actively used for channel volume and highlight management.
+
+**Governance changes:**
+- `coverage-matrix.md` — removed row: "Arrangement mutator pipeline (`IArrangementMutator`, `AlternateTrackMutator`)"
+- `ssot_manifest.yaml` — removed stale invariant referencing `IArrangementMutator`; cleaned governs of melody authoring SSoT entry
+
+---
+
+### Clarified: `SSoT_Authoring_Melody_Composition.md` scope boundary
+
+**Change:** Added a status note to the top of the document making explicit that:
+- The described authoring concepts (phrase palettes, `MelodicLeadingConfig`, `MelodicStyleSO`) are current implemented truth.
+- `MelodyPatternData` canonical redesign, `MelodyGenerationParamsSO`, and the authoring wizard are **not yet documented here** — they are planned in `Roadmap_Melody_Authoring_MVP.md` Phase 1.
+
+**Reason:** The doc had no "what is NOT true yet" section equivalent to `SSoT_Authoring_Rhythm_Patterns.md`.
+This created an asymmetry that could mislead a reader into treating planning material as current truth.
+
+**Authority unchanged:** The doc remains primary authority in `authoring/`. No promotion or demotion.
+
+---
+
+### Fixed: cross-project reference index link rot
+
+**File:** `reference/cross-project/ALWTTT/SSoT_CompositionSystem_INDEX.md`
+
+**Change:** Section 3 updated to use correct MidiGenPlay package doc names:
+- `SSoT_Composer_BackingChordTrack_v1.md` → `Documentation~/runtime/SSoT_Composer_Backing_Track.md`
+- `SSoT_Composer_RhythmTrack_v1.md` → `Documentation~/runtime/SSoT_Composer_Rhythm_Track.md`
+- Bassline, Melody, Harmony entries clarified as "no package SSoT yet"
+
+**Authority unchanged:** This file is and remains a cross-project reference, not package authority.
+
 ## 2026-03-20 — Phase 6 complete: StepState data model and row-local velocity view
 
 ### Data model change

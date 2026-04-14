@@ -24,4 +24,3 @@
 | Exploratory Jamplay runtime composition design | `research/MIDI_Jamplay_Runtime_Composition_Design-1.md` | none |
 | Deep research prompt for MidiMusicManager | `research/Deep_Research_Prompt_MidiMusicManager.md` | `reference/cross-project/ALWTTT/` |
 | Historical CardData redesign | `archive/historical/CardData_Redesign.md` | none |
-| Arrangement mutator pipeline (`IArrangementMutator`, `AlternateTrackMutator`) | **none — unrouted legacy** | no active SSoT; compile-fixed for `StepState` but pipeline is not part of the active roadmap; candidate for deletion |

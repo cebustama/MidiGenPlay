@@ -1,0 +1,435 @@
+# Roadmap — Melody Authoring MVP
+
+> Active MidiGenPlay package planning.
+> This roadmap is grounded in the current codebase and intentionally separates **what already exists**, **what is next**, and **what remains later**.
+> This document is planning, not implementation authority. It does not override governed SSoTs.
+
+## Purpose
+
+Deliver a Melody Track Authoring Wizard — a Unity EditorWindow that lets a designer author, preview, and persist melody pattern data consumed by runtime, following the same normalize → preview → apply/save pipeline established by the chord and rhythm authoring tools.
+
+Goals:
+
+- a dedicated package-owned melody pattern authoring entry point
+- a new `MelodyPatternData` asset with a deterministic scale-degree canonical format
+- a `MelodyGenerationParamsSO` asset wrapping generation parameters for the wizard
+- a note-grid (ladder) preview/editor inside the wizard
+- a pattern-override path in `MelodyTrackComposer` analogous to rhythm's `ComposeFromGrid`
+- clear separation between authored pattern data and the existing procedural pipeline
+
+## Scope boundaries
+
+### Out of scope (entire roadmap)
+
+- Redesign of `PhrasePlanner`, `MelodyTrackComposer`, or `IMelodyStrategy` internals.
+  The existing procedural pipeline is preserved. `MelodyPatternData` becomes a new
+  override path alongside it, not a replacement.
+- Changes to `MelodicLeadingConfig`, `MelodicStyleSO`, or `PhrasePaletteSO` runtime semantics.
+- ALWTTT-specific integration (`MelodyCardConfigSO` wiring). Cross-project hookup
+  is a consuming-project concern and may follow after the package MVP lands.
+
+### Deferred (later phases within this roadmap)
+
+- MIDI file import → absolute note → scale-degree conversion (Phase D1).
+- Probabilistic / weighted note events in `MelodyPatternData` (Phase D2).
+- Full `MelodyTrackComposer` pipeline capture as wizard generation source (Phase D3).
+
+## Current code-backed baseline
+
+### Already true today
+
+The codebase already supports:
+
+- procedural melody generation through `MelodyTrackComposer` + `PhrasePlanner` + strategies
+- `MelodicLeadingConfig`, `MelodicStyleSO`, `PhrasePaletteSO`, `PhraseArchetypeSO` as
+  runtime-consumed authoring assets for the procedural path
+- a legacy `MelodyPatternData` class with a probabilistic per-note model
+  (`List<ScaleDegree> possibleDegrees`, measure/beat timing, velocity)
+- a legacy `MidiGenerator.GenerateMelodyTrackWithPattern` path consuming that asset
+  (on the demoted `MIDISong` / `MIDIGeneratorManager` branch)
+- `MusicTheory.ScaleDegree` enum already available in the package
+- two mature pattern-editor references: `ChordProgressionEditorWindow` and
+  `DrumPatternEditorWindow` (Category A tools in `SSoT_Authoring_Tools.md`)
+
+### What does NOT exist yet
+
+- A deterministic, per-note canonical melody pattern format
+- A melody-specific EditorWindow (wizard)
+- A note-grid / ladder UI for melody editing
+- A `MelodyGenerationParamsSO` asset
+- A pattern-override consumption path in `MelodyTrackComposer`
+- Any simplified editor-side melody generator
+
+## Accepted design decisions
+
+These decisions are locked for the MVP and should not be revisited without explicit cause.
+
+1. The Wizard is a Unity EditorWindow with two sections:
+   top = generation parameters, bottom = melody note grid (ladder view).
+
+2. Two separate assets, both independently saveable:
+   - `MelodyPatternData` — persisted note sequence (canonical format below)
+   - `MelodyGenerationParamsSO` — persisted generation parameter bundle
+
+3. `MelodyPatternData` canonical per-note format (MVP, deterministic):
+   scale-degree + octave offset + duration + velocity.
+   The existing class is replaced in-place (the legacy `GenerateMelodyTrackWithPattern`
+   path will be updated or removed as part of the data-model phase).
+
+4. Scale degrees are the canonical pitch representation. Absolute MIDI pitch is not
+   stored in the MVP format. MIDI file import is deferred.
+
+5. Grid Y-axis: 7 diatonic scale-degree rows × octave bands. Chromatic alterations
+   (accidentals) may be expressed as a per-note property, not as additional grid rows.
+
+6. The existing runtime (`PhrasePlanner` + `MelodyTrackComposer` + strategies) is NOT
+   replaced. `MelodyPatternData` becomes a new pattern-override path: when a pattern
+   is present, `MelodyTrackComposer` uses it directly (via a new `ComposeFromPattern`
+   branch) instead of running the procedural pipeline.
+
+7. The wizard follows the established authoring pipeline:
+   normalize → generate preview → show in grid → edit → apply/save.
+
+8. Tier 1 generation params (MVP scope only): scale/tonality, instrument hint
+   (General MIDI), density, octave range, rhythmic style (even / syncopated / burst).
+
+9. MVP "Generate" uses a simplified standalone editor-only generator that maps Tier 1
+   params directly into a `MelodyPatternData`. It does NOT invoke the full
+   `MelodyTrackComposer` pipeline (that is deferred to Phase D3).
+
+## Current milestone sequencing
+
+1. data model and asset redesign (Phase 1)
+2. note-grid UI — ladder editor (Phase 2)
+3. generation params UI and simplified generator (Phase 3)
+4. runtime hookup — `ComposeFromPattern` (Phase 4)
+5. polish, validation, and documentation closure (Phase 5)
+
+Deferred phases follow after the MVP is complete.
+
+---
+
+## Milestone map
+
+## Phase 1 — Data model and asset redesign
+
+### Status
+Not started.
+
+### Goal
+Replace the existing `MelodyPatternData` with a deterministic per-note canonical model
+and create the new `MelodyGenerationParamsSO` asset.
+
+### Target deliverables
+
+#### `MelodyPatternData` redesign
+
+New per-note structure (replacing `MelodyNoteData`):
+
+- `ScaleDegree degree` — single deterministic scale degree (I–VII)
+- `int octaveOffset` — offset from a reference octave (e.g. 0 = default, +1 = up, -1 = down)
+- `float startBeat` — start position in beats from pattern start
+- `float durationBeats` — note length in beats
+- `int velocity` — MIDI velocity 0–127
+
+Pattern-level fields:
+
+- `int measures` — pattern length (inherited from `PatternDataSO`)
+- `int beatsPerMeasure` — timing grid (inherited or explicit)
+- `int subdivisions` — grid resolution for the editor
+- `List<MelodyNoteEvent> notes` — the note list
+
+#### `MelodyGenerationParamsSO` (new ScriptableObject)
+
+Wraps references to existing assets plus Tier 1 scalar params:
+
+- `MelodicLeadingConfig leadingConfig` (optional reference)
+- `PhrasePaletteSO phrasePalette` (optional reference)
+- `MelodicStyleSO melodicStyle` (optional reference)
+- Tier 1 scalars: density (float 0–1), octave range (int min/max),
+  rhythmic style enum (Even / Syncopated / Burst), scale/tonality hint
+
+### Legacy path impact
+`MidiGenerator.GenerateMelodyTrackWithPattern` consumes the old `MelodyPatternData` shape.
+This method must be updated to compile against the new model or removed/deprecated.
+Decide during implementation whether to preserve a compatibility shim or break cleanly.
+
+### Definition of done
+- `MelodyPatternData` compiles with the new per-note model
+- `MelodyGenerationParamsSO` exists and is createable via asset menu
+- existing code that referenced old `MelodyPatternData` compiles (updated or removed)
+- no runtime behavioral regression in the active `MelodyTrackComposer` path
+  (it does not consume `MelodyPatternData` yet)
+
+### SSoT update triggers at phase boundary
+- `authoring/SSoT_Authoring_Melody_Composition.md` — new asset model documented
+- `authoring/SSoT_Authoring_Tools.md` — melody wizard registered as planned Category A tool
+- `CURRENT_STATE.md` — updated to reflect melody authoring as active focus
+
+---
+
+## Phase 2 — Note-grid UI (ladder editor)
+
+### Status
+Not started.
+
+### Goal
+Implement the bottom section of the Melody Authoring Wizard EditorWindow:
+a note-grid with scale degrees on the Y axis and time steps on the X axis,
+supporting manual note placement, selection, deletion, and property editing.
+
+### Target capabilities
+- EditorWindow shell with target `MelodyPatternData` asset binding (load / new / working copy)
+- timing controls: measures, beats per measure, subdivisions
+- grid rendering: X = time steps, Y = scale degree rows (I–VII) × octave bands
+- click to place/remove notes on grid cells
+- note duration: drag or property field
+- note velocity: per-note field or inline display
+- octave band navigation or scroll
+- visual: beat/bar grid lines, note color by degree, current selection highlight
+- working copy isolation (edits do not write to asset until Apply/Save)
+
+### Architecture notes
+- Follow `DrumPatternEditorWindow` and `ChordProgressionEditorWindow` as structural references
+- Grid is an editor UI concern; it reads from and writes to the working copy `MelodyPatternData`
+- Normalize step: snap note positions to the active grid resolution
+
+### Definition of done
+- a designer can open the wizard, bind or create a `MelodyPatternData` asset,
+  and manually author a melody pattern on the grid
+- normalize / apply / save contract is functional
+- the grid accurately reflects the working copy data model
+- no dependency on generation params (grid works standalone)
+
+### SSoT update triggers at phase boundary
+- `authoring/SSoT_Authoring_Tools.md` — melody wizard promoted to current truth (Category A)
+- `authoring/SSoT_Authoring_Melody_Composition.md` — grid authoring semantics documented
+
+---
+
+## Phase 3 — Generation params UI and simplified generator
+
+### Status
+Not started.
+
+### Goal
+Implement the top section of the wizard (Tier 1 generation parameters) and a simplified
+editor-only generator that produces a `MelodyPatternData` from those parameters.
+
+### Target capabilities
+- UI section displaying `MelodyGenerationParamsSO` fields (bind existing or create new)
+- Tier 1 controls: scale/tonality selector, instrument hint (GM picker), density slider,
+  octave range, rhythmic style dropdown (Even / Syncopated / Burst)
+- optional asset references: `MelodicLeadingConfig`, `PhrasePaletteSO`, `MelodicStyleSO`
+  (displayed but only informational for MVP generator — full pipeline capture is Phase D3)
+- "Generate" button: runs the simplified generator → populates working copy → grid updates
+- the generator is editor-only code (lives under `Editor/`), not a runtime dependency
+- deterministic with a seed parameter (same seed + same params = same pattern)
+
+### Simplified generator contract
+The MVP generator maps Tier 1 params to a note sequence using straightforward rules:
+- density → number of notes per measure
+- rhythmic style → note placement algorithm (even spacing / syncopated offsets / burst clusters)
+- octave range → constrain octave offsets
+- scale/tonality → constrain degrees to diatonic set
+
+This generator is intentionally simple. It is a starting point for authoring, not a
+replacement for the full procedural pipeline.
+
+### Definition of done
+- Tier 1 params UI is visible and functional in the wizard
+- "Generate" produces a valid `MelodyPatternData` working copy shown in the grid
+- the designer can generate, then manually refine in the grid, then apply/save
+- `MelodyGenerationParamsSO` can be saved independently of the pattern
+- determinism: same seed + params = same output
+
+### SSoT update triggers at phase boundary
+- `authoring/SSoT_Authoring_Melody_Composition.md` — generation params semantics documented
+
+---
+
+## Phase 4 — Runtime hookup (`ComposeFromPattern`)
+
+### Status
+Not started.
+
+### Goal
+Add a pattern-override consumption path to `MelodyTrackComposer` so that an authored
+`MelodyPatternData` can be used at runtime instead of (or alongside) procedural generation.
+
+### Target capabilities
+- `MelodyTrackComposer` gains a `ComposeFromPattern` branch (analogous to rhythm's `ComposeFromGrid`)
+- when a `MelodyPatternData` is assigned to a track config, the composer reads the pattern
+  directly, resolves scale degrees to absolute MIDI pitches using the active tonality/root,
+  and emits MIDI events
+- pattern is normalized to the active Part meter (measure count, beats per measure)
+- deterministic: same pattern + same tonality context = same MIDI output
+- the procedural path (PhrasePlanner + strategies) remains the default when no pattern is present
+
+### Design constraint
+The runtime `MelodyPatternData` consumption must live in `Runtime/` code.
+The pattern-override path must not depend on editor-only APIs.
+
+### Integration surface
+How the pattern reaches the composer at runtime:
+- through `TrackConfig.Parameters` or an equivalent track-level field
+- the exact wiring depends on whether `MelodyPatternData` is carried on a new field
+  in `TrackParameters` or through a bundle/config SO
+
+This integration surface design should be finalized at the start of Phase 4 implementation.
+
+### Definition of done
+- `MelodyTrackComposer` can consume a `MelodyPatternData` and produce correct MIDI
+- pattern is respected when present; procedural path runs when absent
+- determinism is preserved
+- no regression in existing procedural melody generation
+- at least one manual end-to-end validation: author pattern → assign to track → generate → correct output
+
+### SSoT update triggers at phase boundary
+- `runtime/SSoT_Composer_Melody_Track.md` — pattern-override path documented, precedence rules updated
+- `SSoT_CONTRACTS.md` — if pattern-override precedence introduces a new cross-cutting rule
+- `authoring/SSoT_Authoring_Melody_Composition.md` — runtime handoff section updated
+
+---
+
+## Phase 5 — Polish, validation, and documentation closure
+
+### Status
+Not started.
+
+### Goal
+Harden the end-to-end melody authoring → runtime pipeline, close documentation,
+and confirm the MVP is complete.
+
+### Target work
+- normalize/apply/save round-trip hardening: verify no data loss or silent corruption
+  across grid edit → normalize → save → reload cycles
+- edge cases: empty pattern, single-note pattern, pattern longer than Part measures,
+  pattern shorter than Part measures (looping/truncation behavior)
+- basic regression checks or validation harness for melody determinism
+- wizard UX polish: clear state indicators, undo support if feasible, error messages
+- documentation sweep: all SSoTs updated, coverage-matrix updated, changelog entry
+
+### Definition of done
+- the full author → save → runtime-consume path works without known data-loss issues
+- documentation is closed for the MVP milestone (see list below)
+- `CURRENT_STATE.md` reflects melody authoring MVP as completed
+
+### Required documentation updates at milestone closure
+- `authoring/SSoT_Authoring_Melody_Composition.md` — full update reflecting new assets and wizard
+- `authoring/SSoT_Authoring_Tools.md` — melody wizard as Category A tool
+- `runtime/SSoT_Composer_Melody_Track.md` — pattern-override path
+- `CURRENT_STATE.md` — melody MVP completed, next steps updated
+- `coverage-matrix.md` — melody authoring row updated if primary home changed
+- `changelog-ssot.md` — semantic changes logged
+- this roadmap — phases marked completed
+
+---
+
+## Deferred phases
+
+These phases follow after the MVP is complete. They are documented here for planning
+continuity but are not implementation authority.
+
+---
+
+## Phase D1 — MIDI file import → scale-degree conversion
+
+### Status
+Deferred. Not part of MVP.
+
+### Goal
+Allow importing a MIDI file and converting absolute note data into the
+scale-degree canonical format of `MelodyPatternData`.
+
+### Why deferred
+MIDI import requires:
+- absolute-pitch-to-scale-degree reverse mapping
+- tonality/root detection or user specification
+- handling of chromatic notes outside the diatonic scale
+- potential quantization to grid resolution
+
+These are non-trivial and not needed for the core authoring workflow.
+
+### Sketch
+- import button in the wizard
+- user specifies (or tool detects) tonality and root
+- MIDI notes mapped to nearest scale degree + octave offset
+- chromatic notes flagged for review or mapped with accidental metadata
+- result populates the working copy grid for review before apply/save
+
+---
+
+## Phase D2 — Probabilistic / weighted note events
+
+### Status
+Deferred. Not part of MVP.
+
+### Goal
+Extend `MelodyPatternData` to support non-deterministic note events where a single
+event can resolve to one of several possible outcomes at runtime.
+
+### Motivation
+The original `MelodyPatternData` had `List<ScaleDegree> possibleDegrees` per note.
+This capability is intentionally deferred from the MVP canonical format to keep
+the first implementation simple and deterministic, but the asset should eventually
+support richer authoring expressions.
+
+### Possible extensions
+- per-event weighted degree list (e.g. "70% root, 30% fifth")
+- per-event velocity range instead of fixed value
+- per-event duration variance
+- optional/rest probability per event
+
+### Design constraint
+Probabilistic resolution must be deterministic given a seed (same seed = same choices).
+The grid UI will need a visual language for probabilistic events distinct from fixed events.
+
+### SSoT impact
+When implemented, this phase will require updates to:
+- `MelodyPatternData` data model
+- `MelodyTrackComposer.ComposeFromPattern` (runtime resolution with RNG)
+- `authoring/SSoT_Authoring_Melody_Composition.md`
+- `runtime/SSoT_Composer_Melody_Track.md`
+- the wizard grid UI
+
+---
+
+## Phase D3 — Full pipeline capture as wizard generation source
+
+### Status
+Deferred. Not part of MVP.
+
+### Goal
+Allow the wizard to run the full `MelodyTrackComposer` + `PhrasePlanner` + strategies
+pipeline in editor context and capture the output as a `MelodyPatternData` for
+further editing.
+
+### Why deferred
+This requires:
+- providing full chord progression context in the editor
+- running runtime-grade generation in editor mode (possible but requires setup)
+- reverse-mapping absolute MIDI output back to scale-degree representation
+- handling notes that don't align cleanly to the grid
+
+### Value
+Once available, this lets a designer use the full expressive power of the procedural
+system as a starting point, then hand-edit the captured pattern. This bridges the
+gap between procedural and authored melody workflows.
+
+---
+
+## Immediate next steps
+
+1. Begin Phase 1: design the new `MelodyNoteEvent` struct and `MelodyPatternData` redesign
+2. Decide the fate of `MidiGenerator.GenerateMelodyTrackWithPattern` (update or remove)
+3. Create `MelodyGenerationParamsSO` asset class
+
+## Related authorities
+
+- `CURRENT_STATE.md`
+- `runtime/SSoT_Composer_Melody_Track.md`
+- `authoring/SSoT_Authoring_Melody_Composition.md`
+- `authoring/SSoT_Authoring_Tools.md`
+- `SSoT_CONTRACTS.md`
+- `coverage-matrix.md`

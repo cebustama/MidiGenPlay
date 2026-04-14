@@ -5,6 +5,7 @@
 # SSoT Index — Live Composition System (ALWTTT × MidiGenPlay)
 
 **Generated:** 2026-03-04  
+**Updated:** 2026-04-12 — corrected MidiGenPlay package doc names in section 3.  
 **SSoT rule:** each topic has **one** canonical doc; other docs may only link/redirect.
 
 ---
@@ -31,11 +32,14 @@
 
 ## 3) Composer pipelines (in-depth, per TrackRole)
 
-- `SSoT_Composer_BackingChordTrack_v1.md` ✅ **canonical** (Backing / Chords)
-- *(TODO)* `SSoT_Composer_RhythmTrack_v1.md` (Rhythm / Drums)
-- *(TODO)* `SSoT_Composer_BasslineTrack_v1.md` (Bassline)
-- *(TODO)* `SSoT_Composer_MelodyTrack_v1.md` (Melody/Lead)
-- *(TODO)* `SSoT_Composer_HarmonyTrack_v1.md` (Harmony)
+> Note: MidiGenPlay package docs use a different naming convention from these references.
+> The canonical package paths (under `Documentation~/runtime/`) are listed below.
+
+- `Documentation~/runtime/SSoT_Composer_Backing_Track.md` ✅ **canonical** (Backing / Chords)
+- `Documentation~/runtime/SSoT_Composer_Rhythm_Track.md` ✅ **canonical** (Rhythm / Drums)
+- *(TODO — no package SSoT yet)* Bassline composer
+- *(TODO — no package SSoT yet)* Melody / Lead composer
+- *(TODO — no package SSoT yet)* Harmony composer
 
 ---
 

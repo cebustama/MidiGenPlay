@@ -1,5 +1,18 @@
 # SSoT — Authoring Melody Composition
 
+> **Status note (2026-04-12):**
+> The authoring concepts described in this document — phrase palettes, phrase archetypes,
+> `MelodicLeadingConfig`, and `MelodicStyleSO` — are **current implemented truth**.
+>
+> The following are **not yet documented here** because they are not yet implemented:
+> - `MelodyPatternData` canonical per-note format (redesign is Phase 1 of `Roadmap_Melody_Authoring_MVP.md`)
+> - `MelodyGenerationParamsSO` asset
+> - Melody pattern authoring wizard (`EditorWindow`)
+> - Pattern-override path in `MelodyTrackComposer`
+>
+> Do not treat this SSoT as authority for those planned items.
+> See `planning/active/Roadmap_Melody_Authoring_MVP.md` for their accepted design decisions.
+
 ## Scope
 
 This document is the primary authority for package-owned melody authoring concepts:
@@ -72,3 +85,8 @@ Update this SSoT when:
 - leading/style asset meaning changes,
 - melody override model changes,
 - authoring-side melody concepts change independently of ALWTTT.
+
+When Phase 1 of `Roadmap_Melody_Authoring_MVP.md` is complete, update this SSoT to cover:
+- the new `MelodyPatternData` canonical format,
+- `MelodyGenerationParamsSO`,
+- and the authoring wizard pipeline.
