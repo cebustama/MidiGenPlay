@@ -1,4 +1,4 @@
-using MidiGenPlay.Composition;
+ï»¿using MidiGenPlay.Composition;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 
@@ -59,7 +59,7 @@ public class MidiGenPlayConfig : ScriptableObject
     [Range(0, 127)] public int metronomeChannelVolume = 110;
 
     [Header("Chord Labels / Sync")]
-    [Tooltip("Ventana en ticks para empatar etiquetas chd: con NoteOn (±valor).")]
+    [Tooltip("Ventana en ticks para empatar etiquetas chd: con NoteOn (ï¿½valor).")]
     public int chordLabelTickTolerance = 2;
 
     [Header("Chord Progressions")]
@@ -78,9 +78,30 @@ public class MidiGenPlayConfig : ScriptableObject
     public string ResourcesDrumsPath => $"{resourcesPatternsRoot}/Drums";
     public string ResourcesMelodiesPath => $"{resourcesPatternsRoot}/Melodies";
 
+    // --------- Runtime accessors ----------
+    /// <summary>
+    /// Return the TonalityProfileSO that matches a given Tonality, or null if none.
+    /// Runtime-safe: pure lookup over the serialized <see cref="tonalityProfiles"/> array,
+    /// no editor-only API dependencies. Invoked from composer pipelines via
+    /// <c>MidiGenerator.GenContext.GetTonalityProfileForPart</c> in both Editor and Player builds.
+    /// </summary>
+    public TonalityProfileSO GetProfileForTonality(Tonality ton)
+    {
+        if (tonalityProfiles == null) return null;
+        for (int i = 0; i < tonalityProfiles.Length; i++)
+        {
+            var p = tonalityProfiles[i];
+            if (p != null && p.tonality == ton)
+                return p;
+        }
+        return null;
+    }
+
 #if UNITY_EDITOR
     // --------- Write-path helpers (Editor) ----------
-    // ALWAYS write to LOCAL Assets/Resources/* (never to Packages)
+    // ALWAYS write to LOCAL Assets/Resources/* (never to Packages).
+    // These are editor-only by purpose: the returned path ("Assets/Resources/...") is
+    // only meaningful for AssetDatabase-based authoring writes and has no runtime use.
     public string GetChordWriteFolder() => ResolveWriteFolder("Chords");
     public string GetDrumWriteFolder() => ResolveWriteFolder("Drums");
     public string GetMelodyWriteFolder() => ResolveWriteFolder("Melodies");
@@ -102,22 +123,6 @@ public class MidiGenPlayConfig : ScriptableObject
         if (string.IsNullOrEmpty(root)) return null;
         root = root.TrimEnd('/', '\\');
         return $"{root}/{child}";
-    }
-
-    /// <summary>
-    /// Return the TonalityProfileSO that matches a given Tonality,
-    /// or null if we don't have one.
-    /// </summary>
-    public TonalityProfileSO GetProfileForTonality(Tonality ton)
-    {
-        if (tonalityProfiles == null) return null;
-        for (int i = 0; i < tonalityProfiles.Length; i++)
-        {
-            var p = tonalityProfiles[i];
-            if (p != null && p.tonality == ton)
-                return p;
-        }
-        return null;
     }
 #endif
 

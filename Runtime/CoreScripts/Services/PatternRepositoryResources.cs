@@ -76,15 +76,25 @@ namespace MidiGenPlay.Services
         public IReadOnlyList<ChordProgressionData> GetAllChordProgressions() => chords;
         public IReadOnlyList<MelodyPatternData> GetAllMelodyPatterns() => melodies;
 
-        public IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts) 
+        public IReadOnlyList<DrumPatternData> GetDrumPatterns(TimeSignature ts)
             => drums.Where(p => p.TimeSignature == ts).ToList();
-        public IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts) 
+        public IReadOnlyList<ChordProgressionData> GetChordProgressions(TimeSignature ts)
             => chords.Where(p => p.TimeSignature == ts).ToList();
-        public IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts) 
+        public IReadOnlyList<MelodyPatternData> GetMelodyPatterns(TimeSignature ts)
             => melodies.Where(p => p.TimeSignature == ts).ToList();
 
-        // Always return LOCAL write folder (Assets/Resources/…)
-        public string GetChordWriteFolder() => cfg.GetChordWriteFolder();
+        // Always return LOCAL write folder (Assets/Resources/...) in Editor.
+        // Player builds: returns null. The path is only meaningful for editor-side
+        // asset authoring (AssetDatabase writes); no runtime caller exists per the
+        // cross-project bridge SSoT, which classifies this as authoring-tool surface.
+        public string GetChordWriteFolder()
+        {
+#if UNITY_EDITOR
+            return cfg.GetChordWriteFolder();
+#else
+            return null;
+#endif
+        }
     }
 
 }
