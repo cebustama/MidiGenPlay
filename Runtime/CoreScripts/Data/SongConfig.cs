@@ -34,6 +34,17 @@ namespace MidiGenPlay
             public int Measures;
             public int Repetitions;
 
+            // ---- Transient, one-shot composer hints (NOT serialized, NOT persisted) ----
+            // Written by upstream effects (e.g. ALWTTT ModulationEffect.apply()) just
+            // before a render; consumed and cleared by composers. Not part of song state.
+            //
+            // See: MidiGenPlay.Composition.ModulationOctaveHint
+            [System.NonSerialized]
+            public Melanchall.DryWetMidi.MusicTheory.NoteName? PreviousRootNote;
+
+            [System.NonSerialized]
+            public MidiGenPlay.Composition.ModulationOctaveHint ModulationOctaveHint;
+
             public override string ToString()
             {
                 var ts = $"{TimeSignatureProperties[TimeSignature].BeatsPerMeasure}/" +

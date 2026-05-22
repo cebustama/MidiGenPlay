@@ -1,0 +1,24 @@
+{
+    "name": "MidiGenPlay.Tests.Editor",
+    "rootNamespace": "MidiGenPlay.Tests.Editor",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MidiGenPlay.Runtime",
+        "MidiGenPlay.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Melanchall.DryWetMidi.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

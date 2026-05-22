@@ -1,6 +1,7 @@
 ﻿#if UNITY_EDITOR
 using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay;
+using MidiGenPlay.Authoring;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,11 +21,18 @@ using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 /// Does NOT require a runtime scene.
 /// Does NOT depend on RhythmPatternPanelController.
 ///
-/// Phase 6: each lane row has a [T]/[V] mode toggle.
+/// Phase 6: each lane row has a [T]/[V] mode toggle (Grid mode only).
 ///   Trigger mode  — boolean step buttons (green = active, dark = inactive).
 ///   Velocity mode — per-step int fields; 0 = defer to lane defaultVelocity.
 ///                   Setting a field > 0 activates the step with an explicit velocity.
 ///                   Setting a field to 0 deactivates the step (velocity 0 = sentinel/off).
+///
+/// Phase 7: whole-window Grid / Text tabbed toggle.
+///   Grid  mode — current authoring surface (Phase 5 / Phase 6 controls).
+///   Text  mode — one drum-machine glyph string per lane; parse on tab-switch and on Apply.
+///                Per-cell diff preserves non-canonical per-step velocities for cells whose
+///                typed glyph is unchanged from the rendered text.
+///                Syntax authority: authoring/SSoT_Authoring_Rhythm_Patterns.md §3A.x.
 /// </summary>
 public class DrumPatternEditorWindow : EditorWindow
 {
@@ -42,6 +50,15 @@ public class DrumPatternEditorWindow : EditorWindow
     private const float StepSize = 28f;
     private const float RowHeight = 26f;
     private const float RowSpacing = 2f;
+
+    // Phase 7 — text mode
+    private const float TextRowLabelW = 190f;     // lane name + velocity readout
+
+    private enum InputMode
+    {
+        Grid,
+        Text,
+    }
 
     // -------------------------------------------------------------------------
     // Entry point
@@ -63,6 +80,17 @@ public class DrumPatternEditorWindow : EditorWindow
     [SerializeField] private int editMeasures = 2;
     [SerializeField] private int editSubdivisions = 2;  // steps per beat
 
+    /// <summary>Phase 7 — current authoring input mode. Survives domain reload within a session.</summary>
+    [SerializeField] private InputMode _inputMode = InputMode.Grid;
+
+    /// <summary>
+    /// Phase 7 — text-mode authoring buffer. One string per working lane.
+    /// Serialised so that session-level edits survive domain reload, but NEVER written into
+    /// the asset (text is a view; the asset's per-step state is canonical). On asset rebind
+    /// or new pattern this array is cleared; it is re-rendered on entry into text mode.
+    /// </summary>
+    [SerializeField] private string[] _textRows = Array.Empty<string>();
+
     // -------------------------------------------------------------------------
     // Non-serialised working state
     // -------------------------------------------------------------------------
@@ -71,13 +99,20 @@ public class DrumPatternEditorWindow : EditorWindow
     private DrumPatternData _lastBound;
 
     /// <summary>
-    /// Rows whose view mode is currently Velocity.
+    /// Rows whose view mode is currently Velocity (Grid mode only).
     /// Not serialised: resets on domain reload (acceptable — mode is authoring UI state, not asset truth).
     /// </summary>
     private readonly HashSet<int> _velocityModeRows = new HashSet<int>();
 
+    /// <summary>
+    /// Phase 7 — warnings emitted by the most recent parse or render. Cleared and rebuilt on
+    /// every parse/render call. Displayed in the warning panel at the bottom of text mode.
+    /// </summary>
+    private readonly List<DrumPatternTextWarning> _warnings = new List<DrumPatternTextWarning>();
+
     private Vector2 _mainScroll;
     private Vector2 _gridScroll;
+    private Vector2 _warningsScroll;
 
     private GUIStyle _stepOnStyle;
     private GUIStyle _stepOffStyle;
@@ -202,7 +237,7 @@ public class DrumPatternEditorWindow : EditorWindow
     }
 
     // -------------------------------------------------------------------------
-    // Lanes + grid
+    // Lanes + grid (mode-aware dispatch)
     // -------------------------------------------------------------------------
 
     private void DrawLanesAndGrid()
@@ -211,11 +246,31 @@ public class DrumPatternEditorWindow : EditorWindow
 
         EditorGUILayout.LabelField("Lanes & Steps", EditorStyles.boldLabel);
 
-        _gridScroll = EditorGUILayout.BeginScrollView(
-            _gridScroll, GUILayout.MaxHeight(420f));
+        // Phase 7 — whole-window Grid / Text tab toggle (mirrors ChordProgressionEditorWindow).
+        EditorGUI.BeginChangeCheck();
+        var newMode = (InputMode)GUILayout.Toolbar(
+            (int)_inputMode,
+            new[] { "Grid", "Text" });
+        if (EditorGUI.EndChangeCheck() && newMode != _inputMode)
+        {
+            OnInputModeChange(newMode);
+        }
 
+        EditorGUILayout.Space(2f);
+
+        if (_inputMode == InputMode.Grid)
+            DrawGridMode();
+        else
+            DrawTextMode();
+    }
+
+    private void DrawGridMode()
+    {
         int totalSteps = _working.TotalSteps;
         int stepsPerMeasure = _working.beatsPerMeasure * _working.subdivisions;
+
+        _gridScroll = EditorGUILayout.BeginScrollView(
+            _gridScroll, GUILayout.MaxHeight(420f));
 
         DrawColumnHeaders(totalSteps, stepsPerMeasure);
 
@@ -251,6 +306,120 @@ public class DrumPatternEditorWindow : EditorWindow
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Text mode (Phase 7)
+    // -------------------------------------------------------------------------
+
+    private void DrawTextMode()
+    {
+        // Compact glyph legend. The authoritative syntax lives in
+        // authoring/SSoT_Authoring_Rhythm_Patterns.md §3A.x.
+        EditorGUILayout.HelpBox(
+            "Glyphs:  . or -  rest    x  hit (lane default)    X  accent (120)    o  ghost (50)\n" +
+            "Ignored: spaces, |\n" +
+            "Length:  short rows pad with rests; long rows truncate. Warnings shown below.",
+            MessageType.Info);
+
+        EnsureTextRowsArraySize();
+
+        _gridScroll = EditorGUILayout.BeginScrollView(
+            _gridScroll, GUILayout.MaxHeight(420f));
+
+        for (int r = 0; r < _working.lanes.Count; r++)
+            DrawTextLaneRow(r);
+
+        EditorGUILayout.EndScrollView();
+
+        EditorGUILayout.Space(2f);
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (GUILayout.Button("+ Lane", GUILayout.Width(72)))
+                AddLane();
+
+            GUI.enabled = _working.lanes.Count > 1;
+            if (GUILayout.Button("− Last", GUILayout.Width(60)))
+                RemoveLastLane();
+            GUI.enabled = true;
+
+            GUILayout.FlexibleSpace();
+
+            if (GUILayout.Button("Re-render from grid", GUILayout.Width(150)))
+                RenderWorkingIntoText(); // discards any unparsed text edits in favor of current asset state
+        }
+
+        DrawWarningPanel();
+    }
+
+    /// <summary>One row in text mode: lane label + single TextField + remove button.</summary>
+    private void DrawTextLaneRow(int rowIndex)
+    {
+        var lane = _working.lanes[rowIndex];
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            // [T/V] placeholder (disabled in text mode) — keeps vertical alignment with grid mode.
+            GUI.enabled = false;
+            GUILayout.Button(
+                new GUIContent("·", "Row view mode does not apply in Text mode"),
+                GUILayout.Width(ViewModeButtonW),
+                GUILayout.Height(RowHeight));
+            GUI.enabled = true;
+
+            // Read-only lane label: instrument name + default velocity readout.
+            string label = $"{lane.instrument} (v{lane.defaultVelocity})";
+            GUILayout.Label(
+                new GUIContent(label,
+                    "Change instrument or default velocity in Grid mode."),
+                GUILayout.Width(TextRowLabelW),
+                GUILayout.Height(RowHeight));
+
+            GUILayout.Space(4f);
+
+            // The text field — full remaining width.
+            string current = (rowIndex < _textRows.Length) ? _textRows[rowIndex] ?? "" : "";
+            string updated = EditorGUILayout.TextField(
+                current,
+                GUILayout.Height(RowHeight),
+                GUILayout.ExpandWidth(true));
+            if (!ReferenceEquals(current, updated) && current != updated)
+            {
+                _textRows[rowIndex] = updated;
+            }
+
+            // Remove lane (allowed in either mode).
+            if (GUILayout.Button("✕", GUILayout.Width(22f), GUILayout.Height(RowHeight)))
+                RemoveLane(rowIndex);
+        }
+
+        GUILayout.Space(RowSpacing);
+    }
+
+    /// <summary>Bottom panel listing warnings from the most recent parse/render cycle.</summary>
+    private void DrawWarningPanel()
+    {
+        if (_warnings.Count == 0)
+        {
+            EditorGUILayout.LabelField("No warnings.", EditorStyles.miniLabel);
+            return;
+        }
+
+        EditorGUILayout.LabelField($"Warnings ({_warnings.Count})", EditorStyles.boldLabel);
+
+        _warningsScroll = EditorGUILayout.BeginScrollView(
+            _warningsScroll, GUILayout.MaxHeight(110f));
+        for (int i = 0; i < _warnings.Count; i++)
+        {
+            var w = _warnings[i];
+            EditorGUILayout.LabelField(w.ToString(), EditorStyles.miniLabel);
+        }
+        EditorGUILayout.EndScrollView();
+    }
+
+    // -------------------------------------------------------------------------
+    // Grid mode lane drawing (unchanged from Phase 6)
+    // -------------------------------------------------------------------------
 
     private void DrawColumnHeaders(int totalSteps, int stepsPerMeasure)
     {
@@ -518,10 +687,12 @@ public class DrumPatternEditorWindow : EditorWindow
         _lastBound = asset;
         _velocityModeRows.Clear(); // reset row view modes on rebind
         _firstStepX = -1f;
+        _warnings.Clear();
 
         if (asset == null)
         {
             _working = null;
+            _textRows = Array.Empty<string>();
             Repaint();
             return;
         }
@@ -534,6 +705,12 @@ public class DrumPatternEditorWindow : EditorWindow
         editMeasures = Mathf.Max(1, _working.Measures);
         editSubdivisions = Mathf.Max(1, _working.subdivisions);
 
+        // Refresh text-mode buffer if it's currently visible. Otherwise lazy-render on next entry.
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+        else
+            _textRows = Array.Empty<string>();
+
         Repaint();
     }
 
@@ -543,6 +720,7 @@ public class DrumPatternEditorWindow : EditorWindow
         _lastBound = null;
         _velocityModeRows.Clear();
         _firstStepX = -1f;
+        _warnings.Clear();
 
         _working = ScriptableObject.CreateInstance<DrumPatternData>();
         _working.name = "New Drum Pattern (unsaved)";
@@ -552,7 +730,111 @@ public class DrumPatternEditorWindow : EditorWindow
         _working.TimeSignature = editTimeSignature;
         _working.InitializeIfEmpty();
 
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+        else
+            _textRows = Array.Empty<string>();
+
         Repaint();
+    }
+
+    // -------------------------------------------------------------------------
+    // Input-mode transitions (Phase 7)
+    // -------------------------------------------------------------------------
+
+    private void OnInputModeChange(InputMode newMode)
+    {
+        if (newMode == _inputMode) return;
+
+        if (newMode == InputMode.Text)
+        {
+            // Grid → Text: render current working copy into the text buffer.
+            _inputMode = InputMode.Text;
+            RenderWorkingIntoText();
+        }
+        else
+        {
+            // Text → Grid: commit current text buffer into the working copy via per-cell diff.
+            CommitTextToWorking();
+            _inputMode = InputMode.Grid;
+            // Warnings stay visible after switching back to grid for one frame in case the
+            // commit produced parse warnings the designer should see. Cleared on next text entry.
+        }
+
+        Repaint();
+    }
+
+    /// <summary>
+    /// Parse <c>_textRows</c> into the working copy. Per-cell diff via <see cref="DrumPatternTextParser.ApplyTextEdits"/>
+    /// preserves cells whose typed glyph matches the previous render (preserving custom velocities).
+    /// Warnings are appended to <c>_warnings</c>.
+    /// </summary>
+    private void CommitTextToWorking()
+    {
+        if (_working == null) return;
+        if (_textRows == null) return;
+
+        int total = _working.TotalSteps;
+        _warnings.Clear();
+
+        int laneCount = Mathf.Min(_working.lanes.Count, _textRows.Length);
+        for (int i = 0; i < laneCount; i++)
+        {
+            var lane = _working.lanes[i];
+            var updated = DrumPatternTextParser.ApplyTextEdits(
+                previous: lane.steps,
+                input: _textRows[i] ?? string.Empty,
+                totalSteps: total,
+                laneDefaultVelocity: lane.defaultVelocity,
+                laneIndex: i,
+                warnings: _warnings);
+
+            lane.steps.Clear();
+            lane.steps.AddRange(updated);
+        }
+    }
+
+    /// <summary>
+    /// Render the working copy into <c>_textRows</c> for the text view.
+    /// Replaces any prior <c>_warnings</c> contents (warnings reflect the latest cycle only).
+    /// </summary>
+    private void RenderWorkingIntoText()
+    {
+        if (_working == null)
+        {
+            _textRows = Array.Empty<string>();
+            _warnings.Clear();
+            return;
+        }
+
+        int laneCount = _working.lanes.Count;
+        if (_textRows == null || _textRows.Length != laneCount)
+            _textRows = new string[laneCount];
+
+        int spm = Mathf.Max(1, _working.beatsPerMeasure * _working.subdivisions);
+        _warnings.Clear();
+
+        for (int i = 0; i < laneCount; i++)
+        {
+            var lane = _working.lanes[i];
+            _textRows[i] = DrumPatternTextParser.Render(
+                steps: lane.steps,
+                laneDefaultVelocity: lane.defaultVelocity,
+                laneIndex: i,
+                warnings: _warnings,
+                stepsPerMeasure: spm);
+        }
+    }
+
+    private void EnsureTextRowsArraySize()
+    {
+        if (_working == null) return;
+        int laneCount = _working.lanes.Count;
+        if (_textRows == null || _textRows.Length != laneCount)
+        {
+            // Lane count drifted (e.g. after AddLane/RemoveLane in text mode); re-render.
+            RenderWorkingIntoText();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -566,6 +848,12 @@ public class DrumPatternEditorWindow : EditorWindow
             CreateNewPattern();
             return;
         }
+
+        // Phase 7: commit any pending text edits before structural change so the typed
+        // content survives the resize. CommitTextToWorking is a no-op outside text mode
+        // (it only runs if _textRows is non-empty and the working copy is alive).
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
 
         // --- Capture old dimensions before any mutation ---
         int oldMeasures = _working.Measures;
@@ -614,6 +902,11 @@ public class DrumPatternEditorWindow : EditorWindow
         _working.SetSignature(newBeats, newMeasures, newSubs);
         _working.TimeSignature = editTimeSignature;
         _firstStepX = -1f;
+
+        // Phase 7: re-render text from the resized working copy.
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+
         Repaint();
     }
 
@@ -626,6 +919,10 @@ public class DrumPatternEditorWindow : EditorWindow
         if (_working == null) return;
         _working.lanes ??= new List<DrumPatternData.Lane>();
 
+        // Phase 7: commit text first so the user's in-flight typing isn't lost.
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
+
         _working.lanes.Add(new DrumPatternData.Lane
         {
             instrument = GuessNextInstrument(),
@@ -633,15 +930,27 @@ public class DrumPatternEditorWindow : EditorWindow
             steps = new List<DrumPatternData.StepState>(
                 new DrumPatternData.StepState[_working.TotalSteps])
         });
+
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+
         Repaint();
     }
 
     private void RemoveLastLane()
     {
         if (_working?.lanes == null || _working.lanes.Count == 0) return;
+
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
+
         int last = _working.lanes.Count - 1;
         _velocityModeRows.Remove(last);
         _working.lanes.RemoveAt(last);
+
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+
         Repaint();
     }
 
@@ -649,6 +958,10 @@ public class DrumPatternEditorWindow : EditorWindow
     {
         if (_working?.lanes == null) return;
         if (index < 0 || index >= _working.lanes.Count) return;
+
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
+
         _velocityModeRows.Remove(index);
         // Remap velocity-mode rows above the removed index
         var above = new List<int>();
@@ -660,6 +973,10 @@ public class DrumPatternEditorWindow : EditorWindow
             _velocityModeRows.Add(r - 1);
         }
         _working.lanes.RemoveAt(index);
+
+        if (_inputMode == InputMode.Text)
+            RenderWorkingIntoText();
+
         Repaint();
     }
 
@@ -698,6 +1015,10 @@ public class DrumPatternEditorWindow : EditorWindow
     {
         if (targetAsset == null || _working == null) return;
 
+        // Phase 7: parse-from-text first so text-mode edits land in the asset.
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
+
         Undo.RecordObject(targetAsset, "Drum Pattern Editor: Apply");
         CopyWorkingInto(targetAsset);
         EditorUtility.SetDirty(targetAsset);
@@ -710,6 +1031,10 @@ public class DrumPatternEditorWindow : EditorWindow
     private void SaveAsNewAsset()
     {
         if (_working == null) return;
+
+        // Phase 7: parse-from-text first so text-mode edits land in the asset.
+        if (_inputMode == InputMode.Text)
+            CommitTextToWorking();
 
         Directory.CreateDirectory(DefaultSaveFolder);
         AssetDatabase.Refresh();

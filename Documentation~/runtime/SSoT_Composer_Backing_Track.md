@@ -54,7 +54,70 @@ A concrete backing bundle may be injected by a consuming game, but the package-l
 - runtime consumes backing-oriented data through package-owned inputs and bundle abstractions,
 - game-specific card semantics do not redefine backing composer theory.
 
-## 6. Update triggers
+## 6. Directional modulation hint (one-shot transient)
+
+The composer honors a one-shot directional hint for the first chord of a render
+when the consuming project (typically a `PartEffect` such as ALWTTT's
+`ModulationEffect`) sets two transient fields on `PartConfig` before the part
+is rendered:
+
+- `PartConfig.ModulationOctaveHint : MidiGenPlay.Composition.ModulationOctaveHint`
+- `PartConfig.PreviousRootNote : NoteName?`
+
+Default behavior:
+
+- `ModulationOctaveHint.Auto` (the enum default) plus `PreviousRootNote == null`
+  preserves prior behavior bit-identically.
+- The composer captures both fields at the start of `Compose` and clears them
+  immediately so the hint is consumed exactly once per render, regardless of
+  which internal render path runs.
+
+When the hint is `Up` or `Down` and a previous root is provided, the composer
+overrides the first chord of the render as follows:
+
+1. The first chord is realized as an ascending root-position stack — inversions
+   and Drop-2 are skipped for this chord only.
+2. The root octave is chosen as the lowest octave whose root pitch is strictly
+   above the previous root (`Up`) or the highest octave whose root pitch is
+   strictly below (`Down`). The previous root is anchored at the instrument's
+   central octave for the comparison.
+3. Chords 2..N continue normal voice leading from the constrained first chord.
+   The directional bias is not propagated.
+
+### 6.1 Range-limit fallback
+
+If no octave within the instrument's playable range satisfies the strict
+direction, the composer clamps the first-chord root octave to the boundary on
+the requested side (top for `Up`, bottom for `Down`) and emits a warning when
+`MidiGenPlayConfig.logGenerator` is enabled. The pitch class still changes, so
+the modulation is still audible; the directional "lift" is weakened.
+
+### 6.2 Edge case — degree=1 with `Up` or `Down`
+
+If a modulation resolves to the same root note as the previous tonic (for
+example `targetDegree == Tonic`) while a non-`Auto` hint is set, the composer
+treats this as a deliberate request to bump the register: `Up` lands the first
+chord one octave above the previous root anchor (clamped per §6.1); `Down`
+lands one octave below. This is preferred over a no-op so that an authored
+"Up" request always produces audible motion in the requested direction.
+
+### 6.3 Determinism
+
+The hint is part of the input set. Given the same `SongConfig` (including the
+transients at the moment of `Compose` entry) and the same seed, the output is
+deterministic. Because the transients are cleared on entry, a second call with
+no new modulation request behaves as `Auto` automatically.
+
+### 6.4 Boundary
+
+The two transient fields are package-defined and live on `PartConfig`
+(`runtime/SSoT_Runtime_Song_Model_and_Config.md §1.1`). The enum
+`ModulationOctaveHint` is package-owned
+(`Runtime/CoreScripts/Composition/Data/ModulationOctaveHint.cs`). Consumers
+(such as an ALWTTT `ModulationEffect`) write to the transients; the package
+consumes them. No consumer is required to use this surface.
+
+## 7. Update triggers
 
 Update this SSoT when:
 

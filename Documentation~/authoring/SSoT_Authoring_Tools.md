@@ -53,9 +53,9 @@ The original package reference implementation. Demonstrates:
 
 #### `DrumPatternEditorWindow`
 
-The dedicated rhythm authoring entry point, implemented in Phase 5 and extended in Phase 6.
-Follows the same architectural pattern as `ChordProgressionEditorWindow`, adapted for
-row-based drum pattern editing.
+The dedicated rhythm authoring entry point, implemented in Phase 5 and extended in
+Phases 6 and 7. Follows the same architectural pattern as
+`ChordProgressionEditorWindow`, adapted for row-based drum pattern editing.
 
 Capabilities:
 
@@ -66,9 +66,16 @@ Capabilities:
 - lane management and instrument selection per lane
 - default velocity per lane via inline int field
 - step toggle grid with visual bar boundaries
-- row-local `[T]` / `[V]` mode toggle per lane:
+- row-local `[T]` / `[V]` mode toggle per lane (Grid mode only):
   - **Trigger mode** (`[T]`, default): boolean step on/off, preserves per-step velocity on toggle-off
   - **Velocity mode** (`[V]`): per-step int fields; `[clr]` resets overrides to 0 (defer to lane default)
+- whole-window **Grid / Text** tab toggle at the top of the lane area (Phase 7):
+  - **Grid** (default): the row-based authoring surface described above
+  - **Text**: one drum-machine glyph string per lane; parsed on tab-switch and on
+    Apply / SaveAs; per-cell diff preserves non-canonical per-step velocity for
+    cells whose typed glyph hasn't changed
+  - Syntax authority: `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A
+    "Text mode (Phase 7)"
 - safe signature normalize/rebuild (resizes lane step arrays without data loss where possible)
 - Apply To Asset and Save As New Asset flows
 
@@ -78,6 +85,11 @@ Current limitations (known, not blocking):
 - style textures created on first draw are not explicitly cleaned up on window close (low risk for editor windows)
 - unsaved new patterns are lost on domain reload if no asset is assigned
 - row view mode (`[T]`/`[V]`) is editor UI state only — not persisted in the asset, resets on domain reload or asset rebind
+- text-mode input buffer (`_textRows`) is editor UI state only — not persisted in
+  the asset; survives domain reload within the session, cleared on asset rebind
+- text-mode is lossy on render when per-step velocities fall outside the three
+  glyph tiers (default / accent / ghost); the asset value remains canonical
+  until the user explicitly types a different glyph in that cell
 
 ### B. Legacy runtime-scene MVP panel
 
@@ -102,6 +114,7 @@ The package also contains smaller editor/tooling components such as:
 - dropdown drawers
 - asset-specific custom editors
 - repository/store abstractions for pattern/config assets
+- pure-function authoring helpers (e.g. `MidiGenPlay.Authoring.DrumPatternTextParser`)
 
 These are reusable building blocks available for future editor work, including Phase 8
 persistence cleanup.
@@ -131,6 +144,7 @@ It currently supports:
 - lane/instrument editing
 - step on/off editing (trigger mode)
 - row-local velocity editing (velocity mode) with `[T]`/`[V]` toggle per lane
+- whole-window Grid / Text tab toggle with per-lane text DSL authoring (Phase 7)
 - `TimeSignature`-driven signature control
 - measure and subdivision control
 - safe normalize/rebuild on signature change
@@ -145,11 +159,18 @@ but the current runtime (`ComposeFromGrid`) still consumes via `SnapshotAsIndice
 which returns lane default velocity for all active steps. Closing this gap is a
 deferred runtime decision (see `runtime/SSoT_Composer_Rhythm_Track.md` Section 3B).
 
-## 6. Next rhythm tooling target (Phase 7)
+## 6. Next rhythm tooling target (Phase 8)
 
-Text / DSL mode for rhythm authoring — fast textual lane sketching that parses into
-the canonical grid/lane model without discarding it.
-This is planning, not current truth. See `planning/active/Roadmap_Rhythm_Authoring_MVP.md`.
+Package store / repository persistence integration for `DrumPatternEditorWindow`.
+
+`DrumPatternEditorWindow` currently saves through direct `AssetDatabase` /
+`EditorUtility` calls with a hardcoded default folder. The codebase already
+contains `IPatternRepository` (in `Runtime/CoreScripts/Interfaces/`) and
+`PatternRepositoryResources` (in `Runtime/CoreScripts/Services/`) that should be
+the canonical write/read path.
+
+This is planning, not current truth. See
+`planning/active/Roadmap_Rhythm_Authoring_MVP.md` Phase 8.
 
 ## 7. Data-model note
 
@@ -171,8 +192,8 @@ For the rhythm subsystem, current package sequencing is:
 
 1. ~~authoring clarity and editor/tool consolidation~~ — done (Phases 4–5)
 2. ~~row-local velocity view and data-model extension~~ — done (Phase 6)
-3. text/DSL mode for rhythm authoring (Phase 7, optional for first dedicated editor release)
-4. persistence/repository cleanup (Phase 8)
+3. ~~text/DSL mode for rhythm authoring~~ — done (Phase 7)
+4. persistence/repository cleanup (Phase 8, next active)
 5. phrasing / feel semantic enrichment (Phase 9)
 
 ## 10. Update triggers
@@ -185,3 +206,5 @@ Update this SSoT when:
 - the save/preview/normalize model changes
 - `RhythmPatternPanelController` is formally deprecated
 - the runtime consumption of per-step velocity is closed (update asset-truth vs runtime-consumption gap note)
+- the package adds a new test assembly (cross-reference
+  `reference/package/Tests_Authoring_HowTo.md`)

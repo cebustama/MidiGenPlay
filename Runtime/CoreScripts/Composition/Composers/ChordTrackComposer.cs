@@ -43,11 +43,24 @@ namespace MidiGenPlay.Composition
             public int barsRemaining;
         }
 
-        public ChordTrackComposer(MidiGenPlayConfig settings, IChordVoicer voicer)
+        // MGP-ALWTTT-MOD-DIR-1.1: optional cross-render memory hooks supplied by
+        // ChordTrackComposerFactory. The composer itself is stateless and lives
+        // for one Compose call; the factory holds the dictionary keyed by
+        // (part.Name, trackCfg.MusicianId) and injects/collects values via these.
+        private readonly int? _previousFirstChordPitch;
+        private readonly Action<int> _reportFirstChordPitch;
+
+        public ChordTrackComposer(
+            MidiGenPlayConfig settings,
+            IChordVoicer voicer,
+            int? previousFirstChordPitch = null,
+            Action<int> reportFirstChordPitch = null)
         {
             _settings = settings;
             _voicer = voicer;
             _vl = settings != null ? settings.voiceLeading : null;
+            _previousFirstChordPitch = previousFirstChordPitch;
+            _reportFirstChordPitch = reportFirstChordPitch;
         }
 
 
@@ -189,6 +202,14 @@ namespace MidiGenPlay.Composition
         {
             var instrument = (MIDIInstrumentSO)cfg.Instrument;
 
+            // One-shot modulation-direction hint: snapshot and immediately clear from
+            // PartConfig so it is consumed exactly once regardless of which render path
+            // runs below. Default Auto + null previous root => no-op (current behavior).
+            var modulationHint = part.ModulationOctaveHint;
+            var previousRoot = part.PreviousRootNote;
+            part.ModulationOctaveHint = ModulationOctaveHint.Auto;
+            part.PreviousRootNote = null;
+
             // 0) Resolve card style (BackingCardConfigSO) from TrackParameters.Style
             var backingStyle = cfg.Parameters?.Style as BackingCardConfigSO;
             var effectiveVL = backingStyle?.voiceLeadingOverride ?? _vl;
@@ -312,7 +333,8 @@ namespace MidiGenPlay.Composition
             {
                 if (_settings?.logGenerator == true)
                     Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
-                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL);
+                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL,
+                         modulationHint, previousRoot);
             }
 
             // Grid info
@@ -368,20 +390,42 @@ namespace MidiGenPlay.Composition
             for (int repeat = 0; repeat < numRepeats; repeat++)
             {
                 int repeatStepOffset = repeat * patternTotalSteps;
+                bool repeatIsFirst = (repeat == 0);
+                int eventIndex = 0;
 
                 foreach (var e in prog.events)
                 {
                     var degreeRoot = scaleNames[(int)e.degree];
-
-                    // Apply accidental from progression event
                     degreeRoot = TransposeNoteName(degreeRoot, e.degreeAccidental);
-
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
-                    var playable =
-                        (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
-                        : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
+                    // First chord of the render: directional override if requested.
+                    IReadOnlyList<DryWetMidiNote> playable = null;
+                    bool isFirstChord = repeatIsFirst && (eventIndex == 0);
+                    if (isFirstChord)
+                    {
+                        playable = TryDirectionalFirstChord(
+                            chordPcs, degreeRoot, instrument,
+                            modulationHint, previousRoot,
+                            _previousFirstChordPitch, _settings);
+                    }
+
+                    if (playable == null)
+                    {
+                        playable =
+                            (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
+                            : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
+                    }
+
+                    // MGP-ALWTTT-MOD-DIR-1.1: stash the actual first-chord root pitch
+                    // so the factory's per-track memory anchors the NEXT render. Runs
+                    // unconditionally for the first chord, whichever branch produced it.
+                    if (isFirstChord && _reportFirstChordPitch != null)
+                    {
+                        int rootPitch = FindLowestRootPitch(playable, degreeRoot);
+                        if (rootPitch != int.MinValue) _reportFirstChordPitch(rootPitch);
+                    }
 
                     lastVoicing = playable;
 
@@ -404,6 +448,7 @@ namespace MidiGenPlay.Composition
                     pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
+                    eventIndex++;
                 }
             }
 
@@ -449,7 +494,9 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig.TrackConfig cfg,
             MidiGenerator.GenContext ctx,
             int channel,
-            VoiceLeadingConfig vlOverride)
+            VoiceLeadingConfig vlOverride,
+            ModulationOctaveHint modulationHint,
+            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -470,7 +517,8 @@ namespace MidiGenPlay.Composition
             }
 
             // Render using the same path as authored progressions
-            return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride);
+            return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride,
+                                 modulationHint, previousRoot);
         }
 
         /// <summary>
@@ -1076,7 +1124,9 @@ namespace MidiGenPlay.Composition
             ChordProgressionData prog,
             int channel,
             MidiGenerator.GenContext ctx,
-            VoiceLeadingConfig vlOverride)
+            VoiceLeadingConfig vlOverride,
+            ModulationOctaveHint modulationHint,
+            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot)
         {
             // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
             // reproject to a runtime clone before rendering.
@@ -1109,16 +1159,38 @@ namespace MidiGenPlay.Composition
             for (int repeat = 0; repeat < numRepeats; repeat++)
             {
                 int repeatStepOffset = repeat * patternTotalSteps;
+                bool repeatIsFirst = (repeat == 0);
+                int eventIndex = 0;
 
                 foreach (var e in prog.events)
                 {
                     var degreeRoot = scaleNames[(int)e.degree];
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
-                    var playable =
-                        (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                        ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
-                        : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
+                    IReadOnlyList<DryWetMidiNote> playable = null;
+                    bool isFirstChord = repeatIsFirst && (eventIndex == 0);
+                    if (isFirstChord)
+                    {
+                        playable = TryDirectionalFirstChord(
+                            chordPcs, degreeRoot, instrument,
+                            modulationHint, previousRoot,
+                            _previousFirstChordPitch, _settings);
+                    }
+
+                    if (playable == null)
+                    {
+                        playable =
+                            (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
+                            : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
+                    }
+
+                    // MGP-ALWTTT-MOD-DIR-1.1: same stash hook as the inline render path.
+                    if (isFirstChord && _reportFirstChordPitch != null)
+                    {
+                        int rootPitch = FindLowestRootPitch(playable, degreeRoot);
+                        if (rootPitch != int.MinValue) _reportFirstChordPitch(rootPitch);
+                    }
 
                     lastVoicing = playable;
 
@@ -1138,6 +1210,7 @@ namespace MidiGenPlay.Composition
                     pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
+                    eventIndex++;
                 }
             }
 
@@ -1440,5 +1513,166 @@ namespace MidiGenPlay.Composition
             int idx = rng.Next(allowed.Count);
             return allowed[idx];
         }
+
+        // ---------------------------------------------------------------------
+        // Modulation directional first-chord override
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// If a modulation direction hint is set and a previous tonic is known,
+        /// realizes the first chord as a root-position stack whose ROOT pitch
+        /// is strictly above (Up) or strictly below (Down) the previous root.
+        /// Returns null when the hint is Auto, when no previous root is known,
+        /// or when inputs are degenerate (caller should then fall back to the
+        /// normal voicer / simple realization).
+        ///
+        /// Range-limit fallback (R-A): if no octave within the instrument range
+        /// satisfies the strict direction, clamps to the boundary octave on the
+        /// requested side and logs a warning when logGenerator is enabled.
+        /// </summary>
+        private static IReadOnlyList<DryWetMidiNote> TryDirectionalFirstChord(
+            NoteName[] firstChordPcs,
+            NoteName firstChordRoot,
+            MIDIInstrumentSO inst,
+            ModulationOctaveHint hint,
+            NoteName? previousRoot,
+            int? previousFirstChordPitch,
+            MidiGenPlayConfig settings)
+        {
+            if (hint == ModulationOctaveHint.Auto) return null;
+            if (!previousRoot.HasValue) return null;
+            if (firstChordPcs == null || firstChordPcs.Length == 0) return null;
+            if (inst == null) return null;
+
+            int minOct = inst.octaveMin - 1;
+            int maxOct = inst.octaveMax - 1;
+            return TryDirectionalFirstChordCore(
+                firstChordPcs, firstChordRoot, minOct, maxOct,
+                hint, previousRoot.Value, previousFirstChordPitch, settings);
+        }
+
+        /// <summary>
+        /// Internal test seam for the directional first-chord helper. Same semantics
+        /// as <see cref="TryDirectionalFirstChord"/> but takes octave range directly
+        /// so unit tests don't need a <c>MIDIInstrumentSO</c> ScriptableObject. Not
+        /// part of the public API.
+        /// </summary>
+        public static IReadOnlyList<DryWetMidiNote> TryDirectionalFirstChordCore(
+            NoteName[] firstChordPcs,
+            NoteName firstChordRoot,
+            int minOct,
+            int maxOct,
+            ModulationOctaveHint hint,
+            NoteName previousRoot,
+            int? previousFirstChordPitch,
+            MidiGenPlayConfig settings)
+        {
+            // Defensive: Core's contract mirrors the public adapter. Auto always
+            // returns null so callers fall back to the standard voicer; SM-DIR-3
+            // regression depends on this short-circuit.
+            if (hint == ModulationOctaveHint.Auto) return null;
+            if (firstChordPcs == null || firstChordPcs.Length == 0) return null;
+            if (maxOct < minOct) return null;
+
+            int centerOct = (minOct + maxOct) / 2;
+
+            // MGP-ALWTTT-MOD-DIR-1.1: prefer the actual previous first-chord root
+            // pitch (supplied by the factory's per-track memory). Cold start with
+            // no remembered pitch falls back to the centerOct heuristic, which is
+            // bit-identical to pre-1.1 behavior so SM-DIR-3 regression is unaffected.
+            bool usedRememberedPitch = previousFirstChordPitch.HasValue;
+            int prevPitch = usedRememberedPitch
+                ? previousFirstChordPitch.Value
+                : MidiPitch(previousRoot, centerOct);
+
+            int? chosenOct = null;
+            if (hint == ModulationOctaveHint.Up)
+            {
+                for (int o = minOct; o <= maxOct; o++)
+                    if (MidiPitch(firstChordRoot, o) > prevPitch) { chosenOct = o; break; }
+            }
+            else // Down
+            {
+                for (int o = maxOct; o >= minOct; o--)
+                    if (MidiPitch(firstChordRoot, o) < prevPitch) { chosenOct = o; break; }
+            }
+
+            bool clampedFallback = !chosenOct.HasValue;
+            int finalOct = chosenOct ?? (hint == ModulationOctaveHint.Up ? maxOct : minOct);
+
+            if (settings != null && settings.logGenerator)
+            {
+                Debug.Log(
+                    $"[ChordTrackComposer/Mod-DIR] hint={hint} " +
+                    $"prevRoot={previousRoot} newRoot={firstChordRoot} " +
+                    $"range=[{minOct}..{maxOct}] centerOct={centerOct} " +
+                    $"prevPitch={prevPitch} " +
+                    $"anchor={(usedRememberedPitch ? "remembered" : "centerOct-fallback")} " +
+                    $"chosenOct={(chosenOct.HasValue ? chosenOct.Value.ToString() : "(none)")} " +
+                    $"finalOct={finalOct} clampedFallback={clampedFallback}");
+            }
+
+            if (clampedFallback && settings != null && settings.logGenerator)
+            {
+                Debug.LogWarning(
+                    $"[ChordTrackComposer] Modulation hint {hint} could not be satisfied " +
+                    $"strictly within instrument range [{minOct}..{maxOct}] for root " +
+                    $"{firstChordRoot} vs previous pitch {prevPitch}. " +
+                    $"Clamping first-chord octave to {finalOct}.");
+            }
+
+            return BuildRootPositionStack(firstChordPcs, finalOct, minOct, maxOct);
+        }
+
+        /// <summary>Builds an ascending root-position chord stack starting at rootOctave,
+        /// bumping octave whenever a successive PC would not advance upward. Clamped to range.</summary>
+        private static IReadOnlyList<DryWetMidiNote> BuildRootPositionStack(
+            NoteName[] pcs, int rootOctave, int minOct, int maxOct)
+        {
+            var result = new DryWetMidiNote[pcs.Length];
+            int prevPitch = int.MinValue;
+            int curOct = rootOctave;
+
+            for (int i = 0; i < pcs.Length; i++)
+            {
+                int p = MidiPitch(pcs[i], curOct);
+                if (i > 0 && p <= prevPitch)
+                {
+                    curOct++;
+                    p = MidiPitch(pcs[i], curOct);
+                }
+                int clampedOct = Mathf.Clamp(curOct, minOct, maxOct);
+                result[i] = DryWetMidiNote.Get(pcs[i], clampedOct);
+                prevPitch = p;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the MIDI pitch of the lowest note in <paramref name="voicing"/>
+        /// whose pitch class equals <paramref name="rootNoteName"/>. Used by
+        /// MGP-ALWTTT-MOD-DIR-1.1 to capture the actual first-chord root pitch for
+        /// the factory's per-track memory, regardless of inversion or Drop-2.
+        /// Returns <c>int.MinValue</c> if the root note is not present in the
+        /// voicing (theoretically possible with extreme rootless voicings; the
+        /// caller treats this as "skip the stash").
+        /// </summary>
+        private static int FindLowestRootPitch(
+            IReadOnlyList<DryWetMidiNote> voicing, NoteName rootNoteName)
+        {
+            if (voicing == null || voicing.Count == 0) return int.MinValue;
+            int best = int.MaxValue;
+            for (int i = 0; i < voicing.Count; i++)
+            {
+                var n = voicing[i];
+                if (n.NoteName != rootNoteName) continue;
+                int p = MidiPitch(n.NoteName, n.Octave);
+                if (p < best) best = p;
+            }
+            return best == int.MaxValue ? int.MinValue : best;
+        }
+
+        /// <summary>MIDI pitch number for a (NoteName, octave). Mirrors DryWetMidi convention: C4 = 60.</summary>
+        public static int MidiPitch(NoteName nn, int octave) => (octave + 1) * 12 + (int)nn;
     }
 }

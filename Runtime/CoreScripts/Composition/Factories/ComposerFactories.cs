@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
@@ -32,11 +33,27 @@ namespace MidiGenPlay.Composition
     /// Currently always returns the same ChordTrackComposer, which will either:
     /// - render an authored ChordProgressionData if provided
     /// - or build procedural modal chords and cache them in ctx for other tracks.
+    ///
+    /// MGP-ALWTTT-MOD-DIR-1.1: the factory owns per-track memory of the actual
+    /// first-chord root pitch from the previous render, keyed by
+    /// (part.Name, trackCfg.MusicianId). This memory anchors the directional
+    /// modulation hint on the next render. The composer itself is stateless and
+    /// is rebuilt per render; the factory's lifetime matches MidiGenerator's
+    /// (scene-lifetime singleton). Cold-start (no entry) falls back to the
+    /// previous centerOct heuristic, so default Auto behavior is bit-identical
+    /// to pre-1.1.
     /// </summary>
     public sealed class ChordTrackComposerFactory : ITrackComposerFactory
     {
         private readonly MidiGenPlayConfig _settings;
         private readonly IChordVoicer _voicer;
+
+        // MGP-ALWTTT-MOD-DIR-1.1: per-track memory of last first-chord root pitch.
+        // Keyed on stable identity fields because SongConfig is rebuilt per render
+        // by CompositionSession.BuildSongConfigFromUI -> SongConfigBuilder.FromUI,
+        // so PartConfig / TrackConfig object references are NOT stable across loops.
+        private readonly Dictionary<(string partName, string musicianId), int>
+            _lastFirstChordPitch = new Dictionary<(string, string), int>();
 
         public ChordTrackComposerFactory(
             MidiGenPlayConfig settings,
@@ -51,7 +68,25 @@ namespace MidiGenPlay.Composition
             SongConfig.PartConfig.TrackConfig trackCfg,
             MidiGenerator.GenContext ctx)
         {
-            return new ChordTrackComposer(_settings, _voicer);
+            // Memory key derived from stable identity fields, NOT object references.
+            // If either identifier is missing, the track is misconfigured for memory
+            // purposes; we skip the lookup/stash and let the composer fall back to
+            // the centerOct anchor (cold-start behavior).
+            string partName = part?.Name;
+            string musicianId = trackCfg?.MusicianId;
+            bool keyValid = !string.IsNullOrEmpty(partName) && !string.IsNullOrEmpty(musicianId);
+
+            int? remembered = null;
+            Action<int> reportBack = null;
+
+            if (keyValid)
+            {
+                var key = (partName, musicianId);
+                if (_lastFirstChordPitch.TryGetValue(key, out var p)) remembered = p;
+                reportBack = pitch => _lastFirstChordPitch[key] = pitch;
+            }
+
+            return new ChordTrackComposer(_settings, _voicer, remembered, reportBack);
         }
     }
 
@@ -110,7 +145,7 @@ namespace MidiGenPlay.Composition
             // --- 3. Debug trace so we can see what's happening in play mode ---
             if (_settings != null && _settings.logGenerator)
             {
-                Debug.Log($"<color=yellow>"+
+                Debug.Log($"<color=yellow>" +
                     $"[Factory/Melody] part='{part?.Name}' mus={trackCfg?.MusicianId} " +
                     $"role={trackCfg?.Role} " +
                     $"cfg='{finalMelConfig?.name ?? "null"}' " +

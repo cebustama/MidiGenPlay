@@ -25,6 +25,7 @@
 |   |   \---SSoT_Authoring_Tools.md
 |   +---planning
 |   |   +---active
+|   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
 |   |   |   +---Roadmap_Documentation_Migration.md
 |   |   |   +---Roadmap_Melody_Authoring_MVP.md
@@ -99,6 +100,7 @@
 |   |   |   |   +---MelodicLeadingConfig.cs
 |   |   |   |   +---MelodicStyleSO.cs
 |   |   |   |   +---MelodyCardConfigSO.cs
+|   |   |   |   +---ModulationOctaveHint.cs
 |   |   |   |   +---RhythmCardConfigSO.cs
 |   |   |   |   +---TrackStyleBundleSO.cs
 |   |   |   |   \---VoiceLeadingConfig.cs

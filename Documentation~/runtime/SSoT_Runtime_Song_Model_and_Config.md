@@ -34,6 +34,31 @@ Each `TrackConfig` contains:
 - performer/channel/instrument identity
 - `TrackParameters`
 
+## 1.1 Transient one-shot composer hints on `PartConfig`
+
+`PartConfig` carries a small set of transient, one-shot composer hints in
+addition to its serialized song-state fields. These hints are:
+
+- not serialized,
+- not part of persisted song state,
+- written by upstream effects (such as a `PartEffect` in a consuming project)
+  immediately before a render,
+- consumed by the relevant composer on entry and cleared in the same call so
+  they apply to exactly one render.
+
+The canonical example is the directional modulation hint consumed by
+`ChordTrackComposer`:
+
+- `PartConfig.PreviousRootNote : NoteName?`
+- `PartConfig.ModulationOctaveHint : MidiGenPlay.Composition.ModulationOctaveHint`
+
+Composer-side behavior is defined in `runtime/SSoT_Composer_Backing_Track.md §6`.
+
+Determinism contract: because these transients are inputs visible at the moment
+of composer entry, the deterministic-under-seed contract is preserved. A
+consumer that writes the transients deterministically before each render sees
+deterministic output; a consumer that omits them sees default behavior.
+
 ## 2. `TrackParameters` is the runtime extension surface
 
 `TrackParameters` is the package-owned cross-role input surface for extra generation data.
@@ -104,3 +129,4 @@ Update this SSoT when any of the following change:
 - `TrackParameters` meaning
 - `SongConfigManager` responsibilities or event model
 - runtime ownership of part/track state
+- transient one-shot composer hints on `PartConfig` (add, remove, or change semantics)
