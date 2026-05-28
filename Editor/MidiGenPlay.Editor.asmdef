@@ -2,7 +2,8 @@
     "name": "MidiGenPlay.Editor",
     "rootNamespace": "",
     "references": [
-        "GUID:8f00048765bdf2d47b875bfa15add4b7"
+        "GUID:8f00048765bdf2d47b875bfa15add4b7",
+        "BCS.LLM.Core.Runtime"
     ],
     "includePlatforms": [
         "Editor"

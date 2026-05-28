@@ -1,113 +1,51 @@
 # changelog-ssot
 
+## 2026-05-28 — LLM Authoring Batch L3: smoke-test sign-off + governance close
 
-## 2026-05-22 — MGP-ALWTTT-MOD-DIR-1: directional modulation hint for ChordTrackComposer
-
-## 2026-05-22 — Phase 7 complete: text/DSL authoring mode for DrumPatternEditorWindow
+Closes the LLM-Assisted Authoring MVP (Batches L1–L3). No runtime behavior
+changed; the determinism invariant is untouched (LLM is authoring-side; the
+asset is the seam).
 
 ### Added
-- `Editor/DrumPatternTextParser.cs` (namespace `MidiGenPlay.Authoring`) —
-  pure-function parser/renderer between a single lane's `List<StepState>` and a
-  compact drum-machine glyph string. Public API: `Parse`, `ApplyTextEdits`,
-  `Render`. Constants `AccentVelocity = 120` and `GhostVelocity = 50` are
-  parser-level v1 constants; per-lane configurability is the v2 plan.
-- `Editor/DrumPatternTextWarning.cs` (same namespace) —
-  `DrumPatternTextWarningKind` enum (`UnknownGlyph`, `LengthShort`, `LengthLong`,
-  `VelocitySnappedToTier`) and the readonly-struct entry shape consumed by the
-  editor's warning panel.
-- `Tests/Editor/MidiGenPlay.Tests.Editor.asmdef` — new editor-only test assembly
-  with `UnityEngine.TestRunner` + `UnityEditor.TestRunner` + package asmdef
-  references and `nunit.framework.dll` precompiled reference. `defineConstraints`
-  left empty (see Notes).
-- `Tests/Editor/DrumPatternTextParserTests.cs` — 13 EditMode tests covering SMR1
-  (alternation), SMR2 (glyph→velocity mapping), SMR4 (short pad + warn), SMR5
-  (unknown glyph + warn), plus render snap, render bar-separators, ignored-char
-  handling, dash-rest equivalence, and per-cell-diff round-trip preservation.
-- `package.json` — `"testables": ["MidiGenPlay.Tests.Editor"]` added at root.
+- `Documentation~/authoring/SSoT_Authoring_LLM_Generation.md` — **new primary
+  SSoT** for LLM-assisted authoring, written as a replicable pattern: the
+  seven-stage pipeline (vocabulary SO → pure prompt builder → generator wrapper
+  → pure importer → alias dictionary → async response handler → editor wiring),
+  six contracts (asset-as-seam, non-blocking async, no silent fallback,
+  CRLF-safe parsing, working-copy/apply, pre-network cost cap), and a
+  failure-handling table. Registered in `ssot_manifest.yaml` under `ssots`.
+- `Editor/FakeLLMClient.cs` (Tests) — deterministic `ILLMClient` test double
+  for the SMR-L5 path (D-L3.2), with a `WasCalled` guard against vacuous passes.
+- `Tests/Editor/DrumPatternLLMGeneratorTests.cs` — 6 EditMode tests over the
+  generator async path (invalid glyphs → located parser warnings; no-fence
+  fail; lane-count mismatch; valid-via-fake control; null-client guard). All
+  payloads use CRLF to guard the L2 split regression.
 
 ### Modified
-- `Editor/DrumPatternEditorWindow.cs`
-  - Whole-window Grid / Text tab toolbar at the top of `DrawLanesAndGrid`,
-    mirroring `ChordProgressionEditorWindow`.
-  - Text-mode lane row: disabled `[T]/[V]` placeholder, read-only
-    "Instrument (vNNN)" label, single-line text field per lane, per-row `✕`.
-  - HelpBox glyph legend at the top of the text pane; warning panel below
-    the lane rows.
-  - New helpers `OnInputModeChange`, `CommitTextToWorking`, `RenderWorkingIntoText`,
-    `EnsureTextRowsArraySize`. `ApplySignatureToWorking`, `AddLane`, `RemoveLane`,
-    `RemoveLastLane`, `ApplyToAsset`, `SaveAsNewAsset`, `BindAsset`,
-    `CreateNewPattern` updated to commit-text-first / mutate-working /
-    re-render-text where applicable.
-  - `[SerializeField] _inputMode` and `[SerializeField] _textRows` survive
-    domain reload within the session; neither is ever written into the asset.
+- `Editor/DrumPatternEditorWindow.cs` — cost-cap UI (D-L3.1): new per-window
+  `Max prompt chars (budget)` field (default 4000, 0 = off) passed into
+  `DrumPatternLLMPromptBuilder.Input.maxCharBudget`. The budget is checked
+  pre-network in the builder; over-budget prompts are refused without spending
+  and the reason surfaces through the existing warning panel (SMR-L3).
+- `Documentation~/coverage-matrix.md` — "LLM-assisted authoring" primary home
+  flipped from `Roadmap_LLM_Authoring_MVP.md` to the new SSoT; flip note moved
+  to past tense.
+- `Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md` — new §3A
+  subsection "LLM-assisted generation" pointing at the new SSoT for the
+  contract and the roadmap for L1–L3 history.
+- `Documentation~/authoring/SSoT_Authoring_Tools.md` — `DrumPatternEditorWindow`
+  capability list gains "LLM-assisted generation" with authority pointer.
+- `Documentation~/CURRENT_STATE.md` — LLM Authoring MVP marked completed; L4
+  promoted to active; blocked/next lists updated.
+- `Documentation~/planning/active/Roadmap_LLM_Authoring_MVP.md` — Batch L3 marked
+  CLOSED with closure note; roadmap is now the secondary L1–L3 historical record.
 
-### Behavior
-- Parse on tab-switch (Text → Grid) and on Apply / SaveAs. Per-cell diff via
-  `ApplyTextEdits` preserves the exact previous `StepState` (including
-  non-canonical per-step velocity) for any cell whose typed glyph matches what
-  the lane currently renders as.
-- Lossy-render: a step whose velocity does not match `defaultVelocity`,
-  `AccentVelocity`, or `GhostVelocity` is rendered as the nearest tier glyph
-  with a `VelocitySnappedToTier` warning. The asset's per-step velocity
-  remains canonical until the user types a different glyph in that cell.
-- Determinism: parser is pure and deterministic; same input → same output.
-- Asset model unchanged: `DrumPatternData`, `StepState`, lane structure, and
-  the working-copy / apply / save-as contract are untouched.
+### Authority
+- LLM-assisted authoring is now SSoT-primary, not roadmap-primary. Per-tool DSL
+  grammar and asset details remain in the relevant per-tool authoring SSoT; the
+  new SSoT governs the cross-cutting pattern.
 
-### Authority changes
-- `authoring/SSoT_Authoring_Rhythm_Patterns.md` — new §3A subsection
-  "Text mode (Phase 7)" covering glyph table, ignored characters,
-  length-mismatch handling, error handling, round-trip semantics, lossy-render
-  warning, and v2 plan pointer. §4 "What is already true" gains a text-mode
-  line; §4 "What is not true yet" loses the "mandatory text-mode / row DSL
-  authoring" line. §5 and §8 updated to reflect Phase 7 closure.
-- `authoring/SSoT_Authoring_Tools.md` — `DrumPatternEditorWindow` capabilities
-  list in §3A gains a text-mode bullet pointing to the rhythm SSoT for syntax.
-  §5 "current truth" updated. §6 "Next rhythm tooling target" updated since
-  Phase 7 is no longer next.
-
-### Process / governance changes
-- `MidiGenPlay.Tests.Editor` is the package's first test assembly. The asmdef
-  shape (TestRunner pair in `references`, NUnit as precompiled reference,
-  Editor platform only, `autoReferenced: false`, `overrideReferences: true`,
-  `testables` registration in `package.json`, **empty** `defineConstraints`)
-  is the canonical template for any future package test assembly. Captured in
-  `reference/package/Tests_Authoring_HowTo.md` (new).
-
-### Decisions locked
-- D-T1 — both `.` and `-` as rest glyphs; `|` and whitespace ignored.
-- D-T2 — 3-tier glyph alphabet for v1, with v2 plan = per-cell same-resolution
-  velocity grid and per-lane `AccentVelocity` / `GhostVelocity` via asset.
-- D-T3 — whole-window Grid/Text tabbed toggle (not per-row).
-- D-T4 — strict modal: parse on tab-switch and on Apply.
-- D-T5 — one text row per existing lane; lane management stays in Grid mode.
-- D-T6 — lenient + warning panel (no hard errors).
-- D-T7 — right-pad / right-truncate with warning.
-- D-T8 — text rows not persisted in asset; `[SerializeField]` for session
-  survival only.
-- D-T9 (final) — `Editor/` (flat), namespace `MidiGenPlay.Authoring`. The
-  namespace was initially `MidiGenPlay.Editor.Authoring`; this shadowed
-  `UnityEditor.Editor` inside `namespace MidiGenPlay` and broke
-  `SoundFontCacheSOEditor`. Renamed to remove the collision.
-
-### Not changed
-- `Runtime/CoreScripts/Data/DrumPatternData.cs`, `StepState`,
-  `RhythmTrackComposer.cs`.
-- The asset-truth vs runtime-consumption gap from Phase 6 (still open):
-  `ComposeFromGrid` continues to call `SnapshotAsIndices`. Switching to
-  `SnapshotAsStepVelocities` remains a deferred runtime micro-batch.
-
-### Notes
-- `defineConstraints: ["UNITY_INCLUDE_TESTS"]` in the test asmdef silently
-  blocked compilation in Unity 2022.3 local-package context (no error, no DLL
-  produced, no test discovery). Removing the constraint was the fix. If the
-  package is later published to a public registry, this decision should be
-  revisited; see the how-to for diagnostic steps.
-- Three manual smoke tests (SMR3 grid↔text round-trip; SMR6 signature change
-  re-renders text rows; SMR7 SaveAs preserves text-mode edits) verified
-  manually. Procedures captured in the new how-to.
-
----
+## 2026-05-22 — MGP-ALWTTT-MOD-DIR-1: directional modulation hint for ChordTrackComposer
 
 ### Added
 - `Runtime/CoreScripts/Composition/Data/ModulationOctaveHint.cs` — new package

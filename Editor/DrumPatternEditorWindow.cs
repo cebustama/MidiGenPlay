@@ -1,10 +1,12 @@
 ﻿#if UNITY_EDITOR
+using BCS.LLM.Core.Clients;
 using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay;
 using MidiGenPlay.Authoring;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
@@ -54,6 +56,12 @@ public class DrumPatternEditorWindow : EditorWindow
     // Phase 7 — text mode
     private const float TextRowLabelW = 190f;     // lane name + velocity readout
 
+    // L2 — LLM-assisted generation
+    private const string DefaultLlmClientResourcePath =
+        "ScriptableObjects/LLM/AnthropicClientData";   // Resources.Load path (no extension)
+    private const string VocabularyResourcePath =
+        "ScriptableObjects/Vocabularies/Default Rhythm Genres"; // Resources.Load path
+
     private enum InputMode
     {
         Grid,
@@ -92,6 +100,37 @@ public class DrumPatternEditorWindow : EditorWindow
     [SerializeField] private string[] _textRows = Array.Empty<string>();
 
     // -------------------------------------------------------------------------
+    // L2 — LLM-assisted generation state (serialised UI selections)
+    // -------------------------------------------------------------------------
+
+    /// <summary>Genre vocabulary source for the Generate dropdown (D-L2.5).</summary>
+    [SerializeField] private RhythmGenreVocabularySO _vocabulary;
+
+    /// <summary>
+    /// Optional per-window client override (D-L2.1 = B). When null, the window
+    /// falls back to the project-default Anthropic client loaded from Resources.
+    /// </summary>
+    [SerializeField] private LLMClientData _clientOverride;
+
+    /// <summary>Index into the flattened genre list for the dropdown.</summary>
+    [SerializeField] private int _selectedGenreIndex;
+
+    /// <summary>Optional free-text direction appended to the prompt (D-L2.5).</summary>
+    [SerializeField] private string _userDirection = string.Empty;
+
+    /// <summary>Whether the LLM panel foldout is expanded.</summary>
+    [SerializeField] private bool _llmPanelExpanded = true;
+
+    /// <summary>
+    /// L3 (D-L3.1 = A) — maximum total prompt character budget passed into
+    /// <see cref="DrumPatternLLMPromptBuilder.Input.maxCharBudget"/>. 0 = no
+    /// enforcement. When &gt; 0 and the assembled prompt exceeds it, the builder
+    /// fails the call and the reason is surfaced through <see cref="_llmWarnings"/>
+    /// (SMR-L3). Default 4000 mirrors the D-L4 soft cap.
+    /// </summary>
+    [SerializeField] private int _maxCharBudget = 4000;
+
+    // -------------------------------------------------------------------------
     // Non-serialised working state
     // -------------------------------------------------------------------------
 
@@ -109,6 +148,22 @@ public class DrumPatternEditorWindow : EditorWindow
     /// every parse/render call. Displayed in the warning panel at the bottom of text mode.
     /// </summary>
     private readonly List<DrumPatternTextWarning> _warnings = new List<DrumPatternTextWarning>();
+
+    /// <summary>
+    /// L2 — human-readable warning/info lines from the most recent LLM
+    /// generation or clipboard import. Rendered in the same warning panel as
+    /// parser warnings. Cleared on a new generate/import cycle.
+    /// </summary>
+    private readonly List<string> _llmWarnings = new List<string>();
+
+    /// <summary>L2 — true while an async LLM call is in flight (disables Generate, D-L2.3).</summary>
+    private bool _isGenerating;
+
+    /// <summary>L2 — cached last-generate parameters for the Regenerate button (D-L2.4 = A).</summary>
+    private bool _hasLastGenerateInput;
+    private string _lastGenreName;
+    private string _lastSubStyleCueName;
+    private string _lastUserDirection;
 
     private Vector2 _mainScroll;
     private Vector2 _gridScroll;
@@ -131,6 +186,11 @@ public class DrumPatternEditorWindow : EditorWindow
     {
         if (targetAsset != null && (_working == null || _lastBound != targetAsset))
             BindAsset(targetAsset);
+
+        // L2 — lazy-load the default vocabulary so the genre dropdown is
+        // populated without the user wiring it manually (D-L2.5).
+        if (_vocabulary == null)
+            _vocabulary = Resources.Load<RhythmGenreVocabularySO>(VocabularyResourcePath);
     }
 
     private void OnGUI()
@@ -142,6 +202,8 @@ public class DrumPatternEditorWindow : EditorWindow
         DrawHeader();
         EditorGUILayout.Space(4f);
         DrawTimingControls();
+        EditorGUILayout.Space(4f);
+        DrawLLMPanel();
         EditorGUILayout.Space(4f);
         DrawLanesAndGrid();
         EditorGUILayout.Space(6f);
@@ -234,6 +296,360 @@ public class DrumPatternEditorWindow : EditorWindow
                 $"{editMeasures} bars × {bpm} beats × {editSubdivisions} subdivisions = {total} steps",
                 EditorStyles.miniLabel);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // L2 — LLM-assisted generation panel
+    // -------------------------------------------------------------------------
+
+    private void DrawLLMPanel()
+    {
+        _llmPanelExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(
+            _llmPanelExpanded, "LLM-Assisted Generation");
+
+        if (_llmPanelExpanded)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                // -- Vocabulary + client sources --
+                _vocabulary = (RhythmGenreVocabularySO)EditorGUILayout.ObjectField(
+                    new GUIContent("Genre Vocabulary",
+                        "RhythmGenreVocabularySO providing the genre list. " +
+                        "Defaults to Resources/.../Default Rhythm Genres."),
+                    _vocabulary, typeof(RhythmGenreVocabularySO), false);
+
+                _clientOverride = (LLMClientData)EditorGUILayout.ObjectField(
+                    new GUIContent("LLM Client (override)",
+                        "Optional. Leave empty to use the project-default Anthropic " +
+                        "client from Resources/ScriptableObjects/LLM."),
+                    _clientOverride, typeof(LLMClientData), false);
+
+                // -- Cost cap (D-L3.1 = A) --
+                _maxCharBudget = Mathf.Max(0, EditorGUILayout.IntField(
+                    new GUIContent("Max prompt chars (budget)",
+                        "Maximum total prompt character count (system + user). " +
+                        "0 disables the cap. When exceeded, generation is refused " +
+                        "before any LLM call and the reason is shown below."),
+                    _maxCharBudget));
+
+                // -- Genre dropdown (D-L2.5) --
+                string[] genreNames = GetGenreNames();
+                if (genreNames.Length == 0)
+                {
+                    EditorGUILayout.HelpBox(
+                        "No genres available. Assign a vocabulary asset (or run " +
+                        "MidiGenPlay → Authoring → Create Default Rhythm Genres Asset).",
+                        MessageType.Warning);
+                }
+                else
+                {
+                    _selectedGenreIndex = Mathf.Clamp(_selectedGenreIndex, 0, genreNames.Length - 1);
+                    _selectedGenreIndex = EditorGUILayout.Popup(
+                        new GUIContent("Genre",
+                            "Mechanical parameters (meter, measures, subdivisions) " +
+                            "come from the Timing controls above."),
+                        _selectedGenreIndex, genreNames);
+                }
+
+                // -- Optional free-text direction --
+                EditorGUILayout.LabelField(
+                    new GUIContent("Additional direction (optional)",
+                        "Free-text style cues passed verbatim to the LLM."));
+                _userDirection = EditorGUILayout.TextArea(
+                    _userDirection ?? string.Empty, GUILayout.MinHeight(36f));
+
+                EditorGUILayout.Space(2f);
+
+                // -- Action buttons (Generate / Regenerate / Import) --
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    // During an in-flight call, disable Generate and show status (D-L2.3 = A).
+                    GUI.enabled = !_isGenerating && _working != null
+                                  && _vocabulary != null && genreNames.Length > 0;
+                    if (GUILayout.Button(_isGenerating ? "Generating…" : "Generate"))
+                        OnGenerateClicked(regenerate: false);
+
+                    GUI.enabled = !_isGenerating && _working != null && _hasLastGenerateInput;
+                    if (GUILayout.Button(
+                        new GUIContent("Regenerate",
+                            "Re-run the last generation with the same genre and direction."),
+                        GUILayout.Width(110f)))
+                        OnGenerateClicked(regenerate: true);
+
+                    GUI.enabled = !_isGenerating && _working != null;
+                    if (GUILayout.Button(
+                        new GUIContent("Import from Clipboard",
+                            "Parse a 'setup card + DSL block' payload from the clipboard."),
+                        GUILayout.Width(170f)))
+                        OnImportFromClipboard();
+
+                    GUI.enabled = true;
+                }
+
+                if (_isGenerating)
+                    EditorGUILayout.LabelField(
+                        "Contacting the LLM… the editor stays responsive.",
+                        EditorStyles.miniLabel);
+
+                // L2 — LLM / import feedback, co-located with the controls so it
+                // is visible in both Grid and Text modes.
+                if (_llmWarnings.Count > 0)
+                {
+                    EditorGUILayout.Space(2f);
+                    EditorGUILayout.LabelField(
+                        $"Generation / import notes ({_llmWarnings.Count})",
+                        EditorStyles.boldLabel);
+                    for (int i = 0; i < _llmWarnings.Count; i++)
+                        EditorGUILayout.LabelField(_llmWarnings[i], EditorStyles.miniLabel);
+                }
+            }
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+    }
+
+    private string[] GetGenreNames()
+    {
+        if (_vocabulary?.genres == null) return Array.Empty<string>();
+        return _vocabulary.genres
+            .Where(g => g != null && !string.IsNullOrWhiteSpace(g.genreName))
+            .Select(g => g.genreName)
+            .ToArray();
+    }
+
+    // -------------------------------------------------------------------------
+    // L2 — Generate (async; never blocks the main thread, D-L2.3)
+    // -------------------------------------------------------------------------
+
+    private async void OnGenerateClicked(bool regenerate)
+    {
+        if (_isGenerating || _working == null) return;
+
+        // Resolve genre + direction (fresh from UI, or cached for Regenerate).
+        string genreName, cueName, direction;
+        if (regenerate && _hasLastGenerateInput)
+        {
+            genreName = _lastGenreName;
+            cueName = _lastSubStyleCueName;
+            direction = _lastUserDirection;
+        }
+        else
+        {
+            var names = GetGenreNames();
+            if (names.Length == 0) return;
+            genreName = names[Mathf.Clamp(_selectedGenreIndex, 0, names.Length - 1)];
+            cueName = null; // sub-style cue selection is a later enhancement; v1 uses genre + free-text
+            direction = _userDirection;
+        }
+
+        // Resolve the LLM client (override → project default).
+        ILLMClient client = ResolveClient(out string clientError);
+        if (client == null)
+        {
+            _llmWarnings.Clear();
+            _llmWarnings.Add(clientError);
+            Repaint();
+            return;
+        }
+
+        // Build the prompt input from the genre's lane composition + grid params.
+        if (!TryBuildPromptInput(genreName, cueName, direction, out var input, out string inputError))
+        {
+            _llmWarnings.Clear();
+            _llmWarnings.Add(inputError);
+            Repaint();
+            return;
+        }
+
+        // Cache for Regenerate.
+        _lastGenreName = genreName;
+        _lastSubStyleCueName = cueName;
+        _lastUserDirection = direction;
+        _hasLastGenerateInput = true;
+
+        _isGenerating = true;
+        _llmWarnings.Clear();
+        Repaint();
+
+        DrumPatternLLMResponseHandler.Outcome outcome;
+        try
+        {
+            outcome = await DrumPatternLLMResponseHandler.GenerateAsync(
+                client, _vocabulary, input, LaneAliasDictionary.TryResolve);
+        }
+        catch (Exception ex)
+        {
+            _isGenerating = false;
+            _llmWarnings.Add($"Generation failed: {ex.GetType().Name}: {ex.Message}");
+            Repaint();
+            return;
+        }
+
+        // Back on the main thread (await continuation): apply the outcome.
+        _isGenerating = false;
+        ApplyOutcome(outcome);
+        Repaint();
+    }
+
+    private void OnImportFromClipboard()
+    {
+        if (_working == null) return;
+
+        string payload = EditorGUIUtility.systemCopyBuffer;
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            _llmWarnings.Clear();
+            _llmWarnings.Add("Clipboard is empty — nothing to import.");
+            Repaint();
+            return;
+        }
+
+        _llmWarnings.Clear();
+        var outcome = DrumPatternLLMResponseHandler.FromPayload(
+            payload, LaneAliasDictionary.TryResolve);
+        ApplyOutcome(outcome);
+        Repaint();
+    }
+
+    // -------------------------------------------------------------------------
+    // L2 — Apply an outcome (Full → grid config + rows; DslOnly → rows only)
+    // -------------------------------------------------------------------------
+
+    private void ApplyOutcome(DrumPatternLLMResponseHandler.Outcome outcome)
+    {
+        // Surface all warning/info lines in the panel (same shape as parser warnings).
+        _llmWarnings.Clear();
+        foreach (var w in outcome.displayWarnings)
+            _llmWarnings.Add(w);
+
+        if (!outcome.Success)
+            return; // Failed: nothing applied; existing rows/grid preserved.
+
+        if (outcome.kind == DrumPatternLLMResponseHandler.OutcomeKind.Full)
+        {
+            ConfigureGridFromOutcome(outcome);
+        }
+
+        // Both Full and DslOnly: write DSL into the text rows and switch to Text mode
+        // so the user sees the result and Apply commits it (D-L2.2 = A — reuse Phase 7).
+        WriteDslIntoTextRows(outcome.dslLines);
+        _inputMode = InputMode.Text;
+    }
+
+    /// <summary>
+    /// Apply the setup-card grid configuration: signature, measures, subdivisions,
+    /// and lane composition (instruments + default velocities). Mirrors the
+    /// structural path of <see cref="ApplySignatureToWorking"/> + lane rebuild.
+    /// </summary>
+    private void ConfigureGridFromOutcome(DrumPatternLLMResponseHandler.Outcome outcome)
+    {
+        if (_working == null) return;
+
+        // Sync the editor's timing controls so the readout matches.
+        editTimeSignature = outcome.timeSignature;
+        editMeasures = Mathf.Max(1, outcome.measures);
+        editSubdivisions = Mathf.Clamp(outcome.subdivisions, 1, 4);
+
+        int beats = TimeSignatureProperties[editTimeSignature].BeatsPerMeasure;
+
+        // Rebuild lanes from the outcome's composition.
+        _working.lanes = new List<DrumPatternData.Lane>(outcome.lanes.Count);
+        foreach (var laneInfo in outcome.lanes)
+        {
+            _working.lanes.Add(new DrumPatternData.Lane
+            {
+                instrument = laneInfo.instrument,
+                defaultVelocity = Mathf.Clamp(laneInfo.defaultVelocity, 1, 127),
+                steps = new List<DrumPatternData.StepState>(),
+            });
+        }
+        if (_working.lanes.Count == 0)
+            _working.lanes.Add(new DrumPatternData.Lane());
+
+        // Size step lists to the new signature (creates Off steps).
+        _working.SetSignature(beats, editMeasures, editSubdivisions);
+        _working.TimeSignature = editTimeSignature;
+        _velocityModeRows.Clear();
+        _firstStepX = -1f;
+    }
+
+    /// <summary>
+    /// Write the DSL glyph lines into <c>_textRows</c>, sized to the current
+    /// working lane count. Extra lines are ignored; missing lines become empty
+    /// (the parser right-pads with rests on commit).
+    /// </summary>
+    private void WriteDslIntoTextRows(IReadOnlyList<string> dslLines)
+    {
+        if (_working == null) return;
+
+        int laneCount = _working.lanes.Count;
+        _textRows = new string[laneCount];
+        for (int i = 0; i < laneCount; i++)
+            _textRows[i] = (dslLines != null && i < dslLines.Count) ? dslLines[i] : string.Empty;
+    }
+
+    // -------------------------------------------------------------------------
+    // L2 — Client + prompt-input resolution
+    // -------------------------------------------------------------------------
+
+    private ILLMClient ResolveClient(out string error)
+    {
+        error = null;
+        LLMClientData data = _clientOverride;
+        if (data == null)
+            data = Resources.Load<LLMClientData>(DefaultLlmClientResourcePath);
+
+        if (data == null)
+        {
+            error = "No LLM client available. Assign an override, or place an " +
+                    "AnthropicClientData at Resources/" + DefaultLlmClientResourcePath + ".";
+            return null;
+        }
+
+        var client = LLMClientFactory.CreateClient(data);
+        if (client == null)
+        {
+            error = $"LLMClientFactory returned null for '{data.name}'. Check the " +
+                    "provider configuration and API key.";
+            return null;
+        }
+        return client;
+    }
+
+    private bool TryBuildPromptInput(
+        string genreName, string cueName, string direction,
+        out DrumPatternLLMPromptBuilder.Input input, out string error)
+    {
+        input = default;
+        error = null;
+
+        GenreEntry genre = _vocabulary?.genres?
+            .FirstOrDefault(g => g != null &&
+                string.Equals(g.genreName, genreName, StringComparison.OrdinalIgnoreCase));
+        if (genre == null)
+        {
+            error = $"Genre '{genreName}' not found in the vocabulary.";
+            return false;
+        }
+        if (genre.defaultLaneComposition == null || genre.defaultLaneComposition.Count == 0)
+        {
+            error = $"Genre '{genreName}' has no default lane composition.";
+            return false;
+        }
+
+        int beats = TimeSignatureProperties[editTimeSignature].BeatsPerMeasure;
+
+        input = new DrumPatternLLMPromptBuilder.Input(
+            genreName: genreName,
+            subStyleCueName: cueName,
+            timeSignature: editTimeSignature,
+            beatsPerMeasure: beats,
+            measures: Mathf.Max(1, editMeasures),
+            subdivisions: Mathf.Clamp(editSubdivisions, 1, 4),
+            laneComposition: genre.defaultLaneComposition,
+            userFreeText: string.IsNullOrWhiteSpace(direction) ? null : direction.Trim(),
+            maxCharBudget: Mathf.Max(0, _maxCharBudget));
+        return true;
     }
 
     // -------------------------------------------------------------------------

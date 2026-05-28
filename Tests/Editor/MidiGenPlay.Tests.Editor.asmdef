@@ -5,7 +5,8 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "MidiGenPlay.Runtime",
-        "MidiGenPlay.Editor"
+        "MidiGenPlay.Editor",
+        "BCS.LLM.Core.Runtime"
     ],
     "includePlatforms": [
         "Editor"

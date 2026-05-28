@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.Interaction;
+ï»¿using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.Standards;
 using System;
 using System.Collections.Generic;
@@ -31,7 +31,7 @@ namespace MidiGenPlay
         /// <summary>
         /// Per-step state. Replaces the legacy List&lt;bool&gt; model.
         /// velocity == 0 is the sentinel meaning "defer to lane defaultVelocity".
-        /// velocity 1–127 is an explicit per-step override.
+        /// velocity 1ï¿½127 is an explicit per-step override.
         /// </summary>
         [Serializable]
         public struct StepState
@@ -40,7 +40,7 @@ namespace MidiGenPlay
 
             /// <summary>
             /// 0 = defer to lane defaultVelocity.
-            /// 1–127 = explicit per-step velocity override.
+            /// 1ï¿½127 = explicit per-step velocity override.
             /// </summary>
             [Range(0, 127)] public int velocity;
 
@@ -133,9 +133,11 @@ namespace MidiGenPlay
         }
 
         /// <summary>
-        /// Compact snapshot for generation: (instrument, velocity, stepIndices[]) per lane.
-        /// velocity is the lane defaultVelocity — used by existing runtime callers.
-        /// Per-step velocity is resolved in SnapshotAsStepVelocities.
+        /// Compact snapshot: (instrument, velocity, stepIndices[]) per lane.
+        /// velocity is the lane defaultVelocity; per-step velocity is dropped.
+        /// Runtime composers use <see cref="SnapshotAsStepVelocities"/> instead
+        /// since the 2026-05-23 ComposeFromGrid switch. Kept for callers that
+        /// intentionally want a default-velocity-only view.
         /// </summary>
         public (GeneralMidiPercussion instrument, int velocity, List<int> stepIndices)[] SnapshotAsIndices()
         {
@@ -204,10 +206,10 @@ namespace MidiGenPlay
         }
 
         // -----------------------------
-        // Legacy (optional) — kept for backward compatibility with
+        // Legacy (optional) ï¿½ kept for backward compatibility with
         // older PianoRoll-based assets. Not used by the new grid.
         // -----------------------------
-        [Header("Legacy (PianoRoll-based) — optional / ignored by new grid")]
+        [Header("Legacy (PianoRoll-based) ï¿½ optional / ignored by new grid")]
         public MusicalTimeSpan noteLength = MusicalTimeSpan.Eighth;
         public int velocity = 80;
 

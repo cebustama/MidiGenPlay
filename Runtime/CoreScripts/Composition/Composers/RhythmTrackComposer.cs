@@ -399,9 +399,11 @@ namespace MidiGenPlay.Composition
             var stepDur = beatSpan.Multiply(1.0 / stepsPerBeat);
             var pb = new PatternBuilder().MoveToStart();
 
-            // snapshot lanes → (instrument, velocity, step indices[])
-            // SnapshotAsIndices returns lane defaultVelocity — runtime behavior unchanged.
-            var lanes = data.SnapshotAsIndices();
+            // snapshot lanes → (instrument, (stepIndex, resolvedVelocity)[])
+            // SnapshotAsStepVelocities resolves per-step velocity per the StepState
+            // sentinel rule (velocity 0 → lane defaultVelocity). Per-step velocity
+            // now reaches generated MIDI; see SSoT_Composer_Rhythm_Track.md §3-B.
+            var lanes = data.SnapshotAsStepVelocities();
 
             for (int r = 0; r < repeats; r++)
             {
@@ -415,16 +417,14 @@ namespace MidiGenPlay.Composition
                         continue;
                     }
 
-                    var vel = (SevenBitNumber)Mathf.Clamp(lane.velocity, 1, 127);
-
-                    foreach (var s in lane.stepIndices)
+                    foreach (var (stepIndex, velocity) in lane.steps)
                     {
-                        int sAbs = stepOffset + s;
+                        int sAbs = stepOffset + stepIndex;
                         double beatsFromStart = (double)sAbs / stepsPerBeat;
 
                         var when = beatSpan.Multiply(beatsFromStart);
                         pb.MoveToTime(when);
-                        pb.Note(note, stepDur, vel);
+                        pb.Note(note, stepDur, (SevenBitNumber)Mathf.Clamp(velocity, 1, 127));
                     }
                 }
             }

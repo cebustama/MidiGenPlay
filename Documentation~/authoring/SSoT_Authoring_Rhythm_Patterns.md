@@ -233,6 +233,24 @@ not implementation authority.
 6. **In Text mode**, the text buffer is committed into the working copy first
    (per-cell diff), then Apply / Save As / structural change proceeds as above.
 
+#### LLM-assisted generation (Batches L1–L3)
+
+`DrumPatternEditorWindow` can generate a pattern from a natural-language prompt
+(genre + meter + free-text direction) and can import an LLM-shaped payload
+(setup card + DSL block) from the clipboard. Both paths produce DSL that flows
+through the same Text-mode parse/apply contract above — the LLM adds a content
+source, not a new write path.
+
+The **contract and architecture** for LLM-assisted authoring are governed by
+`authoring/SSoT_Authoring_LLM_Generation.md` (primary). That SSoT defines the
+asset-as-seam principle, the non-blocking-async / no-silent-fallback / CRLF-safe
+contracts, the pre-network cost cap, and the seven-stage replicable pipeline.
+
+This section governs only the **rhythm DSL grammar and setup-card shape** the LLM
+targets; see "Text mode (Phase 7)" above for the glyph alphabet and round-trip
+semantics. For the L1–L3 implementation history and decisions (D-L1..D-L11),
+see `planning/active/Roadmap_LLM_Authoring_MVP.md`.
+
 ### 3B. Legacy runtime-scene panel (secondary, not deprecated)
 
 `RhythmPatternPanelController` + `PatternGrid` + `PatternGridCell` + `RhythmRowHeader`

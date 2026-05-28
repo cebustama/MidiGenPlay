@@ -13,7 +13,8 @@
 |   |   |   \---SSoT_CompositionAuthoringTools.md
 |   |   +---historical
 |   |   |   +---CardData_Redesign.md
-|   |   |   \---README.md
+|   |   |   +---README.md
+|   |   |   \---Session_Manifest_and_PK_Sync.md
 |   |   +---superseded
 |   |   |   \---README.md
 |   |   \---README.md
@@ -28,6 +29,7 @@
 |   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
 |   |   |   +---Roadmap_Documentation_Migration.md
+|   |   |   +---Roadmap_LLM_Authoring_MVP.md
 |   |   |   +---Roadmap_Melody_Authoring_MVP.md
 |   |   |   \---Roadmap_Rhythm_Authoring_MVP.md
 |   |   +---archive
@@ -44,7 +46,8 @@
 |   |   |   \---README.md
 |   |   +---package
 |   |   |   +---Documentation_Update_Protocol_Addendum.md
-|   |   |   \---README.md
+|   |   |   +---README.md
+|   |   |   \---Tests_Authoring_HowTo.md
 |   |   \---README.md
 |   +---research
 |   |   +---Deep_Research_Prompt_MidiMusicManager.md
@@ -60,6 +63,7 @@
 |   +---changelog-ssot.md
 |   +---coverage-matrix.md
 |   +---CURRENT_STATE.md
+|   +---MidiGenPlay_Project_Summary.md
 |   +---README.md
 |   +---SSoT_CONTRACTS.md
 |   \---SSoT_INDEX.md
@@ -67,6 +71,12 @@
 |   +---BankDropdownDrawer.cs
 |   +---ChordProgressionEditorWindow.cs
 |   +---DrumPatternEditorWindow.cs
+|   +---DrumPatternLLMConsoleHarness.cs
+|   +---DrumPatternLLMGenerator.cs
+|   +---DrumPatternLLMPromptBuilder.cs
+|   +---DrumPatternTextParser.cs
+|   +---DrumPatternTextWarning.cs
+|   +---LaneShortNames.cs
 |   +---MidiGenPlay.Editor.asmdef
 |   +---PatchDropdownDrawer.cs
 |   +---SoundFontCacheSOEditor.cs
@@ -102,6 +112,7 @@
 |   |   |   |   +---MelodyCardConfigSO.cs
 |   |   |   |   +---ModulationOctaveHint.cs
 |   |   |   |   +---RhythmCardConfigSO.cs
+|   |   |   |   +---RhythmGenreVocabularySO.cs
 |   |   |   |   +---TrackStyleBundleSO.cs
 |   |   |   |   \---VoiceLeadingConfig.cs
 |   |   |   +---Factories
@@ -223,170 +234,174 @@
 |   |   +---PatternGrid.prefab
 |   |   +---PatternGridCell.prefab
 |   |   \---PercussionElementDropdown.prefab
-|   \---Resources
-|       \---ScriptableObjects
-|           +---Chord Progressions
-|           |   +---Palettes
-|           |   |   \---Test Palette.asset
-|           |   +---_ChordProgressionLibrary.asset
-|           |   +---I – IV – V – I.asset
-|           |   +---I – vi – IV – V.asset
-|           |   +---I (0.25) – II (0.25) – III (0.25) – IV (0.25) – V (0.25) – VI (0.25) – VII° (0.25) – I (0.25).asset
-|           |   +---I (2) – vi (1) – IV (1).asset
-|           |   +---iv (2) – V - I.asset
-|           |   \---Test Progression.asset
-|           +---MIDI Instruments
-|           |   +---Backing
-|           |   |   +---Basses
-|           |   |   |   +---Acoustic Bass.asset
-|           |   |   |   +---Fingered Bass.asset
-|           |   |   |   +---Fretless Bass.asset
-|           |   |   |   +---Picked Bass.asset
-|           |   |   |   +---Slap Bass 1.asset
-|           |   |   |   +---Slap Bass 2.asset
-|           |   |   |   +---Synth Bass 1.asset
-|           |   |   |   \---Synth Bass 2.asset
-|           |   |   +---Guitars
-|           |   |   |   +---Banjo.asset
-|           |   |   |   +---Clean Guitar.asset
-|           |   |   |   +---Guitar Mutes.asset
-|           |   |   |   +---Jazz Guitar.asset
-|           |   |   |   +---Nylon Guitar.asset
-|           |   |   |   \---Steel Guitar.asset
-|           |   |   +---Piano and Organs
-|           |   |   |   +---Church Organ.asset
-|           |   |   |   +---Clavinet.asset
-|           |   |   |   +---Electric Piano 1.asset
-|           |   |   |   +---Electric Piano 2.asset
-|           |   |   |   +---Glockenspiel.asset
-|           |   |   |   +---Harpsichord.asset
-|           |   |   |   +---Honky-tonk.asset
-|           |   |   |   +---Music Box.asset
-|           |   |   |   +---Organ 1.asset
-|           |   |   |   +---Organ 2.asset
-|           |   |   |   +---Organ 3.asset
-|           |   |   |   +---Piano 1.asset
-|           |   |   |   +---Piano 2.asset
-|           |   |   |   +---Piano 3.asset
-|           |   |   |   +---Reed Organ.asset
-|           |   |   |   \---Vibraphone.asset
-|           |   |   +---Strings
-|           |   |   |   +---Cello.asset
-|           |   |   |   +---Contra Bass.asset
-|           |   |   |   +---Harp.asset
-|           |   |   |   +---Pizzicato Strings.asset
-|           |   |   |   +---Slow Strings.asset
-|           |   |   |   +---Strings.asset
-|           |   |   |   +---Synth Strings 1.asset
-|           |   |   |   +---Synth Strings 2.asset
-|           |   |   |   +---Tremolo Strings.asset
-|           |   |   |   +---Viola.asset
-|           |   |   |   \---Violin.asset
-|           |   |   \---Synths and SFX
-|           |   |       +---5th Saw Wave.asset
-|           |   |       +---Bass and Lead.asset
-|           |   |       +---Bowed Glass.asset
-|           |   |       +---Fantasia.asset
-|           |   |       +---Poly Synth.asset
-|           |   |       +---Saw Wave.asset
-|           |   |       +---Soundtrack.asset
-|           |   |       +---Space Voice.asset
-|           |   |       +---Square Wave.asset
-|           |   |       \---Warm Pad.asset
-|           |   +---Lead
-|           |   |   +---Brass and Woodwinds
-|           |   |   |   +---Alto Sax.asset
-|           |   |   |   +---Baritone Sax.asset
-|           |   |   |   +---Bassoon.asset
-|           |   |   |   +---Clarinet.asset
-|           |   |   |   +---English Horn.asset
-|           |   |   |   +---Flute.asset
-|           |   |   |   +---French Horns.asset
-|           |   |   |   +---Mute Trumpet.asset
-|           |   |   |   +---Oboe.asset
-|           |   |   |   +---Piccolo.asset
-|           |   |   |   +---Recorder.asset
-|           |   |   |   +---Soprano Sax.asset
-|           |   |   |   +---Tenor Sax.asset
-|           |   |   |   +---Trombone.asset
-|           |   |   |   +---Trumpet.asset
-|           |   |   |   \---Tuba.asset
-|           |   |   \---Guitars
-|           |   |       +---Distortion Guitar.asset
-|           |   |       +---Guitar Harmonics.asset
-|           |   |       \---Overdrive Guitar.asset
-|           |   +---Percussion
-|           |   |   +---Brush Kit.asset
-|           |   |   +---Electronic Kit.asset
-|           |   |   +---Jazz Kit.asset
-|           |   |   +---Orchestra Kit.asset
-|           |   |   +---Power Kit.asset
-|           |   |   +---Room Kit.asset
-|           |   |   +---SFX Kit.asset
-|           |   |   +---Standard Drum Kit.asset
-|           |   |   \---TR-808 Kit.asset
-|           |   \---_SoundFont Cache.asset
-|           +---Patterns
-|           |   +---Chords
-|           |   |   +---_Chord Progressions List.asset
-|           |   |   +---ChordProgression-DefaultFiveFour.asset
-|           |   |   +---ChordProgression-DefaultFourFour.asset
-|           |   |   +---ChordProgression-DefaultNineEight.asset
-|           |   |   +---ChordProgression-DefaultSevenEight.asset
-|           |   |   +---ChordProgression-DefaultSixEight.asset
-|           |   |   +---ChordProgression-DefaultThreeFour.asset
-|           |   |   +---ChordProgression-DefaultTwelveEight.asset
-|           |   |   \---ChordProgression-DefaultTwoFour.asset
-|           |   +---Drums
-|           |   |   +---_Drum Patterns List.asset
-|           |   |   +---DrumPattern-DefaultFiveFour.asset
-|           |   |   +---DrumPattern-DefaultFourFour.asset
-|           |   |   +---DrumPattern-DefaultNineEight.asset
-|           |   |   +---DrumPattern-DefaultSevenEight.asset
-|           |   |   +---DrumPattern-DefaultSixEight.asset
-|           |   |   +---DrumPattern-DefaultThreeFour.asset
-|           |   |   +---DrumPattern-DefaultTwelveEight.asset
-|           |   |   \---DrumPattern-DefaultTwoFour.asset
-|           |   +---Emotions
-|           |   |   +---Bravery.asset
-|           |   |   +---Calm.asset
-|           |   |   +---Confidence.asset
-|           |   |   +---Despair.asset
-|           |   |   +---Fear.asset
-|           |   |   +---Hope.asset
-|           |   |   +---Insecurity.asset
-|           |   |   +---Joy.asset
-|           |   |   +---Sadness.asset
-|           |   |   \---Wrath.asset
-|           |   \---Melodies
-|           |       +---_Melody Patterns List.asset
-|           |       +---BasicMelodyPattern 2.asset
-|           |       +---BasicMelodyPattern 3.asset
-|           |       +---BasicMelodyPattern 4.asset
-|           |       +---BasicMelodyPattern 5.asset
-|           |       +---BasicMelodyPattern 6.asset
-|           |       +---BasicMelodyPattern 7.asset
-|           |       +---FourFourMelody1.asset
-|           |       +---FourFourMelody2.asset
-|           |       +---FourFourMelody3.asset
-|           |       +---OrangePeelBass.asset
-|           |       +---ThreeFourMelody1.asset
-|           |       \---ThreeFourMelody2.asset
-|           +---Phrases
-|           |   +---DefaultPhrasePalette.asset
-|           |   +---Phrase - Burst Then Hold  - Default.asset
-|           |   +---Phrase - Even Flow - Default.asset
-|           |   \---Phrase - Sustain Lead In - Default.asset
-|           +---Song Configs
-|           +---Tonality Profiles
-|           |   +---Aeolian.asset
-|           |   +---Dorian.asset
-|           |   +---Ionian.asset
-|           |   +---Locrian.asset
-|           |   +---Lydian.asset
-|           |   +---Mixolydian.asset
-|           |   \---Phrygian.asset
-|           \---Melodic Style - Test 1.asset
+|   +---Resources
+|   |   \---ScriptableObjects
+|   |       +---Chord Progressions
+|   |       |   +---Palettes
+|   |       |   |   \---Test Palette.asset
+|   |       |   +---_ChordProgressionLibrary.asset
+|   |       |   +---I – IV – V – I.asset
+|   |       |   +---I – vi – IV – V.asset
+|   |       |   +---I (0.25) – II (0.25) – III (0.25) – IV (0.25) – V (0.25) – VI (0.25) – VII° (0.25) – I (0.25).asset
+|   |       |   +---I (2) – vi (1) – IV (1).asset
+|   |       |   +---iv (2) – V - I.asset
+|   |       |   \---Test Progression.asset
+|   |       +---LLM
+|   |       |   +---AnthropicClientData.asset
+|   |       |   \---OpenAIClientData.asset
+|   |       +---MIDI Instruments
+|   |       |   +---Backing
+|   |       |   |   +---Basses
+|   |       |   |   |   +---Acoustic Bass.asset
+|   |       |   |   |   +---Fingered Bass.asset
+|   |       |   |   |   +---Fretless Bass.asset
+|   |       |   |   |   +---Picked Bass.asset
+|   |       |   |   |   +---Slap Bass 1.asset
+|   |       |   |   |   +---Slap Bass 2.asset
+|   |       |   |   |   +---Synth Bass 1.asset
+|   |       |   |   |   \---Synth Bass 2.asset
+|   |       |   |   +---Guitars
+|   |       |   |   |   +---Banjo.asset
+|   |       |   |   |   +---Clean Guitar.asset
+|   |       |   |   |   +---Guitar Mutes.asset
+|   |       |   |   |   +---Jazz Guitar.asset
+|   |       |   |   |   +---Nylon Guitar.asset
+|   |       |   |   |   \---Steel Guitar.asset
+|   |       |   |   +---Piano and Organs
+|   |       |   |   |   +---Church Organ.asset
+|   |       |   |   |   +---Clavinet.asset
+|   |       |   |   |   +---Electric Piano 1.asset
+|   |       |   |   |   +---Electric Piano 2.asset
+|   |       |   |   |   +---Glockenspiel.asset
+|   |       |   |   |   +---Harpsichord.asset
+|   |       |   |   |   +---Honky-tonk.asset
+|   |       |   |   |   +---Music Box.asset
+|   |       |   |   |   +---Organ 1.asset
+|   |       |   |   |   +---Organ 2.asset
+|   |       |   |   |   +---Organ 3.asset
+|   |       |   |   |   +---Piano 1.asset
+|   |       |   |   |   +---Piano 2.asset
+|   |       |   |   |   +---Piano 3.asset
+|   |       |   |   |   +---Reed Organ.asset
+|   |       |   |   |   \---Vibraphone.asset
+|   |       |   |   +---Strings
+|   |       |   |   |   +---Cello.asset
+|   |       |   |   |   +---Contra Bass.asset
+|   |       |   |   |   +---Harp.asset
+|   |       |   |   |   +---Pizzicato Strings.asset
+|   |       |   |   |   +---Slow Strings.asset
+|   |       |   |   |   +---Strings.asset
+|   |       |   |   |   +---Synth Strings 1.asset
+|   |       |   |   |   +---Synth Strings 2.asset
+|   |       |   |   |   +---Tremolo Strings.asset
+|   |       |   |   |   +---Viola.asset
+|   |       |   |   |   \---Violin.asset
+|   |       |   |   \---Synths and SFX
+|   |       |   |       +---5th Saw Wave.asset
+|   |       |   |       +---Bass and Lead.asset
+|   |       |   |       +---Bowed Glass.asset
+|   |       |   |       +---Fantasia.asset
+|   |       |   |       +---Poly Synth.asset
+|   |       |   |       +---Saw Wave.asset
+|   |       |   |       +---Soundtrack.asset
+|   |       |   |       +---Space Voice.asset
+|   |       |   |       +---Square Wave.asset
+|   |       |   |       \---Warm Pad.asset
+|   |       |   +---Lead
+|   |       |   |   +---Brass and Woodwinds
+|   |       |   |   |   +---Alto Sax.asset
+|   |       |   |   |   +---Baritone Sax.asset
+|   |       |   |   |   +---Bassoon.asset
+|   |       |   |   |   +---Clarinet.asset
+|   |       |   |   |   +---English Horn.asset
+|   |       |   |   |   +---Flute.asset
+|   |       |   |   |   +---French Horns.asset
+|   |       |   |   |   +---Mute Trumpet.asset
+|   |       |   |   |   +---Oboe.asset
+|   |       |   |   |   +---Piccolo.asset
+|   |       |   |   |   +---Recorder.asset
+|   |       |   |   |   +---Soprano Sax.asset
+|   |       |   |   |   +---Tenor Sax.asset
+|   |       |   |   |   +---Trombone.asset
+|   |       |   |   |   +---Trumpet.asset
+|   |       |   |   |   \---Tuba.asset
+|   |       |   |   \---Guitars
+|   |       |   |       +---Distortion Guitar.asset
+|   |       |   |       +---Guitar Harmonics.asset
+|   |       |   |       \---Overdrive Guitar.asset
+|   |       |   +---Percussion
+|   |       |   |   +---Brush Kit.asset
+|   |       |   |   +---Electronic Kit.asset
+|   |       |   |   +---Jazz Kit.asset
+|   |       |   |   +---Orchestra Kit.asset
+|   |       |   |   +---Power Kit.asset
+|   |       |   |   +---Room Kit.asset
+|   |       |   |   +---SFX Kit.asset
+|   |       |   |   +---Standard Drum Kit.asset
+|   |       |   |   \---TR-808 Kit.asset
+|   |       |   \---_SoundFont Cache.asset
+|   |       +---Patterns
+|   |       |   +---Chords
+|   |       |   |   +---_Chord Progressions List.asset
+|   |       |   |   +---ChordProgression-DefaultFiveFour.asset
+|   |       |   |   +---ChordProgression-DefaultFourFour.asset
+|   |       |   |   +---ChordProgression-DefaultNineEight.asset
+|   |       |   |   +---ChordProgression-DefaultSevenEight.asset
+|   |       |   |   +---ChordProgression-DefaultSixEight.asset
+|   |       |   |   +---ChordProgression-DefaultThreeFour.asset
+|   |       |   |   +---ChordProgression-DefaultTwelveEight.asset
+|   |       |   |   \---ChordProgression-DefaultTwoFour.asset
+|   |       |   +---Drums
+|   |       |   |   +---_Drum Patterns List.asset
+|   |       |   |   +---DrumPattern-DefaultFiveFour.asset
+|   |       |   |   +---DrumPattern-DefaultFourFour.asset
+|   |       |   |   +---DrumPattern-DefaultNineEight.asset
+|   |       |   |   +---DrumPattern-DefaultSevenEight.asset
+|   |       |   |   +---DrumPattern-DefaultSixEight.asset
+|   |       |   |   +---DrumPattern-DefaultThreeFour.asset
+|   |       |   |   +---DrumPattern-DefaultTwelveEight.asset
+|   |       |   |   \---DrumPattern-DefaultTwoFour.asset
+|   |       |   +---Emotions
+|   |       |   |   +---Bravery.asset
+|   |       |   |   +---Calm.asset
+|   |       |   |   +---Confidence.asset
+|   |       |   |   +---Despair.asset
+|   |       |   |   +---Fear.asset
+|   |       |   |   +---Hope.asset
+|   |       |   |   +---Insecurity.asset
+|   |       |   |   +---Joy.asset
+|   |       |   |   +---Sadness.asset
+|   |       |   |   \---Wrath.asset
+|   |       |   \---Melodies
+|   |       |       +---_Melody Patterns List.asset
+|   |       |       +---BasicMelodyPattern 2.asset
+|   |       |       +---BasicMelodyPattern 3.asset
+|   |       |       +---BasicMelodyPattern 4.asset
+|   |       |       +---BasicMelodyPattern 5.asset
+|   |       |       +---BasicMelodyPattern 6.asset
+|   |       |       +---BasicMelodyPattern 7.asset
+|   |       |       +---FourFourMelody1.asset
+|   |       |       +---FourFourMelody2.asset
+|   |       |       +---FourFourMelody3.asset
+|   |       |       +---OrangePeelBass.asset
+|   |       |       +---ThreeFourMelody1.asset
+|   |       |       \---ThreeFourMelody2.asset
+|   |       +---Phrases
+|   |       |   +---DefaultPhrasePalette.asset
+|   |       |   +---Phrase - Burst Then Hold  - Default.asset
+|   |       |   +---Phrase - Even Flow - Default.asset
+|   |       |   \---Phrase - Sustain Lead In - Default.asset
+|   |       +---Song Configs
+|   |       +---Tonality Profiles
+|   |       |   +---Aeolian.asset
+|   |       |   +---Dorian.asset
+|   |       |   +---Ionian.asset
+|   |       |   +---Locrian.asset
+|   |       |   +---Lydian.asset
+|   |       |   +---Mixolydian.asset
+|   |       |   \---Phrygian.asset
+|   |       \---Melodic Style - Test 1.asset
+|   \---AssemblyInfo.cs
 +---Samples
 |   +---UI
 |   |   +---PartListController.cs
@@ -403,6 +418,13 @@
 +---Soundfonts
 |   +---8MBGMSFX.SF2
 |   \---ALWTTT.sf2
++---Tests
+|   \---Editor
+|       +---ChordTrackComposer_DirectionalFirstChordTests.cs
+|       +---DrumPatternData_SnapshotTests.cs
+|       +---DrumPatternLLMPromptBuilderTests.cs
+|       +---DrumPatternTextParserTests.cs
+|       \---MidiGenPlay.Tests.Editor.asmdef
 +---make-tree-unity.bat
 +---package.json
 \---README.md

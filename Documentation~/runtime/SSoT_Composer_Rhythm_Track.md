@@ -78,12 +78,14 @@ Used when `DrumPatternData` has lane/step content.
 Behavioral characteristics:
 - authored asset stores lane/step data as `List<StepState>` per lane
   (`StepState` carries `bool active` and `int velocity`; velocity 0 = defer to lane default)
-- **current runtime consumption**: `ComposeFromGrid` calls `SnapshotAsIndices()`,
-  which returns active step indices at lane `defaultVelocity` — per-step velocity
-  in the asset is **not yet consumed by runtime**
-- this is an explicit known gap: the asset is richer than what runtime currently uses
-- closing this gap (switching to `SnapshotAsStepVelocities()`) is a deferred decision
-  that requires a separate runtime change; it is not blocked on authoring work
+- **current runtime consumption**: `ComposeFromGrid` calls
+  `SnapshotAsStepVelocities()`, which returns
+  `(instrument, (stepIndex, resolvedVelocity)[])` per lane. Per-step velocity
+  reaches generated MIDI; the sentinel rule (velocity 0 → lane default) is
+  resolved by `StepState.ResolveVelocity` at snapshot time
+- the final per-note velocity is clamped to `[1..127]` before emission, so
+  a lane with `defaultVelocity == 0` floors to 1 rather than producing
+  inaudible silent hits
 - authored grid patterns may be normalized to the current Part meter at runtime
   (normalization operates on a runtime clone; authored assets are not mutated)
 
@@ -126,13 +128,10 @@ The following are already part of current runtime truth:
 - runtime normalization of grid-authored patterns to the active Part meter
 - `StepState`-aware normalization in `NormalizeGridPatternForPartIfNeeded`
   (compile-fixed in Phase 6; no behavioral change to generated MIDI)
-
-### Deferred: per-step velocity in generated MIDI
-
-`DrumPatternData` assets now store per-step velocity via `StepState`.
-`SnapshotAsStepVelocities()` is available as the per-step-velocity-aware snapshot.
-`ComposeFromGrid` still calls `SnapshotAsIndices()` (lane default velocity).
-Switching to per-step velocity in generated MIDI is an explicit deferred runtime decision.
+- per-step velocity in generated MIDI: `ComposeFromGrid` consumes
+  `SnapshotAsStepVelocities()` as of 2026-05-23 (changelog-ssot.md). The
+  `SnapshotAsIndices()` API remains available as a default-velocity-only
+  view but is no longer called by any runtime composer.
 
 ### Present in the input surface but **not yet fully closed semantically**
 
@@ -151,10 +150,10 @@ These fields are real package-facing inputs, but their full musical meaning is s
 The current package sequencing is:
 
 1. ~~consolidate rhythm authoring and the dedicated authoring toolchain~~ — done (Phases 4–6)
-2. text/DSL authoring mode (Phase 7)
-3. persistence/repository cleanup for rhythm tools (Phase 8)
-4. phrasing / feel semantics as a later runtime layer (Phase 9)
-5. decide and implement per-step velocity consumption in `ComposeFromGrid` (timing TBD, not blocking Phase 7–8)
+2. ~~text/DSL authoring mode~~ — done (Phase 7)
+3. ~~per-step velocity consumption in `ComposeFromGrid`~~ — done (2026-05-23)
+4. persistence/repository cleanup for rhythm tools (Phase 8)
+5. phrasing / feel semantics as a later runtime layer (Phase 9)
 
 ## 8. Boundary with authoring docs
 
@@ -181,5 +180,4 @@ Update this SSoT when:
 - meter normalization changes
 - `RhythmCardConfigSO` runtime meaning changes
 - phrasing/feel fields become semantically closed in runtime
-- `ComposeFromGrid` is updated to consume `SnapshotAsStepVelocities` (per-step velocity gap closed)
 - the future rhythm editor changes authored data contracts consumed by runtime

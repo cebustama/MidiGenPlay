@@ -76,6 +76,11 @@ Capabilities:
     cells whose typed glyph hasn't changed
   - Syntax authority: `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A
     "Text mode (Phase 7)"
+- **LLM-assisted generation** (Batches L1–L3): prompt-to-pattern Generate /
+  Regenerate, clipboard Import of an LLM-shaped setup-card + DSL payload, lane-alias
+  resolution, and a pre-network prompt cost cap. Async and non-blocking; output is
+  committed to the working copy and applied through the existing Apply/Save flow.
+  - Contract + architecture authority: `authoring/SSoT_Authoring_LLM_Generation.md`
 - safe signature normalize/rebuild (resizes lane step arrays without data loss where possible)
 - Apply To Asset and Save As New Asset flows
 

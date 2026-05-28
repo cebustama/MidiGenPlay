@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc57b413bb0e24243a37d3b43e1004e5, type: 3}
+  m_Name: OpenAIClientData
+  m_EditorClassIdentifier: BCS.LLM.Core.Runtime::BCS.LLM.Core.OpenAI.OpenAIClientData
+  Temperature: 1
+  MaxOutputTokens: 200
+  TopP: 1
+  FrequencyPenalty: 0
+  StopSequences: []
+  SystemInstructions: You are a helpful assistant.
+  InputUSDPerMTokens: 0
+  CachedInputUSDPerMTokens: 0
+  OutputUSDPerMTokens: 0
+  ApiVariant: 1
+  selectedModel: 11
