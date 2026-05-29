@@ -2,15 +2,35 @@
 
 ## Active now
 
-1. LLM-Assisted Authoring **Batch L4** — chord editor generalization. Apply the
-   replicable pattern documented in `authoring/SSoT_Authoring_LLM_Generation.md`
-   to `ChordProgressionEditorWindow` (vocabulary SO → pure prompt builder →
-   generator wrapper → importer → alias dictionary → async handler → window
-   wiring). See `planning/active/Roadmap_LLM_Authoring_MVP.md` §"Batch L4".
-   Proposed sibling: **Batch L5 (L-PAL)** — DrumPattern palettes + catalogue
-   wizard.
+- **No batch currently active.** LLM Authoring MVP is complete through L4
+  (chord editor generalization closed 2026-05-29). Next candidates, both
+  proposed and unopened: **Batch L5 (L-PAL)** — DrumPattern palettes + catalogue
+  wizard (`planning/active/Roadmap_LLM_Authoring_MVP.md` §"Batch L5"); and the
+  **D-L4.3 unification** — extract a shared generic over the drum and chord
+  prompt builders / generators now that two instances exist.
 
 ## Just completed
+
+- Closed LLM Authoring **Batch L4** (2026-05-29): chord editor generalization —
+  the second adopter of the LLM authoring pattern. `ChordProgressionEditorWindow`
+  gained Generate/Regenerate/Import mirroring the drum surface, routed through the
+  editor's existing `ParseAndPreview`/`ApplyToAsset` path (determinism invariant
+  untouched; the chord asset is the seam consumed by `ChordTrackComposer`). New
+  artifacts: `ChordGenreVocabularySO` (+ `ChordGenreVocabularyBuilder` seeder,
+  v1 set jazz/pop/blues/folk with build-time parser+guard self-check),
+  `ChordProgressionLLMPromptBuilder` (Roman-string output, D-L4.1; alphabet
+  verified against `RomanProgressionParser`), `ChordProgressionLLMGenerator`,
+  `ChordProgressionEditorImporter`, `ChordProgressionLLMResponseHandler` (carries
+  the D-L4.5 token-allowlist guard), `ChordLLMFieldPlan` (pure outcome→field
+  mapping, D-L4.7), and the `.LLM` window partial (+ a "Create New Progression"
+  reset affordance). Key contract clarification (D-L4.5): `RomanProgressionParser`
+  warns-and-downgrades unknown suffixes rather than failing, so the
+  no-silent-fallback guard lives in the response handler — documented in
+  `SSoT_Authoring_LLM_Generation.md` §3.3. 47 chord LLM EditMode tests + smoke
+  tests CSMR-S1..S8 pass; full suite green. Decisions D-L4.1..D-L4.8 locked.
+  Doc flips applied across manifest, LLM SSoT (§3.3/§7), coverage-matrix,
+  changelog, and the roadmap (§"Batch L4" → closed). This completes the LLM
+  Authoring MVP through L4.
 
 - Closed LLM Authoring **Batch L3** (2026-05-28): smoke-test sign-off + governance.
   This closes the LLM Authoring MVP (L1–L3). Cost-cap UI (D-L3.1) wired the
@@ -144,10 +164,10 @@
 
 ## Next
 
-1. LLM-Assisted Authoring Batch L4: chord editor generalization, following the
-   replicable pattern documented at L3 (`authoring/SSoT_Authoring_LLM_Generation.md`)
-2. **Batch L5 (L-PAL)** — DrumPattern palette asset + "Add to Palette" in the
+1. **Batch L5 (L-PAL)** — DrumPattern palette asset + "Add to Palette" in the
    editor + Drum Catalogue Wizard (proposed; see roadmap §"Batch L5")
+2. **D-L4.3 unification** (optional) — extract a shared generic over the drum
+   and chord prompt builders / generators now that two working instances exist
 3. Phase 8: route `DrumPatternEditorWindow` save paths through package
    store/repository abstractions (`IPatternRepository` /
    `PatternRepositoryResources` already exist). Demoted from active to
@@ -162,7 +182,6 @@ concern; see roadmap §"Future work").
 
 ## Blocked / not implemented yet
 
-- LLM-assisted authoring for chord progressions (Batch L4, deferred)
 - Package store/repository persistence integration for rhythm tools (Phase 8)
 - Phrasing / feel knob semantic completion (Phase 9)
 - The older `MIDISong` / `MIDIGeneratorManager` runtime branch still coexists
@@ -173,10 +192,11 @@ concern; see roadmap §"Future work").
 - `planning/active/Roadmap_Rhythm_Authoring_MVP.md` — when Phase 8 work begins
 - `authoring/SSoT_Authoring_Tools.md` — when LLM authoring surface lands
   (Batch L2 closure), and again when persistence routing changes in Phase 8
-- `authoring/SSoT_Authoring_LLM_Generation.md` — **created at Batch L3 closure
-  (2026-05-28)**; primary authority for LLM-assisted authoring across the
-  package. Update when a new tool adopts the pattern (chord editor at L4) or a
-  §3 contract changes.
+- `authoring/SSoT_Authoring_LLM_Generation.md` — created at Batch L3 closure
+  (2026-05-28); chord adopter added at L4 closure (2026-05-29, §7) with the
+  §3.3 degrade-vs-fail clarification. Primary authority for LLM-assisted
+  authoring across the package. Update when the next tool adopts the pattern or
+  a §3 contract changes.
 
 ## Working rule
 

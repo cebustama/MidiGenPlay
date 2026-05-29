@@ -1,49 +1,74 @@
 # changelog-ssot
 
-## 2026-05-28 — LLM Authoring Batch L3: smoke-test sign-off + governance close
-
-Closes the LLM-Assisted Authoring MVP (Batches L1–L3). No runtime behavior
-changed; the determinism invariant is untouched (LLM is authoring-side; the
-asset is the seam).
+## 2026-05-29 — Batch L4: chord editor LLM generalization (LLM Authoring MVP complete through L4)
 
 ### Added
-- `Documentation~/authoring/SSoT_Authoring_LLM_Generation.md` — **new primary
-  SSoT** for LLM-assisted authoring, written as a replicable pattern: the
-  seven-stage pipeline (vocabulary SO → pure prompt builder → generator wrapper
-  → pure importer → alias dictionary → async response handler → editor wiring),
-  six contracts (asset-as-seam, non-blocking async, no silent fallback,
-  CRLF-safe parsing, working-copy/apply, pre-network cost cap), and a
-  failure-handling table. Registered in `ssot_manifest.yaml` under `ssots`.
-- `Editor/FakeLLMClient.cs` (Tests) — deterministic `ILLMClient` test double
-  for the SMR-L5 path (D-L3.2), with a `WasCalled` guard against vacuous passes.
-- `Tests/Editor/DrumPatternLLMGeneratorTests.cs` — 6 EditMode tests over the
-  generator async path (invalid glyphs → located parser warnings; no-fence
-  fail; lane-count mismatch; valid-via-fake control; null-client guard). All
-  payloads use CRLF to guard the L2 split regression.
+- `Runtime/CoreScripts/Composition/Data/ChordGenreVocabularySO.cs` — chord
+  analogue of `RhythmGenreVocabularySO`; `genres[]` + `TryResolve` +
+  `ChordSubStyleCue`, with chord-domain members (characteristic Roman-string
+  progressions, voicing hints, cadence cues, `measuresOverride`).
+- `Editor/ChordProgressionLLMPromptBuilder.cs` — pure-function system+user
+  prompt builder. DSL alphabet verified against `RomanProgressionParser`;
+  forbids extended/slash chords; dot-decimal durations; exact-length
+  reinforcement (D-L4.4).
+- `Editor/ChordProgressionLLMGenerator.cs` — generator wrapper over LLM Core
+  `PromptExecutionHelper` with injectable `ILLMClient`; extracts the fenced
+  Roman block and parses via `RomanProgressionParser`.
+- `Editor/ChordProgressionEditorImporter.cs` — pure-function importer for the
+  setup-card + Roman-block payload (single progression string, no lanes/aliases);
+  CRLF-safe; line-anchored setup-field parsing.
+- `Editor/ChordProgressionLLMResponseHandler.cs` — async unify point for
+  generate + import; carries the D-L4.5 token-allowlist guard.
+- `Editor/ChordLLMFieldPlan.cs` — pure outcome→field decision extracted from the
+  window wiring for testability (D-L4.7).
+- `Editor/ChordGenreVocabularyBuilder.cs` — menu-item seeder writing
+  `Default Chord Genres.asset` (v1 set: jazz, pop, blues, folk) with a build-time
+  parser+guard self-check so no malformed anchor can ship (D-L4.8).
+- `Editor/AssemblyInfo.cs` — `InternalsVisibleTo("MidiGenPlay.Tests.Editor")`
+  for the Editor assembly (D-L4.6), enabling direct unit tests of editor-side
+  internals (e.g. the chord guard helper).
+- Editor wiring: `ChordProgressionEditorWindow.LLM.cs` partial — LLM panel
+  (vocabulary + client-override fields, genre/sub-style/measures/free-text,
+  cost cap, Generate/Regenerate/Import), async non-blocking; plus a
+  "Create New Progression" working-copy reset affordance.
+- Tests (`Tests/Editor/`): `ChordProgressionLLMPromptBuilderTests` (11),
+  `ChordProgressionEditorImporterTests` (9),
+  `ChordProgressionLLMGeneratorTests` (6, `FakeLLMClient`-driven),
+  `ChordProgressionLLMResponseHandlerTests` (13, incl. guard),
+  `ChordProgressionEditorWindowWiringTests` (8). 47 chord LLM tests; full
+  EditMode suite green. Manual smoke tests CSMR-S1..S8 pass.
 
 ### Modified
-- `Editor/DrumPatternEditorWindow.cs` — cost-cap UI (D-L3.1): new per-window
-  `Max prompt chars (budget)` field (default 4000, 0 = off) passed into
-  `DrumPatternLLMPromptBuilder.Input.maxCharBudget`. The budget is checked
-  pre-network in the builder; over-budget prompts are refused without spending
-  and the reason surfaces through the existing warning panel (SMR-L3).
-- `Documentation~/coverage-matrix.md` — "LLM-assisted authoring" primary home
-  flipped from `Roadmap_LLM_Authoring_MVP.md` to the new SSoT; flip note moved
-  to past tense.
-- `Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md` — new §3A
-  subsection "LLM-assisted generation" pointing at the new SSoT for the
-  contract and the roadmap for L1–L3 history.
-- `Documentation~/authoring/SSoT_Authoring_Tools.md` — `DrumPatternEditorWindow`
-  capability list gains "LLM-assisted generation" with authority pointer.
-- `Documentation~/CURRENT_STATE.md` — LLM Authoring MVP marked completed; L4
-  promoted to active; blocked/next lists updated.
-- `Documentation~/planning/active/Roadmap_LLM_Authoring_MVP.md` — Batch L3 marked
-  CLOSED with closure note; roadmap is now the secondary L1–L3 historical record.
+- `Editor/ChordProgressionEditorWindow.cs` — class made `partial`; LLM panel +
+  "Create New Progression" button calls added (the implementation lives in the
+  `.LLM` partial). No change to the existing parse/apply pipeline; LLM outcomes
+  route through the existing `ParseAndPreview`/`ApplyToAsset` path.
+- `Editor/DrumPatternLLMPromptBuilder.cs` — D-L4.4 backport: one exact-length
+  reinforcement sentence in the system prompt, keeping the two builders aligned.
+- `authoring/SSoT_Authoring_LLM_Generation.md` — §7 now lists the chord adopter
+  with its stage→artifact mapping; §3.3 gained the degrade-vs-fail enforcement
+  nuance (parser warns-and-downgrades ⇒ guard moves to the response handler).
+- `ssot_manifest.yaml` — chord LLM artifacts added to the LLM SSoT `governs`;
+  new degrade-vs-fail invariant.
+- `coverage-matrix.md` — LLM cross-cutting row now cites the chord Roman DSL
+  authority; milestone-plan row retired to closed historical; L4 closure note.
 
-### Authority
-- LLM-assisted authoring is now SSoT-primary, not roadmap-primary. Per-tool DSL
-  grammar and asset details remain in the relevant per-tool authoring SSoT; the
-  new SSoT governs the cross-cutting pattern.
+### Authority / semantics
+- Determinism invariant untouched: the chord asset remains the seam, consumed
+  deterministically by `ChordTrackComposer`. No LLM call sits on a compose path.
+- New contract clarification (not a new contract): "no silent fallback" is
+  enforced at the response-handler layer when the domain parser degrades rather
+  than rejects. Documented in `SSoT_Authoring_LLM_Generation.md` §3.3.
+- The LLM Authoring MVP is complete through L4. `Roadmap_LLM_Authoring_MVP.md`
+  §"Batch L4" promoted from deferred sketch to closed; the roadmap is now a
+  closed historical record rather than active planning.
+
+### Decisions locked
+- D-L4.1 Roman-string output · D-L4.2 vocab SO confirmed against the prompt ·
+  D-L4.3 copy-then-unify (shared generic deferred) · D-L4.4 exact-length
+  reinforcement + drum backport · D-L4.5 handler-side token-allowlist guard ·
+  D-L4.6 Editor `InternalsVisibleTo` · D-L4.7 pure `ChordLLMFieldPlan` + wiring
+  tests · D-L4.8 vocabulary builder with self-check.
 
 ## 2026-05-22 — MGP-ALWTTT-MOD-DIR-1: directional modulation hint for ChordTrackComposer
 

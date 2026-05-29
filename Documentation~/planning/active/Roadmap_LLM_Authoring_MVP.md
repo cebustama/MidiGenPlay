@@ -239,17 +239,90 @@ next candidates.
 - `coverage-matrix.md` — primary home for LLM-assisted authoring flips from this roadmap to the new SSoT.
 - `changelog-ssot.md` — completion entry.
 
-### Batch L4 — Chord editor generalization (deferred)
+### Batch L4 — Chord editor generalization
+
+**STATUS: CLOSED (2026-05-29).**
+
+**Closure note:** The chord progression editor is now the second adopter of the
+LLM authoring pattern. All DoD items met; 47 chord LLM EditMode tests green;
+manual smoke tests CSMR-S1..S8 pass. The pattern's §2 stage shape held intact
+(copy-then-unify, D-L4.3) — the chord tool copied the drum artifacts rather than
+prematurely extracting a generic. The one contract subtlety generalization
+surfaced is the degrade-vs-fail enforcement point (D-L4.5), now documented in
+`SSoT_Authoring_LLM_Generation.md` §3.3. With L4 closed, the **LLM Authoring MVP
+is complete through L4**, and this roadmap is retained as a closed historical
+record rather than active planning.
 
 **Goal:** Apply the pattern to `ChordProgressionEditorWindow`.
 
-**Not in this MVP.** Listed so the pattern's cross-cutting nature is on the record.
+**Decisions locked:**
+- **D-L4.1 — Chord output shape:** Roman-numeral string (matches the editor's
+  native affordance; the editor round-trips Grid→Roman already). Not grid output.
+- **D-L4.2 — `ChordGenreVocabularySO` shape:** confirmed against what the prompt
+  consumes (genreName, styleDescriptors, voicingHints, cadenceCues,
+  characteristicProgressions, subStyleCues), structurally parallel to
+  `RhythmGenreVocabularySO`.
+- **D-L4.3 — Refactor-now vs copy-then-unify:** copy-then-unify. A shared generic
+  (`LLMAuthoringPromptBuilder<TParser, TVocab>`) is deferred until the two
+  instances justify the abstraction.
+- **D-L4.4 — Exact-step-count reinforcement:** durations-sum-to-exactly-N sentence
+  in the chord builder's system prompt; backported the equivalent to the drum
+  builder.
+- **D-L4.5 — Zero-warning enforcement:** `RomanProgressionParser` warns-and-
+  downgrades unknown suffixes rather than failing, so a handler-side token-
+  allowlist guard (`ChordProgressionLLMResponseHandler.TryFindForbiddenToken`)
+  treats off-alphabet tokens as a hard failure.
+- **D-L4.6 — Test visibility:** added `Editor/AssemblyInfo.cs` with
+  `InternalsVisibleTo("MidiGenPlay.Tests.Editor")` rather than widening the
+  public surface.
+- **D-L4.7 — Wiring coverage:** extracted the pure `ChordLLMFieldPlan` from the
+  window's outcome→field mapping and unit-tested it; IMGUI/async parts covered by
+  the manual smoke checklist.
+- **D-L4.8 — Vocabulary seeding:** `ChordGenreVocabularyBuilder` menu item writes
+  `Default Chord Genres.asset` with a build-time parser+guard self-check; v1 set
+  jazz/pop/blues/folk.
 
-**Likely deliverables (sketch only):**
-- Refactor `DrumPatternLLMPromptBuilder` and `DrumPatternLLMGenerator` into a shared editor-side adapter (`LLMAuthoringPromptBuilder<TParser, TVocab>` or similar).
-- New `ChordGenreVocabularySO` analogue.
-- `ChordProgressionEditorWindow` UI integration mirroring drums.
-- L4-specific decisions (analogous to D-L1..D-L7 but for chord-mode UX, e.g. Roman-string output vs grid output).
+**Deliverables (landed):**
+- `Runtime/CoreScripts/Composition/Data/ChordGenreVocabularySO.cs`
+- `Editor/ChordProgressionLLMPromptBuilder.cs`
+- `Editor/ChordProgressionLLMGenerator.cs`
+- `Editor/ChordProgressionEditorImporter.cs`
+- `Editor/ChordProgressionLLMResponseHandler.cs` (carries the D-L4.5 guard)
+- `Editor/ChordLLMFieldPlan.cs`
+- `Editor/ChordGenreVocabularyBuilder.cs`
+- `Editor/AssemblyInfo.cs`
+- `Editor/ChordProgressionEditorWindow.LLM.cs` (partial) + 2-line edit to
+  `ChordProgressionEditorWindow.cs`; plus a "Create New Progression" affordance.
+- Tests (`Tests/Editor/`): prompt builder (11), importer (9), generator (6),
+  response handler (13, incl. guard), wiring (8) = 47.
+
+**Smoke tests (CSMR, manual — all pass):**
+- CSMR-S1: "jazz, 4/4, 4 measures" → parseable Roman progression, preview
+  populates, durations sum to exactly 4 measures.
+- CSMR-S2: "3/4, 6 measures" → previews in 3/4 without parser warnings.
+- CSMR-S3: low cost cap → clear error, no network call, fields unchanged.
+- CSMR-S4: LLM Core unavailable → graceful failure (warning, no crash, field
+  preserved).
+- CSMR-S5: paste `V13` / `V/V` via Import → blocked with warning; fields
+  unchanged (D-L4.5 live).
+- CSMR-S6: paste full setup-card + Roman block → fields auto-configure + Roman
+  populates in one action.
+- CSMR-S7: paste bare Roman block (no card) → progression-only; status prompts
+  for time signature / measures.
+- CSMR-S8: "Create New Progression" with content present → confirm prompt; on
+  confirm, target detaches and fields reset; the previously-targeted asset
+  unchanged on disk.
+
+**Doc updates at L4 closure (applied 2026-05-29):**
+- `ssot_manifest.yaml` — chord LLM artifacts added to the LLM SSoT `governs`;
+  degrade-vs-fail invariant added.
+- `authoring/SSoT_Authoring_LLM_Generation.md` — §7 lists the chord adopter with
+  stage→artifact mapping; §3.3 gains the degrade-vs-fail enforcement nuance.
+- `CURRENT_STATE.md` — L4 → just completed; LLM MVP complete through L4; L5 /
+  D-L4.3 unification as next candidates.
+- `coverage-matrix.md` — cross-cutting row cites chord Roman DSL authority;
+  milestone-plan row retired to closed historical; L4 closure note.
+- `changelog-ssot.md` — completion entry.
 
 ### Batch L5 — DrumPattern palettes + editor integration + catalogue wizard (L-PAL)
 

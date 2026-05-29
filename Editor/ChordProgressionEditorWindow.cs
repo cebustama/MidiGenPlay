@@ -24,7 +24,7 @@ using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 /// - fill the ChordEvent list (startStep, lengthSteps, degree, quality, velocity)
 /// - set the allowed tonalities list.
 /// </summary>
-public class ChordProgressionEditorWindow : EditorWindow
+public partial class ChordProgressionEditorWindow : EditorWindow
 {
     [MenuItem("MidiGenPlay/Chord Progression Editor...")]
     public static void Open()
@@ -298,6 +298,11 @@ public class ChordProgressionEditorWindow : EditorWindow
 
         using (new EditorGUILayout.HorizontalScope())
         {
+            if (GUILayout.Button("Create New Progression"))
+            {
+                NewProgression();
+            }
+
             if (GUILayout.Button("Save As New Asset..."))
             {
                 SaveAsNewAsset();
@@ -310,6 +315,9 @@ public class ChordProgressionEditorWindow : EditorWindow
             }
             GUI.enabled = true;
         }
+
+        EditorGUILayout.Space();
+        DrawLLMPanel();
 
         EditorGUILayout.EndScrollView();
     }

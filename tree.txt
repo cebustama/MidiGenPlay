@@ -21,6 +21,7 @@
 |   +---authoring
 |   |   +---README.md
 |   |   +---SSoT_Authoring_Chord_Progressions.md
+|   |   +---SSoT_Authoring_LLM_Generation.md
 |   |   +---SSoT_Authoring_Melody_Composition.md
 |   |   +---SSoT_Authoring_Rhythm_Patterns.md
 |   |   \---SSoT_Authoring_Tools.md
@@ -70,15 +71,19 @@
 +---Editor
 |   +---BankDropdownDrawer.cs
 |   +---ChordProgressionEditorWindow.cs
+|   +---DrumPatternEditorImporter.cs
 |   +---DrumPatternEditorWindow.cs
 |   +---DrumPatternLLMConsoleHarness.cs
 |   +---DrumPatternLLMGenerator.cs
 |   +---DrumPatternLLMPromptBuilder.cs
+|   +---DrumPatternLLMResponseHandler.cs
 |   +---DrumPatternTextParser.cs
 |   +---DrumPatternTextWarning.cs
+|   +---LaneAliasDictionary.cs
 |   +---LaneShortNames.cs
 |   +---MidiGenPlay.Editor.asmdef
 |   +---PatchDropdownDrawer.cs
+|   +---RhythmGenreVocabularyBuilder.cs
 |   +---SoundFontCacheSOEditor.cs
 |   \---SoundFontDropdownDrawer.cs
 +---Runtime
@@ -422,8 +427,13 @@
 |   \---Editor
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
+|       +---DrumPatternEditorImporterTests.cs
+|       +---DrumPatternLLMGeneratorTests.cs
 |       +---DrumPatternLLMPromptBuilderTests.cs
+|       +---DrumPatternLLMResponseHandlerTests.cs
 |       +---DrumPatternTextParserTests.cs
+|       +---FakeLLMClient.cs
+|       +---LaneAliasDictionaryTests.cs
 |       \---MidiGenPlay.Tests.Editor.asmdef
 +---make-tree-unity.bat
 +---package.json

@@ -137,6 +137,20 @@ declines to guess. It must not silently substitute a default. Out-of-grammar
 glyphs route through the domain parser's warning channel exactly as user-typed
 invalid input would; unknown aliases prompt the user to disambiguate.
 
+**Where the domain parser degrades instead of failing, the guard moves up.**
+The contract is "no silent fallback," not "the parser must fail." The rhythm
+parser hard-rejects unknown tokens, so for the drum adopter the parser *is* the
+enforcement point. The chord adopter's `RomanProgressionParser` behaves
+differently: an unknown quality suffix is **not** rejected — the parser logs a
+warning and downgrades the chord to diatonic quality, so a "successful" parse
+can still contain an out-of-alphabet token. To honor this contract the chord
+adopter enforces it one level up, in the response handler: an allowlist guard
+(`ChordProgressionLLMResponseHandler.TryFindForbiddenToken`, mirroring the
+parser's accepted suffixes) treats any off-alphabet token as a hard failure and
+declines to apply, rather than relying on the parser to reject it (D-L4.5). A
+new adopter must check whether its parser rejects or degrades, and place the
+guard accordingly.
+
 ### 3.4 CRLF-safe parsing
 
 Pasted and model-returned payloads arrive with mixed line endings. Any line
@@ -229,8 +243,29 @@ The drum surface is implemented and signed off (Batches L1–L3, closed
 `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A. For the editor capability
 listing, see `authoring/SSoT_Authoring_Tools.md`.
 
-No other authoring tool implements this pattern yet. The chord editor (L4) is the
-next planned adopter and should follow this document.
+The chord progression editor is the second adopter (Batch L4, closed
+2026-05-29). Stage → chord-artifact mapping:
+
+| Stage (§2) | Chord artifact |
+|---|---|
+| Vocabulary SO | `ChordGenreVocabularySO` (+ `ChordGenreVocabularyBuilder` seeder) |
+| Pure-function prompt builder | `ChordProgressionLLMPromptBuilder` |
+| Generator wrapper (injectable `ILLMClient`) | `ChordProgressionLLMGenerator` |
+| Pure-function importer (setup-card + DSL) | `ChordProgressionEditorImporter` |
+| Alias dictionary | *not adopted* — Roman numerals are already canonical; no alias layer needed |
+| Async response handler (unifies generate + import) | `ChordProgressionLLMResponseHandler` (carries the §3.3 degrade-guard) |
+| Editor window wiring | `ChordProgressionEditorWindow` (`.LLM` partial); outcome→field mapping isolated as the pure `ChordLLMFieldPlan` |
+
+The chord output shape is a Roman-numeral string (not a grid), matching the
+editor's native affordance; for the Roman DSL grammar and the chord setup-card
+shape see `authoring/SSoT_Authoring_Chord_Progressions.md`. Generalization to a
+second instance left §2's stage shape intact (copy-then-unify, D-L4.3); the one
+contract subtlety it surfaced is the degrade-vs-fail enforcement point now
+documented in §3.3. No alias stage was needed.
+
+A future shared generic over the two prompt builders / generators
+(`LLMAuthoringPromptBuilder<TParser, TVocab>` or similar) is deferred until the
+two instances justify the abstraction (D-L4.3 rationale).
 
 ---
 
