@@ -326,7 +326,19 @@ record rather than active planning.
 
 ### Batch L5 — DrumPattern palettes + editor integration + catalogue wizard (L-PAL)
 
-**STATUS: PROPOSED (defined 2026-05-28 from L2 closure realisations R1/R2).**
+**STATUS: CLOSED (2026-05-29).** All DoD items met; smoke pass (all 4 checks) and
+`DrumPatternPaletteSOTests` green. Decisions D-PAL.1..D-PAL.5 locked:
+D-PAL.1=A (Add to Palette references a saved asset; no auto-save-on-add),
+D-PAL.2=A (scan folders Patterns/Drums + Patterns/Drums/Palettes, project-wide
+fallback), D-PAL.3=A (author-only; runtime consumption deferred to the next
+phase), D-PAL.4=A (reuse weighted-random model), D-PAL.5=B (DrumPatternPaletteSO
+governed by runtime/SSoT_Composer_Rhythm_Track.md, mirroring the chord palette's
+placement under its composer SSoT, ahead of the planned composer-consumption
+phase). Artifacts registered in ssot_manifest.yaml; CURRENT_STATE, changelog-ssot,
+and coverage-matrix updated. **Next phase (not L5):** wire RhythmTrackComposer (and
+the chord composer) to consume palettes, giving ALWTTT Rhythm Composition cards a
+distinct identity — see the expressivity-phase palette proposals appended at L5
+closure.
 
 **Goal:** Make generated/authored drum patterns easy to collect, organize, and
 audition. Add a palette asset, editor affordances to fill palettes directly, and

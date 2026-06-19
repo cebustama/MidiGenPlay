@@ -66,6 +66,41 @@ Runtime execution details (session loop, cache invalidation, render/playback) li
 
 ---
 
+## 1.3) Rhythm card → palette identity (ALWTTT, PCE)
+
+> This table mirrors the **ALWTTT-game-owned** card→palette assignment. The
+> authoritative home is the game repo (`ALWTTT Docs/systems/SSoT_Card_System.md`);
+> this reference copy is kept in sync for package-side context. The **mechanism**
+> (how the composer consumes a palette) is package truth and lives in
+> `runtime/SSoT_Composer_Rhythm_Track.md` §3D — not here.
+
+Each Rhythm Composition card gains a distinct musical identity by referencing a
+`DrumPatternPaletteSO` on its `RhythmCardConfigSO.patternPalette`. Assignment is
+consumer-side; the package SSoT defines only the consumption mechanism.
+
+Distinctness axis (do NOT cluster by genre): meter/subdivision > instrumentation >
+density/syncopation > velocity.
+
+Asset filename convention (derive-from-display-name, PCE): PascalCase the Display
+Name, strip spaces/hyphens, prefix by type — `DrumPatternPalette-<Name>` for
+palettes, `DrumPattern-<Name>` for patterns.
+
+| Card | Meter | Palette | Identity |
+|---|---|---|---|
+| Four-on-the-Floor | 4/4 | `DrumPatternPalette-FourOnTheFloor` | metronomic, foursquare |
+| Waltz-Pulse Lilt | 3/4 | `DrumPatternPalette-WaltzPulseLilt` | triple-meter lilt, soft |
+| Compound Swing | 6/8 | `DrumPatternPalette-CompoundSwing` | swung 2×3 compound |
+| Odd-Meter Angular | 5/4 | `DrumPatternPalette-OddMeterAngular` | asymmetric 3+2 |
+| Syncopated Pocket (experiment 2nd 4/4) | 4/4 | `DrumPatternPalette-SyncopatedPocket` | syncopated funk, ghost notes |
+
+**Distinctness experiment (PCE §5), validated 2026-06-04:** two 4/4 cards —
+Four-on-the-Floor vs Syncopated Pocket — with meter held constant and palette as
+the only variable read as distinct cards. Smoke pass: determinism, palette
+consumption, and audible distinctness all confirmed. Palette-as-identity proven
+before scaling to more cards.
+
+---
+
 ## 2) Part actions (structure layer)
 
 ### 2.1 PartActionKind
@@ -210,10 +245,11 @@ The exact **composer precedence rules** and rendering internals live in the per-
 
 ---
 
-### 4.4 Rhythm bundle (implemented, but MVP wiring incomplete)
+### 4.4 Rhythm bundle (implemented)
 
 **`RhythmCardConfigSO : TrackStyleBundleSO`** *(MidiGenPlay/TrackConfigs/RhythmCardConfig)*
 - `patternOverride : DrumPatternData` *(optional)*
+- `patternPalette : DrumPatternPaletteSO` *(optional)* — authored pool; consumed by the composer (PCE)
 - `recipeOverride : RhythmRecipe` *(optional)*
 - `styleIdOverride : string` *(optional)*
 
@@ -222,11 +258,13 @@ Additional hooks currently present on the bundle (but not yet wired into generat
 - feel: `kickDensity`, `snareGhostNoteChance`, `hatSubdivisionBias`
 
 **Meaning**
-- If `patternOverride` exists, the Rhythm composer should render the explicit pattern (grid or legacy).
-- If no pattern exists, the Rhythm composer may choose a procedural style using recipe + styleId overrides.
+- If `patternOverride` exists, the Rhythm composer renders the explicit pattern (grid or legacy).
+- Else if `patternPalette` is set, the composer resolves a pattern via a seeded weighted pick (`PickPatternOverride(ctx.rng)`, clone-on-pick). This is the **palette-as-card-identity** path (PCE).
+- If neither is set, the composer may choose a procedural style using recipe + styleId overrides.
+- Unlike the Backing palette, the drum palette pick is **not** TS-aware (the `preferExactTimeSignatureMatches` toggle is inert on drum palettes); TS-aware unification is deferred to CE-F1.
 
 **Where it is consumed**
-- Current implementation: `RhythmTrackComposer` (composer SSoT pending)
+- `RhythmTrackComposer` — precedence + the palette consumption contract are defined in `runtime/SSoT_Composer_Rhythm_Track.md` (§2 precedence, §3D palette contract).
 
 ---
 
@@ -250,6 +288,8 @@ CardEditorWindow shows:
 - Part Action (action + customLabel + musicianId)
 - Modifier Effects (list of PartEffect assets)
 - Effects (New) (list of CardEffectSpec gameplay effects)
+- Create from JSON (staged import; normalize → preview → Save creates assets)
+- Generate with LLM (CE-L1): brief → staged card via the same JSON staging path
 
 ### 5.2 Recommended labeling (to reduce confusion)
 In UI and docs, use these names consistently:
@@ -257,6 +297,29 @@ In UI and docs, use these names consistently:
 - **Gameplay Effects** = `CardPayload.effects`
 
 > This matches your intent: “modifier effects are musical; effects are gameplay”.
+
+### 5.3 LLM-assisted authoring (CE-L1)
+
+The "Generate with LLM" panel (`CardEditorWindow.LLM.cs` partial) authors a
+card from a natural-language brief. Boundary rules (authority for the pattern:
+`authoring/SSoT_Authoring_LLM_Generation.md` §7, third adopter):
+
+- The LLM fills **structured fields only** (enums, costs, keywords, effects).
+  It never emits asset references; path/guid-shaped values anywhere in the
+  payload are a hard rejection.
+- **Palette identity** arrives as intent (`composition.palette`:
+  requested/timeSignature/keywords) and is resolved deterministically over the
+  shared `PaletteSelector` with a user-visible seed — Rhythm role → drum
+  palettes, Backing role → chord palettes (Melody/Harmony have no palette
+  types; intent for them fails loudly).
+- **Modifier effects** arrive as exact asset names (`modifierEffectNames`),
+  resolved all-or-nothing at staging (missing name fails listing available;
+  ambiguous name fails listing colliders).
+- Output stages through the SAME `TryStageCardFromDto` path as pasted JSON;
+  nothing touches disk until the existing **Save (Create Assets)**. At Save,
+  the role bundle is created via the existing `CreateAndAssignStyleBundle` and
+  the resolved palette is assigned to `patternPalette` / `progressionPalette`.
+- The card sprite is the staging path's musician default, never LLM-chosen.
 
 ---
 

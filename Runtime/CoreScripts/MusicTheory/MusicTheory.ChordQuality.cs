@@ -23,6 +23,18 @@ namespace MidiGenPlay.MusicTheory
             // Suspended
             Sus2,
             Sus4,
+
+            // Sixths (v2 Tier A — append-only; ordinals 11, 12)
+            Major6,
+            Minor6,
+
+            // Suspended seventh (v2 Tier A — append-only; ordinal 13)
+            Dominant7sus4,
+
+            // Ninths (v2 Tier B — append-only; ordinals 14, 15, 16)
+            Dominant9,
+            Major9,
+            Minor9,
         }
 
         #region Major Modes
@@ -132,6 +144,8 @@ namespace MidiGenPlay.MusicTheory
             bool minorish =
                 q is ChordQuality.Minor or
                     ChordQuality.Minor7 or
+                    ChordQuality.Minor6 or
+                    ChordQuality.Minor9 or
                     ChordQuality.Diminished or
                     ChordQuality.HalfDiminished7;
 
@@ -146,6 +160,12 @@ namespace MidiGenPlay.MusicTheory
                 ChordQuality.HalfDiminished7 => $"{rn}<sup>ø7</sup>",
                 ChordQuality.Sus2 => $"{rn} sus2",
                 ChordQuality.Sus4 => $"{rn} sus4",
+                ChordQuality.Major6 => $"{rn}<sup>6</sup>",
+                ChordQuality.Minor6 => $"{rn}<sup>6</sup>",
+                ChordQuality.Dominant7sus4 => $"{rn}<sup>7sus4</sup>",
+                ChordQuality.Dominant9 => $"{rn}<sup>9</sup>",
+                ChordQuality.Major9 => $"{rn}<sup>Δ9</sup>",
+                ChordQuality.Minor9 => $"{rn}<sup>9</sup>",
                 _ => rn
             };
         }
@@ -172,6 +192,18 @@ namespace MidiGenPlay.MusicTheory
                 case ChordQuality.Sus2: return new[] { 0, 2, 7 };    // R  M2  P5
                 case ChordQuality.Sus4: return new[] { 0, 5, 7 };    // R  P4  P5
 
+                // Sixths (v2 Tier A)
+                case ChordQuality.Major6: return new[] { 0, 4, 7, 9 };  // R  M3  P5  M6
+                case ChordQuality.Minor6: return new[] { 0, 3, 7, 9 };  // R  m3  P5  M6
+
+                // Suspended seventh (v2 Tier A)
+                case ChordQuality.Dominant7sus4: return new[] { 0, 5, 7, 10 }; // R  P4  P5  m7
+
+                // Ninths (v2 Tier B — 5 voices, top interval 14 > octave)
+                case ChordQuality.Dominant9: return new[] { 0, 4, 7, 10, 14 }; // R  M3  P5  m7  M9
+                case ChordQuality.Major9: return new[] { 0, 4, 7, 11, 14 }; // R  M3  P5  M7  M9
+                case ChordQuality.Minor9: return new[] { 0, 3, 7, 10, 14 }; // R  m3  P5  m7  M9
+
                 default: return new[] { 0, 4, 7 };    // sensible fallback
             }
         }
@@ -195,6 +227,14 @@ namespace MidiGenPlay.MusicTheory
 
                 ChordQuality.Sus2 => r + "sus2",
                 ChordQuality.Sus4 => r + "sus4",
+
+                ChordQuality.Major6 => r + "6",
+                ChordQuality.Minor6 => r + "m6",
+                ChordQuality.Dominant7sus4 => r + "7sus4",
+
+                ChordQuality.Dominant9 => r + "9",
+                ChordQuality.Major9 => r + "maj9",
+                ChordQuality.Minor9 => r + "m9",
                 _ => r
             };
         }
@@ -224,6 +264,14 @@ namespace MidiGenPlay.MusicTheory
 
                 ChordQuality.Sus2 => r + "sus2",
                 ChordQuality.Sus4 => r + "sus4",
+
+                ChordQuality.Major6 => r + "6",
+                ChordQuality.Minor6 => r + "m6",
+                ChordQuality.Dominant7sus4 => r + "7sus4",
+
+                ChordQuality.Dominant9 => r + "9",
+                ChordQuality.Major9 => r + "maj9",
+                ChordQuality.Minor9 => r + "m9",
                 _ => r
             };
         }

@@ -3,6 +3,7 @@ using BCS.LLM.Core.Clients;
 using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay;
 using MidiGenPlay.Authoring;
+using MidiGenPlay.Composition;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -45,6 +46,9 @@ public class DrumPatternEditorWindow : EditorWindow
     private const string MenuPath = "MidiGenPlay/Drum Pattern Editor...";
     private const string DefaultSaveFolder = "Assets/Resources/ScriptableObjects/Patterns/Drums";
 
+    // L5 (L-PAL) — default drum palette location (created on first save).
+    private const string DefaultPaletteFolder = "Assets/Resources/ScriptableObjects/Patterns/Drums/Palettes";
+
     private const float LaneHeaderWidth = 172f;
     private const float ViewModeButtonW = 22f;   // [T] / [V]
     private const float VelocityLabelW = 16f;
@@ -84,6 +88,15 @@ public class DrumPatternEditorWindow : EditorWindow
     // -------------------------------------------------------------------------
 
     [SerializeField] private DrumPatternData targetAsset;
+
+    // L5 (L-PAL) — palette affordances.
+    [SerializeField] private DrumPatternPaletteSO targetPalette;
+    [SerializeField] private float paletteDefaultWeight = 1f;
+    private string[] _paletteOptionPaths = Array.Empty<string>();
+    private string[] _paletteOptionLabels = Array.Empty<string>();
+    private int _paletteDropdownIndex = -1;
+    private bool _paletteDropdownScanned;
+
     [SerializeField] private TimeSignature editTimeSignature = TimeSignature.FourFour;
     [SerializeField] private int editMeasures = 2;
     [SerializeField] private int editSubdivisions = 2;  // steps per beat
@@ -208,6 +221,8 @@ public class DrumPatternEditorWindow : EditorWindow
         DrawLanesAndGrid();
         EditorGUILayout.Space(6f);
         DrawActionButtons();
+        EditorGUILayout.Space(6f);
+        DrawPaletteSection();
 
         EditorGUILayout.EndScrollView();
 
@@ -1092,6 +1107,168 @@ public class DrumPatternEditorWindow : EditorWindow
                 SaveAsNewAsset();
             GUI.enabled = true;
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // L5 (L-PAL) — Palette section
+    // -------------------------------------------------------------------------
+
+    private void DrawPaletteSection()
+    {
+        EditorGUILayout.LabelField("Palette", EditorStyles.boldLabel);
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            // Direct assignment.
+            EditorGUI.BeginChangeCheck();
+            var assigned = (DrumPatternPaletteSO)EditorGUILayout.ObjectField(
+                new GUIContent("Drum Pattern Palette (optional)",
+                    "Palette asset to add this pattern to as a weighted entry."),
+                targetPalette, typeof(DrumPatternPaletteSO), false);
+            if (EditorGUI.EndChangeCheck())
+            {
+                targetPalette = assigned;
+                SyncDropdownToTargetPalette();
+            }
+
+            // Auto-fill dropdown (project scan of configured folders, project-wide fallback).
+            if (!_paletteDropdownScanned)
+                RefreshPaletteDropdown();
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (_paletteOptionLabels.Length == 0)
+                {
+                    EditorGUILayout.LabelField("No palettes found in project.", EditorStyles.miniLabel);
+                }
+                else
+                {
+                    int newIndex = EditorGUILayout.Popup(
+                        new GUIContent("Pick from project",
+                            "Select an existing DrumPatternPaletteSO found by scanning the project."),
+                        _paletteDropdownIndex, _paletteOptionLabels);
+
+                    if (newIndex != _paletteDropdownIndex && newIndex >= 0 && newIndex < _paletteOptionPaths.Length)
+                    {
+                        _paletteDropdownIndex = newIndex;
+                        var picked = AssetDatabase.LoadAssetAtPath<DrumPatternPaletteSO>(_paletteOptionPaths[newIndex]);
+                        if (picked != null)
+                            targetPalette = picked;
+                    }
+                }
+
+                if (GUILayout.Button("Refresh", GUILayout.Width(70)))
+                    RefreshPaletteDropdown();
+            }
+
+            paletteDefaultWeight = Mathf.Max(0f, EditorGUILayout.FloatField(
+                new GUIContent("Default Weight",
+                    "Weight used when adding the current pattern as a new palette entry."),
+                paletteDefaultWeight));
+
+            // Add to Palette — requires a saved, bound asset (D-PAL.1 = A: reference, no auto-save-on-add).
+            GUI.enabled = targetPalette != null && targetAsset != null;
+            if (GUILayout.Button("Add to Palette"))
+                AddCurrentToPalette();
+            GUI.enabled = true;
+
+            if (targetAsset == null)
+                EditorGUILayout.HelpBox(
+                    "Apply or Save As New first — only saved assets can be added to a palette " +
+                    "(prevents orphan in-memory entries).",
+                    MessageType.None);
+        }
+    }
+
+    private void RefreshPaletteDropdown()
+    {
+        _paletteDropdownScanned = true;
+
+        var folders = new List<string>();
+        foreach (var f in new[] { DefaultSaveFolder, DefaultPaletteFolder })
+            if (AssetDatabase.IsValidFolder(f))
+                folders.Add(f);
+
+        string[] guids = folders.Count > 0
+            ? AssetDatabase.FindAssets("t:DrumPatternPaletteSO", folders.ToArray())
+            : AssetDatabase.FindAssets("t:DrumPatternPaletteSO");
+
+        var paths = guids.Distinct()
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .OrderBy(p => p)
+            .ToArray();
+
+        _paletteOptionPaths = paths;
+        _paletteOptionLabels = paths
+            .Select(p => System.IO.Path.GetFileNameWithoutExtension(p))
+            .ToArray();
+
+        SyncDropdownToTargetPalette();
+    }
+
+    private void SyncDropdownToTargetPalette()
+    {
+        if (targetPalette == null)
+        {
+            _paletteDropdownIndex = -1;
+            return;
+        }
+
+        string path = AssetDatabase.GetAssetPath(targetPalette);
+        _paletteDropdownIndex = Array.IndexOf(_paletteOptionPaths, path);
+    }
+
+    /// <summary>
+    /// Adds the current (saved) targetAsset to the assigned palette as a weighted entry.
+    /// Honors the working-copy/apply contract: the asset must already be persisted
+    /// (Apply / Save As), so no orphan in-memory entries are created. Dedup-guarded.
+    /// </summary>
+    private void AddCurrentToPalette()
+    {
+        if (targetPalette == null)
+        {
+            EditorUtility.DisplayDialog(
+                "No Palette Assigned",
+                "Assign a DrumPatternPaletteSO in the 'Drum Pattern Palette' field first.",
+                "OK");
+            return;
+        }
+
+        if (targetAsset == null)
+        {
+            EditorUtility.DisplayDialog(
+                "No Saved Asset",
+                "There is no saved DrumPatternData to add. Apply or Save As New first.",
+                "OK");
+            return;
+        }
+
+        if (targetPalette.entries == null)
+            targetPalette.entries = new List<DrumPatternPaletteSO.WeightedEntry>();
+
+        // Dedup guard — don't add the same asset twice.
+        if (targetPalette.entries.Any(e => e != null && e.pattern == targetAsset))
+        {
+            EditorUtility.DisplayDialog(
+                "Already in Palette",
+                $"'{targetAsset.name}' is already an entry in '{targetPalette.GetDisplayName()}'.",
+                "OK");
+            return;
+        }
+
+        Undo.RecordObject(targetPalette, "Add Drum Pattern to Palette");
+        targetPalette.entries.Add(new DrumPatternPaletteSO.WeightedEntry
+        {
+            pattern = targetAsset,
+            weight = Mathf.Max(0f, paletteDefaultWeight)
+        });
+
+        EditorUtility.SetDirty(targetPalette);
+        AssetDatabase.SaveAssets();
+
+        Debug.Log($"[DrumPatternEditor] Added '{targetAsset.name}' to palette " +
+                  $"'{AssetDatabase.GetAssetPath(targetPalette)}' (weight {paletteDefaultWeight}).");
     }
 
     // -------------------------------------------------------------------------

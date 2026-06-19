@@ -99,10 +99,10 @@ These decisions are locked for the MVP and should not be revisited without expli
 
 ## Current milestone sequencing
 
-1. data model and asset redesign (Phase 1)
-2. note-grid UI — ladder editor (Phase 2)
-3. generation params UI and simplified generator (Phase 3)
-4. runtime hookup — `ComposeFromPattern` (Phase 4)
+1. data model and asset redesign (Phase 1) — **DONE (2026-06-16)**
+2. note-grid UI — ladder editor (Phase 2) — **DONE (2026-06-16)**
+3. generation params UI and simplified generator (Phase 3) — **DONE (2026-06-17)**
+4. runtime hookup — `ComposeFromPattern` (Phase 4) — **next**
 5. polish, validation, and documentation closure (Phase 5)
 
 Deferred phases follow after the MVP is complete.
@@ -114,7 +114,36 @@ Deferred phases follow after the MVP is complete.
 ## Phase 1 — Data model and asset redesign
 
 ### Status
-Not started.
+**DONE (2026-06-16).** Unity compiles green. Shipped: the deterministic
+`MelodyPatternData` redesign (per-note `MelodyNoteEvent` struct), the new
+`MelodyGenerationParamsSO`, and clean removal of the legacy probabilistic path.
+No tests required (data-model swap; the procedural `MelodyTrackComposer` path is
+untouched, and there are no melody test fixtures). Repo-wide grep for
+`GenerateMelodyTrackWithPattern` / `melodyNotes` / `MelodyNoteData` returned only
+inert references inside commented-out blocks in the demoted
+`EmotionalGenerationPanel` / `MidiGenPlayPanel` (D-MEL1.5 = leave as-is).
+
+**Decisions locked:**
+- **M-3** — legacy `MidiGenerator.GenerateMelodyTrackWithPattern` removed (clean
+  break, no shim); it was the sole consumer of the old shape and was
+  non-deterministic (`UnityEngine.Random` degree + octave draw). Two orphaned
+  privates (`SetBankAndPatchEvents`, `SetChannel`) and a now-dead `using` were
+  removed with it.
+- **D-MEL1.1** — explicit `beatsPerMeasure` field (mirrors `DrumPatternData`),
+  kept in sync via `SetSignature`, rather than deriving from `TimeSignature`.
+- **D-MEL1.2** — `MelodyNoteEvent` is a `[Serializable] struct` (value semantics,
+  mirrors `DrumPatternData.StepState`).
+- **D-MEL1.3** — the decision-#5 accidental property is omitted for the MVP
+  (additive, non-breaking to add later).
+- **D-MEL1.4** — existing melody `.assets` are disposable; the new model resets
+  their incompatible serialized note data on reimport — regenerate via the
+  wizard. `MelodyPatternsList` is shape-agnostic and unaffected.
+- **D-MEL1.5** — the two demoted direct-generation panels are left untouched;
+  their dead generation blocks already reference a long-gone `MidiGenerator` API.
+
+> Field-name note: the note list was renamed `melodyNotes` → `notes` and the
+> per-note type `MelodyNoteData` → `MelodyNoteEvent` — safe because no live code
+> referenced the old names.
 
 ### Goal
 Replace the existing `MelodyPatternData` with a deterministic per-note canonical model
@@ -171,7 +200,51 @@ Decide during implementation whether to preserve a compatibility shim or break c
 ## Phase 2 — Note-grid UI (ladder editor)
 
 ### Status
-Not started.
+**DONE (2026-06-16).** Unity compiles green. Shipped: `MelodyPatternEditorWindow`,
+a scene-independent package EditorWindow (`MidiGenPlay / Melody Pattern Editor...`)
+whose bottom section is the scale-degree "ladder" note grid. It binds a
+`MelodyPatternData` working copy via `DeepCloneRuntime()` (asset untouched until
+Apply/Save As), exposes timing controls (TimeSignature-driven `beatsPerMeasure`,
+measures, subdivisions) and a configurable octave window, supports
+click-place / click-select / right-click-delete with a per-note inspector (degree,
+octave offset, start step, length-in-steps, velocity), draws bar/beat/subdivision
+gridlines, and has an explicit Normalize plus Apply To Asset / Save As New Asset.
+No generation-params UI (Phase 3), no runtime/`ComposeFromPattern` change (Phase 4),
+no text/DSL mode (rhythm/chord-only). No automated tests (the Phase-2 DoD requires
+none; validated by a manual smoke pass). One Editor-only file, fully
+`#if UNITY_EDITOR`-guarded; no new runtime types and no editor-only leak into
+`Runtime/`.
+
+**Phase-2 DoD check:** open wizard ✓ · bind/create `MelodyPatternData` ✓ · manually
+author on the grid ✓ · normalize/apply/save functional ✓ · grid reflects the working
+copy ✓ · no generation-params dependency (grid standalone) ✓.
+
+**Decisions locked:**
+- **D-MEL2.1 (meter source)** — the editor derives `beatsPerMeasure` from the
+  `TimeSignature` enum (via `SetSignature`) on each signature change, consistent
+  with `DrumPatternEditorWindow` and `authoring/SSoT_Authoring_Tools.md` §3.A. The
+  explicit `beatsPerMeasure` field (D-MEL1.1) is retained for the data model; the
+  editor simply never lets it diverge from the enum.
+- **D-MEL2.2 (interaction model)** — chord-style rect grid + selection inspector,
+  extended from one lane (time only) to 2-D (degree × octave rows × time steps).
+  Not drum-style per-cell toggles (those cannot carry per-note duration). Placement
+  is immediate-commit: left-click empty places + selects a default 1-beat note,
+  left-click a note selects it, right-click deletes it. No overlap removal — the
+  data model declares no monophony constraint, so simultaneous notes are allowed.
+- **D-MEL2.3 (octave display)** — a configurable visible octave window (default
+  −1..+1 = 3 bands × 7 = 21 rows) that auto-fits to cover all notes on load (no
+  data loss). The inspector octave is clamped to the window; notes outside the
+  window or beyond the current measure count are preserved (not deleted) and shown
+  as a hidden-note count.
+- **D-MEL2.4 (duration editing)** — duration is edited via an inspector
+  "Length (steps)" field; new notes default to one beat. Drag-to-resize is deferred
+  to Phase 5 polish (fragile in IMGUI). Normalize is an explicit button (snap to
+  subdivisions), not auto-applied on Apply/Save.
+
+> Known limitations carried forward (see `authoring/SSoT_Authoring_Tools.md` §3.A):
+> grid fits to window width so cells shrink at high step counts; hardcoded default
+> save folder (Phase 8 store abstraction); unsaved new pattern lost on domain reload
+> with no bound asset; octave-window + selection are editor UI state only.
 
 ### Goal
 Implement the bottom section of the Melody Authoring Wizard EditorWindow:
@@ -210,7 +283,43 @@ supporting manual note placement, selection, deletion, and property editing.
 ## Phase 3 — Generation params UI and simplified generator
 
 ### Status
-Not started.
+**DONE (2026-06-17).** Unity compiles green; manual smoke pass successful
+(params → seeded Generate → 48-step 6/8 grid → editable notes; same seed reproduces,
+a new seed re-rolls pitch over an unchanged groove; asset untouched until Apply/Save As).
+Shipped: the wizard's generation-parameters top section bound to `MelodyGenerationParamsSO`
+(Tier-1: scale/tonality, GM instrument hint, density, octave range, rhythmic style
+Even/Syncopated/Burst, seed) and `SimplifiedMelodyGenerator` (`Editor/`,
+`MidiGenPlay.Authoring`) — an editor-only, deterministic generator mapping those params
+into a `MelodyPatternData` working copy. No runtime / `ComposeFromPattern` change (Phase 4).
+`MelodyGenerationParamsSO` gained two fields (`seed`, `instrumentHint`); no automated tests
+(Phase-3 DoD requires none; manual smoke as for Phases 1–2).
+
+**Phase-3 DoD check:** Tier-1 params UI visible/functional ✓ · Generate produces a valid
+`MelodyPatternData` working copy shown in the grid ✓ · generate → manual refine →
+apply/save ✓ · params SO saved independently of the pattern ✓ · determinism (same seed +
+params = same output) ✓.
+
+**Decisions locked:**
+- **D-MEL3.1 (seed)** — A: `seed` is a stored `int` on `MelodyGenerationParamsSO` (closing
+  the §5-vs-code gap); RNG is `System.Random(seed)` (package convention; the inverse of the
+  `UnityEngine.Random` path removed in M-3). Onset placement is RNG-free, so the seed varies
+  pitch/octave over a fixed rhythmic groove.
+- **D-MEL3.2 (GM instrument hint)** — A: added `GeneralMidiProgram instrumentHint` (DryWetMidi
+  `Standards`, mirroring drums' `GeneralMidiPercussion`) as a Tier-1 control,
+  **informational-only** for the MVP — the pattern carries no instrument and the runtime
+  instrument is owned by the track config, so it neither changes generated notes nor is read
+  at runtime.
+- **D-MEL3.3 (tonality effect)** — A: `tonalityHint` does not gate the degree set; the
+  generator draws all seven diatonic degrees with a fixed stability bias (Tonic/Dominant/
+  Mediant favoured). Mode-sensitive degree weighting is a deferred extension.
+- **Layout** — generation-params foldout under the header (`Header → Generation → Timing →
+  Grid → Actions`); Generate reads meter from the working copy (or the edit-state meter if
+  nothing is bound yet), so panel order does not affect behavior.
+
+> Carried-forward limits (unchanged from Phase 2): hardcoded default save folders
+> (`DefaultSaveFolder` / the new `DefaultParamsFolder`, Phase-8 store abstraction); an
+> unsaved new pattern is lost on domain reload with no bound asset. The generation-params
+> section renders the SO via a cached `Editor` (its standard inspector, incl. the new fields).
 
 ### Goal
 Implement the top section of the wizard (Tier 1 generation parameters) and a simplified
@@ -421,9 +530,25 @@ gap between procedural and authored melody workflows.
 
 ## Immediate next steps
 
-1. Begin Phase 1: design the new `MelodyNoteEvent` struct and `MelodyPatternData` redesign
-2. Decide the fate of `MidiGenerator.GenerateMelodyTrackWithPattern` (update or remove)
-3. Create `MelodyGenerationParamsSO` asset class
+Phases 1–3 are closed (Phases 1–2 2026-06-16; Phase 3 2026-06-17). Next is **Phase 4 —
+runtime hookup (`MelodyTrackComposer.ComposeFromPattern`)** — the first phase that makes
+authored patterns audible:
+
+1. **Settle the integration surface first** (the one open architecture decision): how an
+   authored `MelodyPatternData` reaches the composer — reuse `TrackParameters.Pattern`
+   (already a `PatternDataSO`, so no new field) vs a dedicated melody-pattern field / bundle
+   SO. This is to be finalized at the start of Phase 4 (see Phase 4 "Integration surface").
+2. Add a `ComposeFromPattern` branch to `MelodyTrackComposer` (analogous to rhythm's
+   `ComposeFromGrid`): when a pattern is present, read it directly, resolve each
+   `(degree, octaveOffset)` to absolute MIDI against the active Part tonality / root,
+   normalize to the Part meter, and emit events; otherwise run the procedural path.
+3. Keep the consumption path in `Runtime/` (no editor-only dependency) and preserve
+   determinism (same pattern + same tonality context = same MIDI). At least one manual
+   end-to-end validation: author pattern → assign to track → generate → correct output.
+
+This is the first runtime-touching melody phase, so its SSoT triggers are runtime-side
+(`runtime/SSoT_Composer_Melody_Track.md`, plus the §7 runtime-handoff section of
+`authoring/SSoT_Authoring_Melody_Composition.md`).
 
 ## Related authorities
 

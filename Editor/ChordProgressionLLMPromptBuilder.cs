@@ -214,7 +214,7 @@ Produce exactly two parts, in this order:
    <roman tokens separated by  –  >
    ```
 
-## DSL alphabet (v1, exhaustive — do not exceed)
+## DSL alphabet (exhaustive — do not exceed)
 
 - Degree (required): Roman numerals I II III IV V VI VII only. Case may carry quality (see below). NO other degrees.
 - Quality suffix (optional, appended directly to the numeral). Accepted EXACTLY:
@@ -228,6 +228,12 @@ Produce exactly two parts, in this order:
   - `ø7` = half-diminished 7th (you may also write `m7b5`)
   - `dim7` = diminished 7th
   - `sus2`, `sus4` = suspended
+  - `6` = major sixth (added 6th), e.g. `I6`
+  - `m6` = minor sixth, e.g. `im6`
+  - `7sus4` = dominant 7th, suspended 4th, e.g. `V7sus4`
+  - `9` = dominant 9th, e.g. `V9`
+  - `maj9` = major 9th, e.g. `Imaj9`
+  - `m9` = minor 9th, e.g. `iim9`
 - Accidental prefix (optional): `b` (flat) or `#` (sharp) immediately before the numeral, e.g. `bVII`, `#iv`.
 - Rest / silent span: `S`, optionally with a duration, e.g. `S (1)`.
 - Duration suffix (optional): `(x)` after a token, x in measures, e.g. `IV (2)` or `V7 (0.5)`. Decimals allowed; use a DOT as the decimal separator (`(0.5)`, never `(0,5)`). If omitted, the editor's Default Duration applies.
@@ -235,7 +241,7 @@ Produce exactly two parts, in this order:
 
 ## Forbidden (these warn or break)
 
-- NO extended/added chords: no 9, 11, 13, add9, 6, 6/9.
+- NO 11th/13th/added chords: no 11, 13, add9, 6/9 (plain `6` and the ninths `9`/`maj9`/`m9` ARE allowed; only 11/13/add9/6-9 are forbidden).
 - NO slash / inversion chords: no `V/V`, no `I/3`.
 - NO absolute chord names (no `Cmaj7`, `Am`) — Roman numerals only.
 - NO quality suffix outside the list above (an unknown suffix logs a warning = failure).
@@ -254,7 +260,7 @@ The sum of all chord durations (each chord's (x), or the default duration when o
 ## Self-check before emitting
 
 1. Every token is (optional b/# accidental) + Roman numeral I..VII + (optional suffix from the list) + (optional (x) duration), or an S rest.
-2. No extended, added, or slash chords; every suffix is in the alphabet.
+2. No 11/13/add9/6-9 extended chords (`6`, `m6`, `7sus4`, `9`, `maj9`, `m9` ARE in the alphabet) and no slash/inversion chords; every suffix is in the alphabet.
 3. Durations sum to exactly the target Measures; decimals use a dot.
 4. Tokens separated by ` – `; no prose, tempo, or absolute names inside the block.
 

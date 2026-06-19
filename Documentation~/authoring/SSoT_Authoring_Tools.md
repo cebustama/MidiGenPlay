@@ -38,8 +38,9 @@ This pattern is demonstrated by both `ChordProgressionEditorWindow` and
 
 ### A. Mature package-owned editor windows
 
-Two tools currently hold Category A status as dedicated, scene-independent package
-authoring entry points:
+Three tools currently hold Category A status as dedicated, scene-independent package
+authoring entry points (the third, the Melody Pattern Editor, currently authors
+pattern data that is not yet runtime-consumed — see its entry for scope):
 
 #### `ChordProgressionEditorWindow`
 
@@ -96,6 +97,53 @@ Current limitations (known, not blocking):
   glyph tiers (default / accent / ghost); the asset value remains canonical
   until the user explicitly types a different glyph in that cell
 
+#### `MelodyPatternEditorWindow`
+
+The dedicated melody authoring entry point, implemented in Phase 2 of
+`planning/active/Roadmap_Melody_Authoring_MVP.md` (closed 2026-06-16). Follows the
+same architectural pattern as the chord and drum editors, adapted for a
+scale-degree "ladder" note grid.
+
+Capabilities:
+
+- opens via `MidiGenPlay / Melody Pattern Editor...`
+- scene-independent: no runtime MonoBehaviour wiring required
+- `TimeSignature` enum drives `beatsPerMeasure` (consistent with package meter contract)
+- deep-clone / working-copy isolation: asset is never mutated until Apply or Save As
+- ladder grid: Y = 7 diatonic scale-degree rows (I–VII) × octave bands, X = time steps
+- click to place / select notes; right-click to delete; a per-note selection
+  inspector for degree, octave offset, start step, length (steps), and velocity
+- configurable visible octave window that auto-fits to cover all notes on load;
+  notes outside the window or beyond the current measure count are preserved (not
+  deleted) and surfaced as a hidden-note count
+- explicit Normalize (snap notes to the current subdivision grid)
+- Apply To Asset and Save As New Asset flows
+- grid authoring semantics authority:
+  `authoring/SSoT_Authoring_Melody_Composition.md` §5 ("Grid authoring semantics (Phase 2)")
+
+Status / scope (Phase 2):
+
+- this window authors `MelodyPatternData` only and makes **no runtime changes**;
+  its output is **not yet consumed at runtime** — the `MelodyTrackComposer`
+  pattern-override path (`ComposeFromPattern`) is Phase 4 (see §3.D and
+  `runtime/SSoT_Composer_Melody_Track.md`)
+- there is **no generation-parameters section / generator** yet — the top section
+  of the wizard is Phase 3 (see §3.D)
+- there is **no text/DSL mode** (a rhythm/chord-only feature); the analogous melody
+  import path is MIDI-file → scale-degree, deferred to Phase D1
+
+Current limitations (known, not blocking):
+
+- save path uses a hardcoded default folder
+  (`Assets/Resources/ScriptableObjects/Patterns/Melody`), same posture as the drum
+  editor pending the Phase 8 store abstraction
+- the grid fits to the window width, so cells shrink at high step counts
+- unsaved new patterns are lost on domain reload if no asset is assigned
+- the visible octave window and the current selection are editor UI state only —
+  not persisted in the asset
+- drag-to-resize notes is deferred to Phase 5 polish; duration is edited via the
+  inspector "Length (steps)" field
+
 ### B. Legacy runtime-scene MVP panel
 
 `RhythmPatternPanelController` + `PatternGrid` + `PatternGridCell` + `RhythmRowHeader`
@@ -123,6 +171,30 @@ The package also contains smaller editor/tooling components such as:
 
 These are reusable building blocks available for future editor work, including Phase 8
 persistence cleanup.
+
+### D. Melody Pattern Editor — remaining planned phases
+
+The **Melody Pattern Editor** has landed its editor-window shell and scale-degree
+"ladder" note grid (Phase 2 of
+`planning/active/Roadmap_Melody_Authoring_MVP.md`, closed 2026-06-16) and is now a
+Category-A tool — see its entry in §3.A. Two parts of the planned wizard remain
+**not yet implemented**:
+
+- **Generation-parameters section + simplified generator (Phase 3).** The top
+  section of the wizard surfacing `MelodyGenerationParamsSO` (Tier-1 params:
+  scale/tonality, GM instrument hint, density, octave range, rhythmic style) plus a
+  "Generate" button driving an editor-only simplified generator into the working
+  copy. Contract: `authoring/SSoT_Authoring_Melody_Composition.md` §5
+  (`MelodyGenerationParamsSO` is a generation-time aid only, never read at runtime).
+- **Runtime consumption (Phase 4).** A `MelodyTrackComposer.ComposeFromPattern`
+  branch that consumes an authored `MelodyPatternData` at runtime (resolving scale
+  degrees to absolute pitch against the active tonality/root), analogous to the
+  rhythm `ComposeFromGrid` path. Until this lands, authored melody patterns are not
+  consumed by any composer. Authority: `runtime/SSoT_Composer_Melody_Track.md`.
+
+> Asset-reset caveat (mirrors §7): the Phase-1 `MelodyPatternData` redesign
+> changed the serialized note shape, so pre-existing melody `.assets` deserialize
+> their note data as empty on first load and must be re-authored via the wizard.
 
 ## 4. Package-owned vs cross-project-owned tools
 

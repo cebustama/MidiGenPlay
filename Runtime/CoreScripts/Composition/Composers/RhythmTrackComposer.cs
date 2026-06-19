@@ -41,8 +41,20 @@ namespace MidiGenPlay.Composition
             var styleBundle = cfg.Parameters?.Style;
             var cardCfg = styleBundle as RhythmCardConfigSO;
 
-            // Option A resolution (already present; keep behavior)
-            var data = cardCfg?.patternOverride
+            // Card-level pattern resolution (palette-aware).
+            // PickPatternOverride is now TS-aware: checks patternOverride first, then patternPalette
+            // (weighted, clone-on-pick), seeded from the composer RNG so the pick is
+            // reproducible under the determinism invariant. Falls back to an explicitly
+            // authored TrackParameters.Pattern when the card resolves nothing.
+            var pickRng = ctx?.rng;
+            if (pickRng == null && cardCfg?.patternPalette != null)
+            {
+                // Only matters when a palette would actually be picked from.
+                Debug.LogWarning($"{LogTag} ctx.rng is null; using deterministic fallback RNG for palette pick.");
+                pickRng = new System.Random(_settings != null ? _settings.defaultSeed : 0);
+            }
+
+            var data = cardCfg?.PickPatternOverride(pickRng, part.TimeSignature, _settings, LogEnabled)
                 ?? cfg.Parameters?.Pattern as DrumPatternData;
 
             var recipe = cardCfg?.recipeOverride ?? cfg.Parameters?.RhythmRecipe;

@@ -26,9 +26,10 @@ Backing track generation may be influenced by:
 Important documented behavior:
 
 - can use an explicit progression override,
-- can select from palette-driven options,
+- can select from palette-driven options via the shared, TS-aware `PaletteSelector` / `ProgressionFinder` (Tier A exact-TS → B heuristic → C raw-weights; reflection removed in CE-F1),
 - can fall back when exact options are absent,
 - uses cache/shared selection semantics where appropriate,
+- treats duplicate progression references within a single palette as independent weighted entries (no de-duplication; CE-F1 delta vs. the prior reflection path),
 - and normalizes or adapts progression timing against the **Part** meter.
 
 ## 3. Meter normalization contract

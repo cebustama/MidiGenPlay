@@ -37,7 +37,7 @@ namespace MidiGenPlay.Authoring
     /// silently downgrades the chord to diatonic quality. A parse that
     /// "succeeds" can therefore still contain a token the alphabet forbids. To
     /// honor the no-silent-fallback contract, this handler re-scans the Roman
-    /// string against the v1 quality-suffix allowlist BEFORE producing an
+    /// string against the quality-suffix allowlist BEFORE producing an
     /// applyable outcome; any out-of-alphabet suffix becomes a hard
     /// <see cref="OutcomeKind.Failed"/> with an explanatory warning, rather than
     /// an applied wrong chord. The allowlist mirrors the prompt's declared
@@ -242,7 +242,7 @@ namespace MidiGenPlay.Authoring
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// v1 quality-suffix allowlist, lower-cased. Mirrors the accepted cases in
+        /// Quality-suffix allowlist, lower-cased. Mirrors the accepted cases in
         /// <c>RomanProgressionParser.TryParseQualitySuffix</c> and the prompt's
         /// declared alphabet. An empty suffix (plain triad) is always allowed and
         /// is not listed here.
@@ -264,6 +264,12 @@ namespace MidiGenPlay.Authoring
             "dim7", "o7", "°7",
             // suspended
             "sus2", "sus4", "sus",
+            // sixth chords (v2 Tier A)
+            "6", "m6", "min6",
+            // suspended dominant (v2 Tier A)
+            "7sus4",
+            // ninths (v2 Tier B)
+            "9", "dom9", "maj9", "ma9", "m9", "min9",
         };
 
         // Token shape: optional accidental (b/#/♭/♯) + Roman core (IVXivx) + suffix.
@@ -274,7 +280,7 @@ namespace MidiGenPlay.Authoring
 
         /// <summary>
         /// Scan the progression for any chord token whose quality suffix is not in
-        /// the v1 allowlist. Rest tokens (S / REST / R) and bare durations are
+        /// the allowlist. Rest tokens (S / REST / R) and bare durations are
         /// skipped. Returns the first offending token, if any.
         /// </summary>
         internal static bool TryFindForbiddenToken(string progression, out string offending)
@@ -304,7 +310,7 @@ namespace MidiGenPlay.Authoring
                 var m = TokenSplitRegex.Match(token);
                 if (!m.Success)
                 {
-                    // No recognizable Roman core at all — definitely not v1.
+                    // No recognizable Roman core at all — definitely not in alphabet.
                     offending = raw.Trim();
                     return true;
                 }

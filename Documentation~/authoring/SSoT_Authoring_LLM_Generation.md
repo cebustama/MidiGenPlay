@@ -32,6 +32,13 @@ It does **not**:
 Per-tool specifics (the rhythm DSL, the drum setup-card shape) remain governed by
 the relevant authoring SSoT. This document governs the **cross-cutting pattern**.
 
+The pattern is also adoptable by **consumers of the package** (third adopter:
+the ALWTTT Card Editor, CE-L1). A consumer-side adopter honors the same §2
+stages and §3 contracts; its artifacts live in the consumer project and are
+therefore recorded in §7 but not in the package manifest's `governs:` lists
+(out-of-tree). Cross-project asset semantics stay in the relevant
+`reference/cross-project/` doc.
+
 ---
 
 ## 1. The load-bearing principle: the asset is the seam
@@ -266,6 +273,33 @@ documented in §3.3. No alias stage was needed.
 A future shared generic over the two prompt builders / generators
 (`LLMAuthoringPromptBuilder<TParser, TVocab>` or similar) is deferred until the
 two instances justify the abstraction (D-L4.3 rationale).
+
+The ALWTTT Card Editor is the third adopter (CE-L1, closed 2026-06-11) — the
+first **consumer-side** instance: all artifacts live in the ALWTTT project
+(`Assets/Scripts/Cards/LLMAuthoring/`, an editor-only asmdef pair referencing
+`MidiGenPlay.Runtime` + `BCS.LLM.Core.Runtime`), not in the package.
+Stage → card-artifact mapping:
+
+| Stage (§2) | Card artifact |
+|---|---|
+| Vocabulary SO | **deviation:** `CardLLMVocabulary` live-snapshot string POCO built per-generate by `CardLLMVocabularyBuilder` (enum reflection + registry status keys + `PartEffect`/palette scans) — not a hand-authored SO, because for cards the alphabet *is* live project state (D-CE-L1.4) |
+| Pure-function prompt builder | `CardLLMPromptBuilder` |
+| Generator wrapper (injectable `ILLMClient`) | `CardLLMGenerator` (stops at fenced-JSON extraction; the single DTO parse lives in the handler so Generate/Import share one parse) |
+| Pure-function importer | `CardImportDtoParser` (hoisted from the window's JSON box, shared verbatim by both routes) |
+| Alias dictionary | *not adopted* — enum names + status keys + asset names are already canonical |
+| Async response handler (unifies generate + import) | `CardLLMResponseHandler` — carries the §3.3 guard **twice over**: the out-of-alphabet allowlist (staging's `SetEnumByName` warns-and-keeps-default, so the guard moves up, D-L4.5 doctrine) **and a banned-asset-reference guard** (any path/guid-shaped value in `cardSpritePath` / `trackAction.styleBundle` / `modifierEffects` is a hard failure; asset intent travels only via `composition.palette` intent + `modifierEffectNames` exact names) |
+| Editor window wiring | `CardEditorWindow` (`.LLM` partial); outcome→apply isolated as the pure `CardLLMFieldPlan` (thin by design — the window's existing `TryStageCardFromDto` owns field mapping; the plan decides *whether* to stage and carries the resolved palette to the Save hook) |
+
+What this instance adds beyond the drum/chord shape: cards reference **other
+assets**. The LLM never emits an asset reference — it emits *intent*
+(`palette: { requested, timeSignature, keywords }`), resolved deterministically
+by `CardPaletteIntentResolver` over the CE-F1 `PaletteSelector` with a
+user-visible seed; modifier effects are referenced by exact asset name and
+resolved (all-or-nothing, ambiguity = failure) at staging. Bundle creation +
+palette assignment happen only at the window's existing Save step (D-CE-L1.6) —
+the working-copy/apply contract (§3.5) extends naturally to asset wiring.
+FakeLLMClient is duplicated consumer-side (copy-then-unify, same D-L4.3
+rationale) because a package test asmdef is not consumer-referenceable.
 
 ---
 

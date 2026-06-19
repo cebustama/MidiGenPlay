@@ -29,6 +29,7 @@
 |   |   +---active
 |   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
+|   |   |   +---Roadmap_Composition_Expressivity.md
 |   |   |   +---Roadmap_Documentation_Migration.md
 |   |   |   +---Roadmap_LLM_Authoring_MVP.md
 |   |   |   +---Roadmap_Melody_Authoring_MVP.md
@@ -47,6 +48,7 @@
 |   |   |   \---README.md
 |   |   +---package
 |   |   |   +---Documentation_Update_Protocol_Addendum.md
+|   |   |   +---Palette_Card_Identity_Design.md
 |   |   |   +---README.md
 |   |   |   \---Tests_Authoring_HowTo.md
 |   |   \---README.md
@@ -69,8 +71,17 @@
 |   +---SSoT_CONTRACTS.md
 |   \---SSoT_INDEX.md
 +---Editor
+|   +---AssemblyInfo.cs
 |   +---BankDropdownDrawer.cs
+|   +---ChordGenreVocabularyBuilder.cs
+|   +---ChordLLMFieldPlan.cs
+|   +---ChordProgressionEditorImporter.cs
 |   +---ChordProgressionEditorWindow.cs
+|   +---ChordProgressionEditorWindow.LLM.cs
+|   +---ChordProgressionLLMGenerator.cs
+|   +---ChordProgressionLLMPromptBuilder.cs
+|   +---ChordProgressionLLMResponseHandler.cs
+|   +---DrumPatternCatalogueWizard.cs
 |   +---DrumPatternEditorImporter.cs
 |   +---DrumPatternEditorWindow.cs
 |   +---DrumPatternLLMConsoleHarness.cs
@@ -108,14 +119,17 @@
 |   |   |   |   |   +---PhrasePaletteSO.cs
 |   |   |   |   |   \---SustainLeadInPhraseSO.cs
 |   |   |   |   +---BackingCardConfigSO.cs
+|   |   |   |   +---ChordGenreVocabularySO.cs
 |   |   |   |   +---ChordProgressionLibrarySO.cs
 |   |   |   |   +---ChordProgressionPaletteSO.cs
+|   |   |   |   +---DrumPatternPaletteSO.cs
 |   |   |   |   +---HarmonicLeadingConfig.cs
 |   |   |   |   +---HarmonyCardConfigSO.cs
 |   |   |   |   +---MelodicLeadingConfig.cs
 |   |   |   |   +---MelodicStyleSO.cs
 |   |   |   |   +---MelodyCardConfigSO.cs
 |   |   |   |   +---ModulationOctaveHint.cs
+|   |   |   |   +---PaletteSelection.cs
 |   |   |   |   +---RhythmCardConfigSO.cs
 |   |   |   |   +---RhythmGenreVocabularySO.cs
 |   |   |   |   +---TrackStyleBundleSO.cs
@@ -357,6 +371,8 @@
 |   |       |   |   +---ChordProgression-DefaultTwelveEight.asset
 |   |       |   |   \---ChordProgression-DefaultTwoFour.asset
 |   |       |   +---Drums
+|   |       |   |   +---Palettes
+|   |       |   |   |   \---DrumPatternPalette.asset
 |   |       |   |   +---_Drum Patterns List.asset
 |   |       |   |   +---DrumPattern-DefaultFiveFour.asset
 |   |       |   |   +---DrumPattern-DefaultFourFour.asset
@@ -425,16 +441,23 @@
 |   \---ALWTTT.sf2
 +---Tests
 |   \---Editor
+|       +---ChordProgressionEditorImporterTests.cs
+|       +---ChordProgressionEditorWindowWiringTests.cs
+|       +---ChordProgressionLLMGeneratorTests.cs
+|       +---ChordProgressionLLMPromptBuilderTests.cs
+|       +---ChordProgressionLLMResponseHandlerTests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
 |       +---DrumPatternEditorImporterTests.cs
 |       +---DrumPatternLLMGeneratorTests.cs
 |       +---DrumPatternLLMPromptBuilderTests.cs
 |       +---DrumPatternLLMResponseHandlerTests.cs
+|       +---DrumPatternPaletteSOTests.cs
 |       +---DrumPatternTextParserTests.cs
 |       +---FakeLLMClient.cs
 |       +---LaneAliasDictionaryTests.cs
-|       \---MidiGenPlay.Tests.Editor.asmdef
+|       +---MidiGenPlay.Tests.Editor.asmdef
+|       \---PaletteSelectorTests.cs
 +---make-tree-unity.bat
 +---package.json
 \---README.md

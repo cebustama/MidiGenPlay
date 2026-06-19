@@ -1690,7 +1690,7 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         "I", "II", "III", "IV", "V", "VI", "VII"
     };
 
-    private bool IsSeventhQuality(ChordQuality q)
+    internal bool IsSeventhQuality(ChordQuality q)
     {
         switch (q)
         {
@@ -1699,45 +1699,49 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             case ChordQuality.Dominant7:
             case ChordQuality.HalfDiminished7:
             case ChordQuality.Diminished7:
+            case ChordQuality.Dominant7sus4:   // v2 Tier A (ya estaba)
+            case ChordQuality.Dominant9:       // v2 Tier B  ← FALTABA
+            case ChordQuality.Major9:          // v2 Tier B  ← FALTABA
+            case ChordQuality.Minor9:          // v2 Tier B  ← FALTABA
                 return true;
             default:
                 return false;
         }
     }
 
-    private string QualitySuffixForToken(ChordQuality q)
+    internal string QualitySuffixForToken(ChordQuality q)
     {
         // IMPORTANT: use only strings your TryParseQualitySuffix already supports.
         switch (q)
         {
             // Triads
-            case ChordQuality.Major:
-                return "";        // plain roman
-            case ChordQuality.Minor:
-                return "m";
-            case ChordQuality.Diminished:
-                return "dim";
-            case ChordQuality.Augmented:
-                return "aug";
-            case ChordQuality.Sus2:
-                return "sus2";
-            case ChordQuality.Sus4:
-                return "sus4";
+            case ChordQuality.Major: return "";
+            case ChordQuality.Minor: return "m";
+            case ChordQuality.Diminished: return "dim";
+            case ChordQuality.Augmented: return "aug";
+            case ChordQuality.Sus2: return "sus2";
+            case ChordQuality.Sus4: return "sus4";
 
             // Sevenths
-            case ChordQuality.Dominant7:
-                return "7";
-            case ChordQuality.Major7:
-                return "maj7";
-            case ChordQuality.Minor7:
-                return "m7";
-            case ChordQuality.HalfDiminished7:
-                return "ø7";      // or "m7b5" if that’s what you parse
-            case ChordQuality.Diminished7:
-                return "dim7";
+            case ChordQuality.Dominant7: return "7";
+            case ChordQuality.Major7: return "maj7";
+            case ChordQuality.Minor7: return "m7";
+            case ChordQuality.HalfDiminished7: return "ø7";
+            case ChordQuality.Diminished7: return "dim7";
 
-            default:
-                return "";
+            // Sixths (v2 Tier A — ya estaba)
+            case ChordQuality.Major6: return "6";
+            case ChordQuality.Minor6: return "m6";
+
+            // Suspended dominant (v2 Tier A — ya estaba)
+            case ChordQuality.Dominant7sus4: return "7sus4";
+
+            // Ninths (v2 Tier B)  ← FALTABAN
+            case ChordQuality.Dominant9: return "9";
+            case ChordQuality.Major9: return "maj9";
+            case ChordQuality.Minor9: return "m9";
+
+            default: return "";
         }
     }
 

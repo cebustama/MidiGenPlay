@@ -38,6 +38,7 @@ The code-backed inputs of documentary importance are:
 - `TrackParameters.Pattern`
 - `TrackParameters.RhythmRecipe`
 - `RhythmCardConfigSO.patternOverride`
+- `RhythmCardConfigSO.patternPalette`
 - `RhythmCardConfigSO.recipeOverride`
 - `RhythmCardConfigSO.styleIdOverride`
 - `RhythmCardConfigSO.fillEveryNMeasures`
@@ -51,11 +52,19 @@ The code-backed inputs of documentary importance are:
 The current practical resolution visible in code is:
 
 1. `RhythmCardConfigSO.patternOverride`
-2. `TrackParameters.Pattern` as `DrumPatternData`
-3. `RhythmCardConfigSO.recipeOverride`
-4. `TrackParameters.RhythmRecipe`
-5. `RhythmCardConfigSO.styleIdOverride` when procedural style selection is needed
-6. fallback procedural style selection through `RhythmStyleRegistry`
+2. `RhythmCardConfigSO.patternPalette` (weighted, seeded, **TS-aware** pick — clone-on-pick)
+3. `TrackParameters.Pattern` as `DrumPatternData`
+4. `RhythmCardConfigSO.recipeOverride`
+5. `TrackParameters.RhythmRecipe`
+6. `RhythmCardConfigSO.styleIdOverride` when procedural style selection is needed
+7. fallback procedural style selection through `RhythmStyleRegistry`
+
+Steps 1–2 are resolved inside the TS-aware
+`RhythmCardConfigSO.PickPatternOverride(rng, timeSignature, settings, verbose)`, which
+`RhythmTrackComposer.Compose` calls with the Part time signature: `patternOverride` wins
+if set; else a TS-aware weighted pick from `patternPalette` through the shared
+`PatternFinder` / `PaletteSelector`; else null → fall through to step 3. A legacy
+`PickPatternOverride(System.Random)` overload is retained for callers without a TS.
 
 This precedence describes the current runtime path. If it changes, this document must be updated.
 
@@ -94,6 +103,33 @@ Used when the pattern does not resolve as the new lane/grid structure and runtim
 
 This path still exists for compatibility, but it should not be treated as the forward authoring target.
 
+### D. Palette consumption contract (PCE; TS-aware as of CE-F1)
+
+When a card carries a `patternPalette` and no `patternOverride`,
+`RhythmTrackComposer.Compose` resolves its working pattern through the TS-aware
+`RhythmCardConfigSO.PickPatternOverride(pickRng, part.TimeSignature, settings, verbose)`:
+
+- `pickRng` is `ctx.rng`. When `ctx.rng` is null *and* a palette is present, the composer
+  logs a warning and falls back to `System.Random(settings.defaultSeed)` so output stays
+  reproducible.
+- The palette pick goes through the shared `PatternFinder` / `PaletteSelector`
+  (Tier A exact-TS -> Tier B fitness heuristic -> Tier C raw-weights), keyed on each
+  pattern's `TimeSignature`. Exactly one `rng.NextDouble()` is consumed per pick, so the
+  determinism invariant holds.
+- Tier B's density term uses the drum-specific **capped foundational-onset density**: kick
+  onsets per bar (GM 35/36; else the lowest-note lane) capped at the meter's natural
+  grouping count, so busy grooves are not penalized — only under-articulation of the meter
+  (D-F1.5).
+- The pick clones on selection (`ScriptableObject.Instantiate`), so the project asset is
+  never mutated. It then flows into the existing grid path, including
+  `NormalizeGridPatternForPartIfNeeded`, which produces a fresh meter-correct clone; no
+  additional deep clone is required.
+
+This shares one selector with the backing composer's
+`BackingCardConfigSO.PickProgressionOverride` seam. Both palettes'
+`preferExact*TimeSignatureMatches` toggles are consumed in that single selector, so the
+PCE-era TS-toggle asymmetry no longer exists.
+
 ## 4. Determinism contract
 
 Rhythm generation must be deterministic under the orchestration seed/RNG context.
@@ -101,6 +137,7 @@ Rhythm generation must be deterministic under the orchestration seed/RNG context
 Current code-backed truth:
 - `SongOrchestrator` seeds `ctx.rng` deterministically
 - `RhythmTrackComposer` uses that seeded RNG path for style choice
+- palette selection (`PickPatternOverride`) draws from the same `ctx.rng` and consumes one `NextDouble()` per pick through the shared `PaletteSelector`; same seed => same pattern picked
 - same seed should produce stable style selection and stable MIDI output, assuming unchanged inputs
 
 Rhythm runtime should not silently depend on unrelated global randomness for style selection.

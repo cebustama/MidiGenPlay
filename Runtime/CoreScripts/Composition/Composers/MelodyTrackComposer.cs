@@ -57,6 +57,13 @@ namespace MidiGenPlay.Composition
                 return new MidiFile();
             }
 
+            // Phase 4 (D-MEL4.1): authored-melody override. If TrackParameters.Pattern is a
+            // MelodyPatternData, render it directly and skip the procedural pipeline
+            // (mirrors RhythmTrackComposer's DrumPatternData -> ComposeFromGrid dispatch).
+            var melodyPattern = cfg.Parameters?.Pattern as MelodyPatternData;
+            if (melodyPattern != null)
+                return ComposeFromPattern(instrument, bpm, part, cfg, melodyPattern, channel, ctx);
+
             // Tonality profile for this part (Dorian, Mixolydian, Pentatonic, etc.)
             var profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
 
@@ -179,10 +186,10 @@ namespace MidiGenPlay.Composition
                 if (list == null || list.Count == 0) return null;
                 float sum = 0f; foreach (var w in list) sum += Mathf.Max(0f, w.weight);
                 float target = (float)(r.NextDouble() * Mathf.Max(sum, 0.0001f));
-                foreach (var w in list) 
-                { 
-                    target -= Mathf.Max(0f, w.weight); 
-                    if (target <= 0f) return w; 
+                foreach (var w in list)
+                {
+                    target -= Mathf.Max(0f, w.weight);
+                    if (target <= 0f) return w;
                 }
                 return list[list.Count - 1];
             }
@@ -263,7 +270,7 @@ namespace MidiGenPlay.Composition
 
                 // Wrap in constraint decorator only if needed
                 if (contour != ContourConstraint.None || repeat != null)
-                    activeStrategy = 
+                    activeStrategy =
                         new ConstrainedMelodyStrategy(
                             activeStrategy, contour, repeat);
 
@@ -343,13 +350,13 @@ namespace MidiGenPlay.Composition
                     // Track phrase-first and phrase-peak for future slots this phrase
                     if (phraseFirstNote == null) phraseFirstNote = picked;
                     if (phrasePeakNote == null ||
-                        MelodyStrategyCommon.Semis(picked) > 
+                        MelodyStrategyCommon.Semis(picked) >
                         MelodyStrategyCommon.Semis(phrasePeakNote))
                     {
                         phrasePeakNote = picked;
                     }
 
-                    int velocityVal = 
+                    int velocityVal =
                         ChooseVelocityForSlot(slot, picked, profile, rng, effectiveLeading);
                     var velocity7 = (SevenBitNumber)Mathf.Clamp(velocityVal, 1, 127);
 
@@ -421,6 +428,116 @@ namespace MidiGenPlay.Composition
             }
 
             // cache guide notes for other systems
+            if (ctx != null && ctx.SetMelodyForPartMusician != null)
+            {
+                var musicianId = trackCfg?.MusicianId;
+                ctx.SetMelodyForPartMusician(part, musicianId, capturedMelody);
+            }
+
+            return file;
+        }
+
+        // === Phase 4: authored-melody pattern-override path ==========================
+        //
+        // Renders a MelodyPatternData directly instead of the procedural pipeline
+        // (analogous to RhythmTrackComposer's DrumPatternData -> ComposeFromGrid).
+        // Each note's (degree, octaveOffset) resolves to an absolute pitch against the
+        // active Part tonality/root; timing stays in beats (one beat = a quarter, matching
+        // ComposeMelodyFromProgression); the authored loop is tiled to fill the Part.
+        // No RNG is consumed, so the same pattern + same tonality/root + same meter yields
+        // byte-identical MIDI, and ctx.rng draw order for other tracks is unaffected.
+        // Runtime-only; no editor dependency.
+        private MidiFile ComposeFromPattern(
+            MIDIInstrumentSO instrument,
+            int bpm,
+            SongConfig.PartConfig part,
+            SongConfig.PartConfig.TrackConfig trackCfg,
+            MelodyPatternData pattern,
+            int channel,
+            MidiGenerator.GenContext ctx)
+        {
+            const double MinNoteBeats = 0.05; // floor so a zero/negative authored duration still sounds
+
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var pb = new PatternBuilder().MoveToStart();
+
+            // Part meter (same source the procedural path uses).
+            var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
+            int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            // Degree -> pitch resolves against the active Part tonality/root (D-MEL4.2).
+            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
+
+            // Reference register = the instrument's mid octave (same convention as
+            // ChooseMelodicRegister: octaveMin-1..octaveMax-1). octaveOffset is applied on
+            // top and clamped to that range, so resolution can't produce out-of-range notes.
+            int minOct = instrument.octaveMin - 1;
+            int maxOct = instrument.octaveMax - 1;
+            int refOct = Mathf.Clamp((minOct + maxOct) / 2, minOct, maxOct);
+
+            // Loop the authored pattern to fill the Part; truncate the final partial loop.
+            double loopBeats = Math.Max(1.0, (double)pattern.TotalBeats);             // Measures * beatsPerMeasure
+            double partTotalBeats = Math.Max(1.0, (double)(Mathf.Max(1, part.Measures) * beatsPerBar));
+            int repeats = Math.Max(1, (int)Math.Ceiling(partTotalBeats / loopBeats));
+
+            // The loop tiles by raw beats (D-MEL4.3); note-to-barline alignment is only
+            // guaranteed when the authored bar length matches the Part meter. Full bar-time
+            // renormalization of a mismatched melody pattern is deferred (Phase 5): melody
+            // timing is continuous beats, unlike the rhythm step grid that
+            // NormalizeGridPatternForPartIfNeeded remaps.
+            if (_settings?.logGenerator == true && pattern.beatsPerMeasure != beatsPerBar)
+                Debug.LogWarning($"[MelodyTrackComposer] Authored pattern beats/measure " +
+                    $"({pattern.beatsPerMeasure}) != Part meter ({beatsPerBar}); tiling by beats.");
+
+            var ordered = pattern.SnapshotOrdered();
+            var capturedMelody = new List<MidiGenerator.GuideNote>(ordered.Count * repeats);
+
+            for (int r = 0; r < repeats; r++)
+            {
+                double baseBeat = r * loopBeats;
+
+                foreach (var ev in ordered)
+                {
+                    double whenBeats = baseBeat + ev.startBeat;
+                    if (whenBeats >= partTotalBeats) continue;                        // past the Part end
+
+                    int targetOct = Mathf.Clamp(refOct + ev.octaveOffset, minOct, maxOct);
+                    if (!GetNoteFromScale(scale, ev.degree, part.RootNote, targetOct, out var note)
+                        || note == null)
+                        continue;
+
+                    double durBeats = Math.Max(MinNoteBeats, (double)ev.durationBeats);
+                    var velocity7 = (SevenBitNumber)Mathf.Clamp(ev.velocity, 1, 127);
+
+                    var startTs = MusicalTimeSpan.Quarter.Multiply(whenBeats);
+                    var durTs = MusicalTimeSpan.Quarter.Multiply(durBeats);
+
+                    pb.MoveToTime(startTs);
+                    pb.Note(note, durTs, velocity7);
+
+                    // Cache as a guide note so a HarmonyTrackComposer can follow the lead (D-MEL4.4).
+                    capturedMelody.Add(new MidiGenerator.GuideNote
+                    {
+                        startBeats = whenBeats,
+                        durBeats = durBeats,
+                        note = note
+                    });
+                }
+            }
+
+            // --- finalize MIDI (same as the procedural path) ---
+            var file = pb.Build().ToFile(tempoMap);
+            StampBankAndPatch(file, instrument, channel);
+            ForceAllChannel(file, channel);
+
+            if (_settings?.logGenerator == true)
+            {
+                var (tracks, notes, lastTick) = Inspect(file);
+                Debug.Log($"[MelodyTrackComposer] (pattern) " +
+                    $"tracks={tracks} notes={notes} lastTick={lastTick} from '{pattern.name}'.");
+            }
+
+            // cache guide notes for other systems (same per-part/per-musician cache)
             if (ctx != null && ctx.SetMelodyForPartMusician != null)
             {
                 var musicianId = trackCfg?.MusicianId;

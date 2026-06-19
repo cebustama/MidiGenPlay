@@ -176,7 +176,7 @@ public class EmotionalGenerationPanel : MonoBehaviour
 
         if (useMelodyTrack && leadInstrument != null && melodyPattern != null)
         {
-            Debug.Log("<color=green>Generating Melody Track...</color>");
+            /*Debug.Log("<color=green>Generating Melody Track...</color>");
             var melodyTrackMidiFile = midiGenerator.GenerateMelodyTrackWithPattern(
                 leadInstrument,
                 melodyPattern,
@@ -187,7 +187,7 @@ public class EmotionalGenerationPanel : MonoBehaviour
                 measures,
                 channel: 2);
 
-            MergeIntoFinalMidi(finalMidiFile, melodyTrackMidiFile);
+            MergeIntoFinalMidi(finalMidiFile, melodyTrackMidiFile);*/
         }
 
         // Play the final MIDI file

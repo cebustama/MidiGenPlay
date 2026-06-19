@@ -397,6 +397,37 @@ namespace MidiGenPlay.Composition
                     quality = ChordQuality.Sus4;
                     return true;
 
+                // --- Sixths (v2 Tier A) ---
+                case "6":
+                    quality = ChordQuality.Major6;
+                    return true;
+
+                case "m6":
+                case "min6":
+                    quality = ChordQuality.Minor6;
+                    return true;
+
+                // --- Suspended dominant (v2 Tier A) ---
+                case "7sus4":
+                    quality = ChordQuality.Dominant7sus4;
+                    return true;
+
+                // --- Ninths (v2 Tier B) ---
+                case "9":
+                case "dom9":
+                    quality = ChordQuality.Dominant9;
+                    return true;
+
+                case "maj9":
+                case "ma9":
+                    quality = ChordQuality.Major9;
+                    return true;
+
+                case "m9":
+                case "min9":
+                    quality = ChordQuality.Minor9;
+                    return true;
+
                 default:
                     // Unknown: let caller fall back to diatonic inference.
                     Debug.LogWarning(
@@ -479,4 +510,3 @@ namespace MidiGenPlay.Composition
         }
     }
 }
-

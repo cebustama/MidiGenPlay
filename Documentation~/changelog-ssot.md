@@ -1,5 +1,372 @@
 # changelog-ssot
 
+## 2026-06-17 — Melody Authoring MVP Phase 3: generation-params UI + simplified generator
+
+### Added (package editor)
+- `Editor/SimplifiedMelodyGenerator.cs` — new editor-only (`#if UNITY_EDITOR`, namespace
+  `MidiGenPlay.Authoring`) static generator. `Generate(MelodyPatternData,
+  MelodyGenerationParamsSO, int seed)` maps the Tier-1 params into the caller's working copy:
+  density → onsets/measure; rhythmic style → onset placement (Even = evenly spaced;
+  Syncopated = pushed onto the off-beat; Burst = short consecutive-subdivision runs with
+  gaps); octave range → per-note octave-offset bounds; scale → the seven diatonic degrees,
+  drawn with a fixed stability bias (Tonic/Dominant/Mediant favoured). Velocity is a
+  deterministic bar-downbeat > beat > off-beat shape. Does NOT invoke the procedural
+  `MelodyTrackComposer` / `PhrasePlanner` pipeline (Phase D3) and has no runtime dependency.
+
+### Changed (package runtime)
+- `Runtime/CoreScripts/Composition/Data/MelodyGenerationParamsSO.cs` — two additive Tier-1
+  fields: `int seed` (deterministic generation seed; closes the gap with the §5 description,
+  which already listed a seed) and `GeneralMidiProgram instrumentHint` (DryWetMidi
+  `Standards`, mirroring `DrumPatternData`'s `GeneralMidiPercussion`). Added the
+  `Melanchall.DryWetMidi.Standards` using. Both additive; existing serialized `.assets`
+  deserialize with defaults (seed 0, AcousticGrandPiano). `Normalize()` unchanged. The SO
+  remains a generation-time aid only — never read at runtime.
+
+### Changed (package editor)
+- `Editor/MelodyPatternEditorWindow.cs` — new "Generation (simplified)" foldout under the
+  header (`Header → Generation → Timing → Grid → Actions`): binds/creates a
+  `MelodyGenerationParamsSO` (rendered via a cached `Editor` so its inspector incl. the new
+  fields appears), a "Generate" button + a "Randomize Seed" button, and a `New Params Asset…`
+  creator (new `DefaultParamsFolder` constant). `Generate` overwrites the working copy only
+  (asset untouched until Apply/Save As) and auto-fits the octave window. Added an `OnDisable`
+  to dispose the cached inspector editor. Scope doc-comment updated to Phase 3.
+
+### Changed (governance docs)
+- `authoring/SSoT_Authoring_Melody_Composition.md` — status note flipped to
+  Phases-1–3-closed; new §5 subsection "Generation parameters & simplified generator
+  (Phase 3)" documents the determinism boundary (RNG-free onset placement;
+  `System.Random(seed)` for pitch/octave), the seed field, the informational-only
+  `instrumentHint`, the non-gating `tonalityHint` + stability bias, and the parameter→output
+  mapping; the §5 params-SO paragraph reconciled to list the GM instrument hint and the
+  stored seed; §8 update-triggers note updated (only Phase 4 remains).
+- `Roadmap_Melody_Authoring_MVP.md` — Phase 3 marked DONE; D-MEL3.1–3.3 + the layout
+  decision recorded; sequencing + "Immediate next steps" re-pointed to Phase 4.
+- `ssot_manifest.yaml` — `SSoT_Authoring_Melody_Composition` governs gains
+  `Editor/SimplifiedMelodyGenerator.cs` (Phase 3) and `Editor/MelodyPatternEditorWindow.cs`
+  (closing the Phase-2 registration gap); inline phase-status comment + maintenance log
+  updated; an editor-only-generator determinism invariant added.
+
+### Decisions
+- **D-MEL3.1** Seed is a stored `int` on the params SO; RNG is `System.Random(seed)`; onset
+  placement is RNG-free (a new seed re-rolls pitch/octave over a fixed groove).
+- **D-MEL3.2** GM instrument hint added as a Tier-1 control but informational-only for the
+  MVP (no pattern field; not read at runtime).
+- **D-MEL3.3** `tonalityHint` does not gate the degree set; all seven diatonic degrees,
+  stability-weighted; mode-sensitive weighting deferred.
+
+### Not changed
+- `runtime/SSoT_Composer_Melody_Track.md`: no runtime change in Phase 3; the
+  `ComposeFromPattern` consumption path is Phase 4.
+- `coverage-matrix.md`: no change — the primary home for melody authoring is already
+  `authoring/SSoT_Authoring_Melody_Composition.md` (no flip).
+- `SSoT_CONTRACTS.md`: no new cross-cutting rule.
+
+### Known intentional deltas
+- `instrumentHint` and `tonalityHint` are carried but do not affect generated notes in the
+  MVP (the pattern stores neither instrument nor pitch); both are documented as
+  informational / future-use.
+- No automated tests (Phase-3 DoD requires none); a small generator determinism fixture is
+  offered as an optional follow-up.
+
+## 2026-06-16 — Melody Authoring MVP Phase 1: deterministic MelodyPatternData
+
+### Changed (package runtime)
+- `Runtime/CoreScripts/Data/MelodyPatternData.cs` — replaced the legacy
+  probabilistic model (`MelodyNoteData` with `List<ScaleDegree> possibleDegrees`,
+  integer measure/beat timing) with a deterministic per-note model: a
+  `[Serializable] struct MelodyNoteEvent` (one `ScaleDegree degree`,
+  `int octaveOffset`, `float startBeat`, `float durationBeats`, `int velocity`)
+  and a sparse `List<MelodyNoteEvent> notes`. Inherits `PatternDataSO`; adds
+  explicit `beatsPerMeasure` + `subdivisions` (editor grid) and `SetSignature` /
+  `ClearAll` / `InitializeIfEmpty` / `SnapshotOrdered` / `DeepCloneRuntime`
+  helpers (mirrors `DrumPatternData`). Absolute pitch is not stored.
+- `Runtime/CoreScripts/Composition/MidiGenerator.cs` — removed
+  `GenerateMelodyTrackWithPattern` (sole consumer of the old shape;
+  non-deterministic `UnityEngine.Random` degree+octave draw) and the two privates
+  orphaned by it (`SetBankAndPatchEvents`, `SetChannel`) plus a now-dead
+  `Melanchall.DryWetMidi.Composing` using (M-3, clean break).
+
+### Added (package runtime)
+- `Runtime/CoreScripts/Composition/Data/MelodyGenerationParamsSO.cs` — new
+  ScriptableObject parameterizing the planned wizard's simplified generator:
+  optional `MelodicLeadingConfig` / `PhrasePaletteSO` / `MelodicStyleSO`
+  references + Tier-1 scalars (density, octave range, `MelodyRhythmicStyle` enum,
+  `Tonality` hint) + a `Normalize()` clamp. Generation-time aid only; never read
+  at runtime.
+
+### Changed (governance docs)
+- `authoring/SSoT_Authoring_Melody_Composition.md` — status note flipped to
+  Phase-1-closed; new §5 documents the canonical format + params SO; trailing
+  sections renumbered (boundary/handoff/triggers → 6/7/8).
+- `authoring/SSoT_Authoring_Tools.md` — new §3.D registers the melody wizard as
+  the next planned Category-A tool (window is Phase 2/3) + asset-reset caveat.
+- `Roadmap_Melody_Authoring_MVP.md` — Phase 1 marked DONE; decisions
+  M-3 + D-MEL1.1–1.5 recorded.
+- `ssot_manifest.yaml` — `SSoT_Authoring_Melody_Composition` governs populated
+  with the two new in-tree types; two invariants added; maintenance-log entry.
+
+### Known intentional deltas
+- Existing melody `.assets` (the twelve under `Resources/.../Patterns/Melodies/`)
+  reset their note data on reimport — the new per-note shape is incompatible with
+  the old serialized fields; disposable, to be re-authored via the wizard
+  (D-MEL1.4).
+- The note list/type were renamed (`melodyNotes` → `notes`, `MelodyNoteData` →
+  `MelodyNoteEvent`); safe because no live code referenced the old names.
+- The demoted `EmotionalGenerationPanel` / `MidiGenPlayPanel` keep their
+  commented-out generation blocks untouched (D-MEL1.5); those already reference a
+  long-gone `MidiGenerator` API.
+- The authoring wizard (`EditorWindow`) and the `ComposeFromPattern` runtime
+  branch are NOT in this change — they are Phases 2–4.
+
+## 2026-06-16 — CQ-B1: chord quality alphabet v2 (Tier B — ninths)
+
+### Added
+- `MusicTheory.ChordQuality` enum: `Dominant9`, `Major9`, `Minor9` (append-only,
+  ordinals 14–16; existing serialized `ChordEvent.quality` values unaffected).
+  Realization intervals `{0,4,7,10,14}` / `{0,4,7,11,14}` / `{0,3,7,10,14}` (five
+  voices, top interval a major ninth) and compact symbols `C9` / `Cmaj9` / `Cm9`
+  across `GetIntervalsForQuality`, `GetChordSymbol`,
+  `GetChordSymbolSpelledForDegree` (+ `ToRomanRich` display).
+- `planning/active/Roadmap_Chord_Expressivity.md` — new arc roadmap for the chord
+  vocabulary/voicing work (Tier A → Tier B → inversions), capturing D-CQA1.* and
+  D-CQB1.*.
+
+### Changed
+- `RomanProgressionParser.TryParseQualitySuffix` — explicit-suffix cases `9`/`dom9`
+  → Dominant9, `maj9`/`ma9` → Major9, `m9`/`min9` → Minor9. Explicit-only; no
+  change to diatonic inference. Suffix outranks numeral case (`vi9` = dominant-
+  ninth; minor-ninth is `vim9`).
+- `ChordProgressionLLMResponseHandler.AllowedSuffixes` — `9`, `dom9`, `maj9`,
+  `ma9`, `m9`, `min9` added to the D-L4.5 allowlist.
+- `ChordProgressionLLMPromptBuilder` system prompt — alphabet gains the three
+  ninths; `9`/`maj9`/`m9` removed from the Forbidden list (11/13/add9/6-9 remain
+  forbidden); self-check reworded.
+- `ChordProgressionEditorWindow` — `QualitySuffixForToken` maps the three ninths
+  back to `9`/`maj9`/`m9`; `IsSeventhQuality` adds all three (they contain a real
+  7th → 4 grid rows; the 9th has no grid row, a known delta).
+- `ChordQualityResolver.GetTriadFamily` — `Dominant9` → Major, `Major9` → Major,
+  `Minor9` → Minor.
+- `Strategies/VoiceLeading.cs` (runtime voicer) — `GeneratePcCandidates` inversion
+  loop uncapped from `i < 4` to `i < pcs.Length`. Zero regression for ≤4-voice
+  chords (their length already bounds the loop); only adds the top inversion
+  candidate for five-voice chords.
+
+### Changed (package docs)
+- `authoring/SSoT_Authoring_Chord_Progressions.md` §4.1 — alphabet now described
+  in two tiers (Tier A ≤4 voices; Tier B five-voice ninths); grid-arity note
+  generalized (ninths render 4 of 5 rows); the two five-voice voicer deltas recorded.
+
+### Decisions
+- **D-CQB1.1** Tier B explicit-only; no diatonic-template change.
+- **D-CQB1.2** Ship ninths against the existing voicer + the single zero-regression
+  inversion uncap. Do NOT generalize `Drop2` (would change existing seventh
+  voicings) and do NOT touch the range clamp.
+- **D-CQB1.3** `IsSeventhQuality` gains all three ninths (each has a real 7th).
+- **D-CQB1.4** `GetTriadFamily`: Dominant9/Major9 → Major, Minor9 → Minor.
+- **D-CQB1.5** Forbidden set now 11/13/add9/6-9; `9`/`maj9`/`m9` are allowed (the
+  parser-rejection and guard tests were inverted accordingly — `9` moved from
+  rejected to accepted).
+
+### Known intentional deltas
+- A ninth is five voices but the grid renders at most the four seventh-chord rows;
+  the 9th itself gets no grid row (same family as the Tier A added-6th limitation).
+  The Roman / LLM / import path stores and plays all five voices.
+- Five-voice voicer nuances: `Drop2` is triad-oriented (effectively inert for
+  ninths); a very tall five-voice stack near an instrument's range edge can have
+  voices collapsed by the range clamp (pre-existing; also affects 4-voice chords at
+  the edges). Neither affects ≤4-voice output.
+
+## 2026-06-16 — CQ-A1: chord quality alphabet v2 (Tier A — sixths + 7sus4)
+
+### Added
+- `MusicTheory.ChordQuality` enum: `Major6`, `Minor6`, `Dominant7sus4`
+  (append-only, ordinals 11–13; existing serialized `ChordEvent.quality` values
+  unaffected). Realization intervals `{0,4,7,9}` / `{0,3,7,9}` / `{0,5,7,10}` and
+  compact symbols `C6` / `Cm6` / `C7sus4` across `GetIntervalsForQuality`,
+  `GetChordSymbol`, `GetChordSymbolSpelledForDegree` (+ `ToRomanRich` display).
+- `Tests/Editor/` — five EditMode fixtures: `RomanProgressionParserTests`
+  (new-suffix parse, suffix-outranks-case, extensions still warn-and-downgrade),
+  `MusicTheory_ChordQualityTests` (intervals, symbols, append-only ordinals),
+  `ChordProgressionLLMResponseHandler_V2Tests` (D-L4.5 guard: new suffixes pass,
+  9/add9/6-9 blocked), `ChordProgressionEditorWindow_V2Tests` (suffix round-trip
+  + grid arity), `ChordQualityResolver_V2Tests` (triad-family classification).
+
+### Changed
+- `RomanProgressionParser.TryParseQualitySuffix` — explicit-suffix cases `6` →
+  Major6, `m6`/`min6` → Minor6, `7sus4` → Dominant7sus4 (whole-suffix match).
+  Explicit-only: no change to diatonic inference; a bare degree still infers the
+  diatonic triad/seventh. Suffix outranks numeral case (`vi6` = major-sixth;
+  minor-sixth is `vim6`).
+- `ChordProgressionLLMResponseHandler.AllowedSuffixes` — `6`, `m6`, `min6`,
+  `7sus4` added to the D-L4.5 allowlist.
+- `ChordProgressionLLMPromptBuilder` system prompt — alphabet gains the three
+  qualities; `6` removed from the Forbidden list (`6/9` still forbidden); 9/11/13
+  remain forbidden (Tier B deferred); self-check reworded.
+- `ChordProgressionEditorWindow` — `QualitySuffixForToken` maps the three new
+  qualities back to `6`/`m6`/`7sus4` (fixes Roman-rebuild data loss for the new
+  qualities); `IsSeventhQuality` adds `Dominant7sus4` (Decision A). Both methods
+  made `internal` for EditMode coverage.
+- `ChordQualityResolver.GetTriadFamily` — `Major6` → Major, `Minor6` → Minor,
+  `Dominant7sus4` → Suspended (previously fell through to `Other`, which
+  mis-flagged the new qualities as borrowed for the `isDiatonic` metadata).
+
+### Changed (package docs)
+- `authoring/SSoT_Authoring_Chord_Progressions.md` — new §4.1 (chord quality
+  alphabet): the `ChordQuality` enum is the canonical source of truth, mirrored
+  in lockstep by the parser, prompt alphabet, editor round-trip, and handler
+  allowlist; explicit-only; append-only; v2 additions and the known grid-arity
+  limitation recorded. §7 update-triggers gains the alphabet.
+
+### Decisions
+- v2 scope split by voicer arity/interval: Tier A (≤4 voices, ≤10 semitones —
+  Major6/Minor6/Dominant7sus4) shipped now; Tier B (Dominant9/Major9/Minor9 —
+  5 voices, span >octave) deferred pending review of `Strategies/VoiceLeading.cs`.
+- Inversions (Objective 2): recommended for the voicing layer (a per-chord hint
+  following the §6 modulation-override precedent in
+  `runtime/SSoT_Composer_Backing_Track.md`), NOT the Roman DSL — slash and
+  figured-bass both collide with the grammar/guard. Recommendation only; not built.
+
+### Known intentional deltas
+- Grid authoring of `Major6`/`Minor6` renders three chord-tone rows (the added
+  6th has no row) because they are 4-voice but not sevenths. The Roman / LLM /
+  import path stores and realizes all four voices correctly.
+- `Dominant7sus4` is classified Suspended (not Major), so `V7sus4` is flagged
+  non-diatonic vs a major V — consistent with how sus2/sus4 are treated.
+
+## 2026-06-11 — CE-L1: LLM card-author (third adopter, consumer-side)
+
+### Added (ALWTTT project, not package)
+- `Assets/Scripts/Cards/LLMAuthoring/` — editor-only asmdef pair
+  (`ALWTTT.Cards.LLMAuthoring` + `.Tests`; refs MidiGenPlay.Runtime +
+  BCS.LLM.Core.Runtime): `CardImportDtos` (+`PaletteIntentJson.requested`
+  explicit-presence flag), `CardImportDtoParser` (hoisted from the window),
+  `CardLLMVocabulary` (live-snapshot POCO, D-CE-L1.4),
+  `CardPaletteDescriptorScanner`, `CardPaletteIntentResolver` (seeded,
+  composes over the CE-F1 `PaletteSelector`), and the quartet
+  `CardLLMPromptBuilder` / `CardLLMGenerator` / `CardLLMResponseHandler`
+  (banned-asset-ref + out-of-alphabet guards) / `CardLLMFieldPlan`; consumer
+  copy of `FakeLLMClient`; 77 tests total across both fixtures.
+- `Assets/Scripts/Cards/Editor/LLM/CardLLMVocabularyBuilder.cs` —
+  registry-driven status keys (both catalogues) with asset-scan fallback.
+- `Assets/Scripts/Cards/Editor/CardEditorWindow.LLM.cs` — panel partial +
+  `ApplyLlmPlanOnSave` Save hook (bundle creation + palette assignment,
+  D-CE-L1.6).
+
+### Changed (ALWTTT project)
+- `CardEditorWindow.JsonImport.cs` — DTOs delegated to the shared parser;
+  `modifierEffectNames` resolved all-or-nothing at staging; Save-step LLM hook;
+  discard-time plan cleanup.
+
+### Changed (package docs)
+- `authoring/SSoT_Authoring_LLM_Generation.md` — §7 third-adopter row +
+  consumer-side scope note; vocabulary-snapshot deviation recorded.
+- `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md`
+  — §5 LLM panel + §5.3 boundary rules.
+- `Roadmap_Composition_Expressivity.md` — CE-L1 DONE + D-CE-L1.1..7 +
+  telemetry (1572 in / 366 out); arc complete.
+- `ssot_manifest.yaml` — two new invariants; maintenance log entry.
+
+### Known intentional deltas
+- The vocabulary is a per-generate snapshot, not an asset (deviation from the
+  drum/chord Vocabulary-SO stage; rationale D-CE-L1.4).
+- The generator does not parse the DTO (handler owns the single parse) —
+  deliberate split difference from the chord twin to avoid double-parsing.
+- The legacy "Create from JSON" box keeps path/guid loading and
+  warn-and-default enum behavior; the guards apply to the LLM-panel route only
+  (D-CE-L1.5).
+
+## 2026-06-10 — CE-E1 + CE-F1: Card Editor clone/presets + shared palette selector
+
+### Added
+- `Runtime/CoreScripts/Composition/Data/PaletteSelection.cs` — shared, deterministic
+  `PaletteSelector` (Tier A exact-TS -> B heuristic -> C raw-weights; one
+  `rng.NextDouble()` per pick) over a neutral `TsFeatures` summary, plus typed
+  `ProgressionFinder` / `PatternFinder` adapters. Generalizes for future melody/harmony.
+- `Tests/Editor/PaletteSelectorTests.cs` — Tier A gating, Tier-A-skip, determinism,
+  degenerate inputs, the B1-B6 heuristic ordering, grouping counts, chord
+  `StartsPerBar`, the drum capped-onset-density cases, and kick-foundation extraction
+  on a real `DrumPatternData`.
+- `CardEditorWindow` (ALWTTT) — Clone Card action (deep-copies payload, clones the
+  style bundle so the clone never shares the source palette) + New-Card preset buttons
+  (Action / Composition / Rhythm / Backing / Melody / Harmony). [CE-E1]
+
+### Changed
+- `BackingCardConfigSO.PickProgressionOverride(rng, ts, settings, verbose)` now delegates
+  to `ProgressionFinder`/`PaletteSelector`; the ~250-line reflection + Tier-helper block
+  (`TryExtractPaletteCandidates`, `GetMemberValue*`, `ComputeTsHeuristicMultiplier`,
+  `Roulette`, ...) is deleted. Legacy `(rng)` overload and both public signatures unchanged.
+- `RhythmCardConfigSO` gained TS-aware `PickPatternOverride(rng, ts, settings, verbose)`
+  delegating to `PatternFinder`/`PaletteSelector`; legacy `(rng)` overload retained. The
+  drum side is now TS-aware (was deferred from PCE).
+- `RhythmTrackComposer.Compose` now calls the TS-aware overload
+  `PickPatternOverride(pickRng, part.TimeSignature, _settings, LogEnabled)`. Pick
+  precedence unchanged (patternOverride > patternPalette > TrackParameters.Pattern).
+- `runtime/SSoT_Composer_Rhythm_Track.md` §3D + precedence — drum pick now TS-aware via
+  the shared selector; "not TS-aware / deferred to CE-F1" note retired.
+- `runtime/SSoT_Composer_Backing_Track.md` §2 — shared-selector delegation + duplicate-
+  reference delta noted.
+- `planning/active/Roadmap_Composition_Expressivity.md` — CE-E1 and CE-F1 marked DONE;
+  live/inert "correction" retired (resolved); "no clone affordance" line updated.
+- `ssot_manifest.yaml` — flipped the TS-toggle-asymmetry invariant; added shared-selector
+  + drum-density invariants; added `PaletteSelection.cs` to both composer governs.
+- `coverage-matrix.md` — drum-palette row + PCE note updated for the resolved asymmetry.
+
+### Corrected / resolved
+- The PCE-era TS-toggle asymmetry (chord LIVE / drum INERT) is **resolved**: both palettes
+  select through one `PaletteSelector`, so `preferExact*TimeSignatureMatches` is LIVE on
+  both sides.
+
+### Known intentional deltas
+- Duplicate progression references in one chord palette are now independent weighted slots
+  (the old reflection path de-duped via GroupBy-max-weight). For palettes without duplicate
+  references, chord picks are byte-identical for the same seed.
+- Tier C (raw-weights fallback) is an unreachable defensive guard under positive
+  weights/multipliers — documented, not unit-tested.
+- Drum vs chord density is asymmetric by design: drums cap foundational-onset density at the
+  meter's grouping count (only under-articulation penalized); chords penalize both
+  directions (D-F1.5).
+
+## 2026-06-04 — PCE: drum-palette consumption + distinctness experiment
+
+### Added
+- `Resources/ScriptableObjects/Drums/` — 5 `DrumPatternData` assets
+  (Four-on-the-Floor, Waltz-Pulse Lilt, Compound Swing, Odd-Meter Angular,
+  Syncopated Pocket).
+- `Resources/ScriptableObjects/Drums/Palettes/` — 5 `DrumPatternPaletteSO`
+  assets (one pattern each, weight 1.0).
+- `Documentation~/planning/active/Roadmap_Composition_Expressivity.md` — successor
+  arc roadmap (CE-E1 / CE-F1 / CE-L1).
+
+### Changed
+- `RhythmCardConfigSO` — added `patternPalette : DrumPatternPaletteSO` and
+  `PickPatternOverride(System.Random)`; priority patternOverride > patternPalette
+  > null. Mirrors `BackingCardConfigSO.PickProgressionOverride(rng)`.
+- `RhythmTrackComposer.Compose` — pattern resolution now calls
+  `PickPatternOverride(pickRng)` seeded from `ctx.rng`, with a deterministic
+  `defaultSeed` fallback when `ctx.rng` is null and a palette is present.
+- `runtime/SSoT_Composer_Rhythm_Track.md` — added §3D palette consumption
+  contract; precedence list now includes `patternPalette` at priority 2.
+- `ssot_manifest.yaml` — flipped the "no runtime caller consumes it yet"
+  invariant; added the TS-toggle-asymmetry invariant; registered the CE roadmap;
+  moved the design doc to `reference/package/` (PROPOSAL → GOVERNED). Palette/
+  pattern `.asset` instances are not added to `governs:` because `**/*.asset` is
+  globally excluded and assets are not text-auditable.
+- `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` —
+  added §1.3 card→palette identity table (mirror of ALWTTT-owned assignment);
+  updated §4.4 to add `patternPalette` and drop the stale "wiring incomplete /
+  composer SSoT pending" notes.
+
+### Corrected (carried from PCE findings)
+- TS-toggle asymmetry: `preferExactTimeSignatureMatches` is LIVE on the chord
+  palette (via `PickProgressionOverride`'s TS-aware overload) but INERT on the
+  drum palette. The kickoff brief's "inert on both" was wrong. Unification = CE-F1.
+- Palette asset path is `Resources/ScriptableObjects/Drums/Palettes/`, not the
+  design doc §9's `Patterns/Drums/Palettes/`.
+
+### Validated
+- PCE §5 distinctness experiment: two 4/4 cards distinct by palette alone.
+  Smoke pass: determinism PASS, consumption PASS, distinctness PASS.
+
 ## 2026-05-29 — Batch L4: chord editor LLM generalization (LLM Authoring MVP complete through L4)
 
 ### Added

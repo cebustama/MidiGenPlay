@@ -38,7 +38,7 @@ namespace MidiGenPlay.Composition
                         : "[" + string.Join(",", bd.gapsSemis) + "]";
                     string tag = bd.disqualified ? "DISQ" : "OK";
 
-                    string lastStr = 
+                    string lastStr =
                         (last == null || last.Count == 0) ? "(none)" : DescribeVoicing(last);
                     Debug.Log(
                         $"[VL] cand#{i} {tag} " +
@@ -58,8 +58,11 @@ namespace MidiGenPlay.Composition
             yield return pcs; // root
             if (!cfg.useInversions) yield break;
 
-            // 1st, 2nd, 3rd inversion (if exists)
-            for (int i = 1; i < pcs.Length && i < 4; i++)
+            // Every inversion (1st .. (N-1)th). For triads/sevenths this is the
+            // same set as before; for 5-voice chords (ninths) it now includes the
+            // top inversion that the previous `i < 4` cap excluded. ≤4-voice
+            // chords are unaffected (their length already bounds the loop).
+            for (int i = 1; i < pcs.Length; i++)
                 yield return Rotate(pcs, i);
 
             if (cfg.useDrop2 && pcs.Length >= 3)
@@ -110,30 +113,30 @@ namespace MidiGenPlay.Composition
                     return Mathf.Clamp(center + biasOct, inst.octaveMin, inst.octaveMax);
 
                 case VoiceLeadingConfig.StartRegisterMode.RandomAroundCenter:
-                {
-                    int maxDev = Mathf.Max(0, cfg.startRegisterRandomRangeSemitones);
-                    int jitterSemis = UnityEngine.Random.Range(-maxDev, maxDev + 1);
-                    int bias = Mathf.RoundToInt(jitterSemis / 12f);
-                    return Mathf.Clamp(center + bias, inst.octaveMin, inst.octaveMax);
-                }
+                    {
+                        int maxDev = Mathf.Max(0, cfg.startRegisterRandomRangeSemitones);
+                        int jitterSemis = UnityEngine.Random.Range(-maxDev, maxDev + 1);
+                        int bias = Mathf.RoundToInt(jitterSemis / 12f);
+                        return Mathf.Clamp(center + bias, inst.octaveMin, inst.octaveMax);
+                    }
 
                 case VoiceLeadingConfig.StartRegisterMode.Uniform01AroundCenter:
-                {
-                    int min = inst.octaveMin;
-                    int max = inst.octaveMax;
+                    {
+                        int min = inst.octaveMin;
+                        int max = inst.octaveMax;
 
-                    // half-range in octaves from center to either edge (integer)
-                    int halfRange = Mathf.Max(0, Mathf.Max(center - min, max - center));
+                        // half-range in octaves from center to either edge (integer)
+                        int halfRange = Mathf.Max(0, Mathf.Max(center - min, max - center));
 
-                    // max offset in octaves we allow (normalized by spread01)
-                    int maxOffset = Mathf.RoundToInt(halfRange * Mathf.Clamp01(cfg.startRegisterSpread01));
+                        // max offset in octaves we allow (normalized by spread01)
+                        int maxOffset = Mathf.RoundToInt(halfRange * Mathf.Clamp01(cfg.startRegisterSpread01));
 
-                    // choose a side (down/up) uniformly, and an integer offset uniformly in [0..maxOffset]
-                    int side = (UnityEngine.Random.value < 0.5f) ? -1 : 1;
-                    int offset = UnityEngine.Random.Range(0, maxOffset + 1);
+                        // choose a side (down/up) uniformly, and an integer offset uniformly in [0..maxOffset]
+                        int side = (UnityEngine.Random.value < 0.5f) ? -1 : 1;
+                        int offset = UnityEngine.Random.Range(0, maxOffset + 1);
 
-                    return Mathf.Clamp(center + side * offset, min, max);
-                }
+                        return Mathf.Clamp(center + side * offset, min, max);
+                    }
 
                 default: // InstrumentCenter
                     return center;
