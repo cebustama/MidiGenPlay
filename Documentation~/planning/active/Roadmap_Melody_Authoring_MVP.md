@@ -102,8 +102,8 @@ These decisions are locked for the MVP and should not be revisited without expli
 1. data model and asset redesign (Phase 1) — **DONE (2026-06-16)**
 2. note-grid UI — ladder editor (Phase 2) — **DONE (2026-06-16)**
 3. generation params UI and simplified generator (Phase 3) — **DONE (2026-06-17)**
-4. runtime hookup — `ComposeFromPattern` (Phase 4) — **next**
-5. polish, validation, and documentation closure (Phase 5)
+4. runtime hookup — `ComposeFromPattern` (Phase 4) — **DONE (2026-06-17, smoke-validated)**
+5. polish, validation, and documentation closure (Phase 5) — **DONE (2026-06-22)**
 
 Deferred phases follow after the MVP is complete.
 
@@ -360,7 +360,36 @@ replacement for the full procedural pipeline.
 ## Phase 4 — Runtime hookup (`ComposeFromPattern`)
 
 ### Status
-Not started.
+**DONE (2026-06-17, smoke-validated in-game).** First audible melody-authoring phase.
+`MelodyTrackComposer` gains a `ComposeFromPattern` branch: when an authored
+`MelodyPatternData` is present, the composer renders it directly (resolving each
+`(degree, octaveOffset)` to an absolute pitch against the active Part tonality/root from the
+instrument's mid register, tiling the authored loop — quarter-mapped beats — to the Part,
+emitting events, and caching guide notes) and skips the procedural pipeline; otherwise the
+procedural path runs unchanged. Runtime-only (no editor dependency), no RNG (deterministic),
+no change to `SongConfig`/`TrackParameters`. Governed by
+`runtime/SSoT_Composer_Melody_Track.md` §7. No automated tests (DoD requires only a manual
+E2E validation, which passed). Card-routing of authored melodies was subsequently added as a
+separate cross-project batch (**D-MEL-INT1**); see "Immediate next steps" and the changelog.
+
+**Decisions locked:**
+- **D-MEL4.1** — integration surface = reuse `TrackParameters.Pattern`
+  (already a `PatternDataSO`), dispatched via `as MelodyPatternData`. No new field; mirrors
+  `RhythmTrackComposer`/`ChordTrackComposer`; no song-model or contract churn. The
+  `Pattern`-as-`ChordProgressionData` legacy fallback and the new
+  `Pattern`-as-`MelodyPatternData` override are mutually exclusive on one instance.
+- **D-MEL4.2** — degree→pitch via `GetNoteFromScale` against Part tonality/root. Reference
+  register = the instrument's mid octave (reusing `ChooseMelodicRegister`'s
+  `octaveMin-1..octaveMax-1` convention); `octaveOffset` applied on top and the target
+  octave clamped to the instrument's playable range. The chord progression is not consulted
+  by the pattern path.
+- **D-MEL4.3** — beats quarter-mapped (`MusicalTimeSpan.Quarter.Multiply`), identical to
+  `ComposeMelodyFromProgression`, so both melody paths share one timing model; the authored
+  loop (`pattern.TotalBeats`) tiled to the Part's total beats with final-loop truncation; a
+  `beatsPerMeasure` mismatch warns and tiles. Beat-unit-aware timing for both melody paths
+  is deferred to Phase 5 (the procedural path also assumes quarter beats today).
+- **D-MEL4.4** — `ComposeFromPattern` populates `ctx.SetMelodyForPartMusician`
+  (guide-note cache), so a harmony track can follow an authored melody.
 
 ### Goal
 Add a pattern-override consumption path to `MelodyTrackComposer` so that an authored
@@ -404,7 +433,35 @@ This integration surface design should be finalized at the start of Phase 4 impl
 ## Phase 5 — Polish, validation, and documentation closure
 
 ### Status
-Not started.
+**DONE (2026-06-22).** Edge cases validated by code-trace against the live
+`MelodyTrackComposer.ComposeFromPattern` (no runtime change required): empty pattern →
+silence, no crash (`MelodyPatternData.TotalBeats ≥ 1` and the `Math.Max(1.0, …)` loop floor
+prevent a zero divisor; the empty `SnapshotOrdered()` list emits nothing); single-note;
+shorter-than-Part → tiles (`repeats = Ceiling(partBeats / loopBeats) ≥ 2`);
+longer-than-Part → truncated by note onset (onsets `≥ partTotalBeats` dropped; a note whose
+onset is inside the Part rings to its authored duration); `octaveOffset` at the band
+extremes → clamped to `[octaveMin-1, octaveMax-1]` (the same band the shipping
+`ChooseMelodicRegister` uses), no out-of-range throw. Authored duration is floored at
+`MinNoteBeats` and velocity clamped to 1–127. The path is RNG-free and byte-deterministic.
+Governed docs swept (runtime + authoring SSoTs, coverage-matrix, CURRENT_STATE, changelog,
+manifest log); the Melody Authoring MVP is **complete**.
+
+**Decisions locked:**
+- **D-MEL5.1 = A** — meter-mismatch handling keeps the current tiles-by-beats + warning
+  behavior as the accepted MVP outcome; a mismatched-meter pattern does not align to the
+  Part barlines, and that limitation is documented rather than corrected. Full bar-time
+  renormalization (and compound/odd-meter beat-unit timing across both melody paths) is
+  **post-MVP future work**, not landed here. No Phase-4 / INT1 contract change.
+- **Closure scope = A** — the editor-side Phase-5 target work below (round-trip hardening,
+  wizard UX polish) is treated as satisfied by the Phase 2–3 closures (working-copy
+  isolation + explicit Normalize, shipped Unity-green); MVP completion rests on this batch's
+  runtime validation + documentation closure.
+
+**Follow-up — DONE (F-A):** the melody-determinism regression guard landed via an extracted
+`internal static MelodyTrackComposer.ResolvePatternNotesCore` (byte-identical to the prior
+inline loop; no contract change, SSoT §7 unaffected) plus the EditMode fixture
+`Tests/Editor/MelodyTrackComposer_PatternDeterminismTests.cs` (no Unity fixtures, matching
+the `ChordTrackComposer_DirectionalFirstChordTests` internal-seam idiom).
 
 ### Goal
 Harden the end-to-end melody authoring → runtime pipeline, close documentation,
@@ -530,25 +587,26 @@ gap between procedural and authored melody workflows.
 
 ## Immediate next steps
 
-Phases 1–3 are closed (Phases 1–2 2026-06-16; Phase 3 2026-06-17). Next is **Phase 4 —
-runtime hookup (`MelodyTrackComposer.ComposeFromPattern`)** — the first phase that makes
-authored patterns audible:
+**All MVP phases (1–5) are closed; the Melody Authoring MVP is complete** (Phases 1–2
+2026-06-16; Phases 3–4 2026-06-17; Phase 5 2026-06-22). Phase 5 validated the
+`ComposeFromPattern` edge cases (correct and deterministic), resolved meter-mismatch as
+**D-MEL5.1 = A** (tiles-by-beats + warning retained as the documented MVP limitation;
+bar-time renormalization is post-MVP), and swept the governed docs. The one optional
+follow-up — a melody-determinism EditMode fixture — has **landed (F-A)** via a byte-identical
+internal seam (`MelodyTrackComposer.ResolvePatternNotesCore`) plus
+`Tests/Editor/MelodyTrackComposer_PatternDeterminismTests.cs`; no contract change.
 
-1. **Settle the integration surface first** (the one open architecture decision): how an
-   authored `MelodyPatternData` reaches the composer — reuse `TrackParameters.Pattern`
-   (already a `PatternDataSO`, so no new field) vs a dedicated melody-pattern field / bundle
-   SO. This is to be finalized at the start of Phase 4 (see Phase 4 "Integration surface").
-2. Add a `ComposeFromPattern` branch to `MelodyTrackComposer` (analogous to rhythm's
-   `ComposeFromGrid`): when a pattern is present, read it directly, resolve each
-   `(degree, octaveOffset)` to absolute MIDI against the active Part tonality / root,
-   normalize to the Part meter, and emit events; otherwise run the procedural path.
-3. Keep the consumption path in `Runtime/` (no editor-only dependency) and preserve
-   determinism (same pattern + same tonality context = same MIDI). At least one manual
-   end-to-end validation: author pattern → assign to track → generate → correct output.
+Deferred phases (D1 MIDI import, D2 probabilistic events, D3 full-pipeline capture) follow
+post-MVP and are not implementation authority.
 
-This is the first runtime-touching melody phase, so its SSoT triggers are runtime-side
-(`runtime/SSoT_Composer_Melody_Track.md`, plus the §7 runtime-handoff section of
-`authoring/SSoT_Authoring_Melody_Composition.md`).
+Phase 4's and Phase 5's SSoT triggers (runtime SSoT §7 + authoring SSoT §7/§8 + this
+roadmap + coverage-matrix + CURRENT_STATE + changelog + manifest log) were applied at close.
+
+Separately tracked: **D-MEL-INT1 (melody card-pattern routing)** — a cross-project batch.
+Package half is implemented (`MelodyCardConfigSO.patternOverride` + a card-wins dispatch in
+`MelodyTrackComposer`, mirroring `RhythmCardConfigSO.patternOverride`). Closure pending the
+ALWTTT half (fold the pattern's GUID into `trackInputsHash`; set the card field) + a joint
+card-path smoke; that half is tracked on the ALWTTT side, not in this roadmap.
 
 ## Related authorities
 

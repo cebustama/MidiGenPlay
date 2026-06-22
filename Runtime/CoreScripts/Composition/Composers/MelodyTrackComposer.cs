@@ -57,10 +57,12 @@ namespace MidiGenPlay.Composition
                 return new MidiFile();
             }
 
-            // Phase 4 (D-MEL4.1): authored-melody override. If TrackParameters.Pattern is a
-            // MelodyPatternData, render it directly and skip the procedural pipeline
-            // (mirrors RhythmTrackComposer's DrumPatternData -> ComposeFromGrid dispatch).
-            var melodyPattern = cfg.Parameters?.Pattern as MelodyPatternData;
+            // Phase 4 (D-MEL4.1) + INT1 (D-MEL-INT1): authored-melody override. A melody card's
+            // patternOverride wins (mirrors RhythmCardConfigSO.patternOverride precedence); else a
+            // track-level TrackParameters.Pattern is used. When present, render the authored pattern
+            // directly and skip the procedural pipeline (cf. RhythmTrackComposer's ComposeFromGrid).
+            var melodyPattern = (cfg.Parameters?.Style as MelodyCardConfigSO)?.patternOverride
+                                ?? (cfg.Parameters?.Pattern as MelodyPatternData);
             if (melodyPattern != null)
                 return ComposeFromPattern(instrument, bpm, part, cfg, melodyPattern, channel, ctx);
 
@@ -447,6 +449,28 @@ namespace MidiGenPlay.Composition
         // No RNG is consumed, so the same pattern + same tonality/root + same meter yields
         // byte-identical MIDI, and ctx.rng draw order for other tracks is unaffected.
         // Runtime-only; no editor dependency.
+        /// <summary>Floor so a zero or negative authored duration still sounds. Shared by
+        /// the render path (<see cref="ComposeFromPattern"/>) and the resolution seam.</summary>
+        public const double MinNoteBeats = 0.05;
+
+        /// <summary>A single resolved authored-melody note — the deterministic output of
+        /// <see cref="ResolvePatternNotesCore"/>, ready to render via PatternBuilder.</summary>
+        public readonly struct ResolvedMelodyNote
+        {
+            public readonly DryWetMidiNote Note;
+            public readonly double WhenBeats;
+            public readonly double DurBeats;
+            public readonly int Velocity;
+
+            public ResolvedMelodyNote(DryWetMidiNote note, double whenBeats, double durBeats, int velocity)
+            {
+                Note = note;
+                WhenBeats = whenBeats;
+                DurBeats = durBeats;
+                Velocity = velocity;
+            }
+        }
+
         private MidiFile ComposeFromPattern(
             MIDIInstrumentSO instrument,
             int bpm,
@@ -456,8 +480,6 @@ namespace MidiGenPlay.Composition
             int channel,
             MidiGenerator.GenContext ctx)
         {
-            const double MinNoteBeats = 0.05; // floor so a zero/negative authored duration still sounds
-
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
             var pb = new PatternBuilder().MoveToStart();
 
@@ -465,64 +487,44 @@ namespace MidiGenPlay.Composition
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
 
-            // Degree -> pitch resolves against the active Part tonality/root (D-MEL4.2).
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-
-            // Reference register = the instrument's mid octave (same convention as
-            // ChooseMelodicRegister: octaveMin-1..octaveMax-1). octaveOffset is applied on
-            // top and clamped to that range, so resolution can't produce out-of-range notes.
-            int minOct = instrument.octaveMin - 1;
-            int maxOct = instrument.octaveMax - 1;
-            int refOct = Mathf.Clamp((minOct + maxOct) / 2, minOct, maxOct);
-
-            // Loop the authored pattern to fill the Part; truncate the final partial loop.
-            double loopBeats = Math.Max(1.0, (double)pattern.TotalBeats);             // Measures * beatsPerMeasure
-            double partTotalBeats = Math.Max(1.0, (double)(Mathf.Max(1, part.Measures) * beatsPerBar));
-            int repeats = Math.Max(1, (int)Math.Ceiling(partTotalBeats / loopBeats));
-
-            // The loop tiles by raw beats (D-MEL4.3); note-to-barline alignment is only
-            // guaranteed when the authored bar length matches the Part meter. Full bar-time
-            // renormalization of a mismatched melody pattern is deferred (Phase 5): melody
-            // timing is continuous beats, unlike the rhythm step grid that
-            // NormalizeGridPatternForPartIfNeeded remaps.
+            // Meter-mismatch handling (D-MEL5.1 = A): the loop tiles by raw beats and warns;
+            // note-to-barline alignment is only guaranteed when the authored bar length
+            // matches the Part meter. Full bar-time renormalization of a mismatched melody
+            // pattern is post-MVP (melody timing is continuous beats, unlike the rhythm step
+            // grid that NormalizeGridPatternForPartIfNeeded remaps).
             if (_settings?.logGenerator == true && pattern.beatsPerMeasure != beatsPerBar)
                 Debug.LogWarning($"[MelodyTrackComposer] Authored pattern beats/measure " +
                     $"({pattern.beatsPerMeasure}) != Part meter ({beatsPerBar}); tiling by beats.");
 
-            var ordered = pattern.SnapshotOrdered();
-            var capturedMelody = new List<MidiGenerator.GuideNote>(ordered.Count * repeats);
+            // Deterministic note resolution. Extracted to the RNG-free seam
+            // ResolvePatternNotesCore (degree -> pitch against the Part tonality/root from the
+            // instrument's mid register per ChooseMelodicRegister's convention, octaveOffset
+            // clamped to range; authored loop tiled to the Part with final-loop onset
+            // truncation; duration floored; velocity clamped) so it can be unit-tested without
+            // Unity fixtures. The output here is byte-identical to the prior inline loop.
+            var resolved = ResolvePatternNotesCore(
+                pattern.SnapshotOrdered(),
+                part.Tonality, part.RootNote,
+                instrument.octaveMin, instrument.octaveMax,
+                (double)pattern.TotalBeats, part.Measures, beatsPerBar,
+                MinNoteBeats);
 
-            for (int r = 0; r < repeats; r++)
+            var capturedMelody = new List<MidiGenerator.GuideNote>(resolved.Count);
+            foreach (var rn in resolved)
             {
-                double baseBeat = r * loopBeats;
+                var startTs = MusicalTimeSpan.Quarter.Multiply(rn.WhenBeats);
+                var durTs = MusicalTimeSpan.Quarter.Multiply(rn.DurBeats);
 
-                foreach (var ev in ordered)
+                pb.MoveToTime(startTs);
+                pb.Note(rn.Note, durTs, (SevenBitNumber)rn.Velocity);
+
+                // Cache as a guide note so a HarmonyTrackComposer can follow the lead (D-MEL4.4).
+                capturedMelody.Add(new MidiGenerator.GuideNote
                 {
-                    double whenBeats = baseBeat + ev.startBeat;
-                    if (whenBeats >= partTotalBeats) continue;                        // past the Part end
-
-                    int targetOct = Mathf.Clamp(refOct + ev.octaveOffset, minOct, maxOct);
-                    if (!GetNoteFromScale(scale, ev.degree, part.RootNote, targetOct, out var note)
-                        || note == null)
-                        continue;
-
-                    double durBeats = Math.Max(MinNoteBeats, (double)ev.durationBeats);
-                    var velocity7 = (SevenBitNumber)Mathf.Clamp(ev.velocity, 1, 127);
-
-                    var startTs = MusicalTimeSpan.Quarter.Multiply(whenBeats);
-                    var durTs = MusicalTimeSpan.Quarter.Multiply(durBeats);
-
-                    pb.MoveToTime(startTs);
-                    pb.Note(note, durTs, velocity7);
-
-                    // Cache as a guide note so a HarmonyTrackComposer can follow the lead (D-MEL4.4).
-                    capturedMelody.Add(new MidiGenerator.GuideNote
-                    {
-                        startBeats = whenBeats,
-                        durBeats = durBeats,
-                        note = note
-                    });
-                }
+                    startBeats = rn.WhenBeats,
+                    durBeats = rn.DurBeats,
+                    note = rn.Note
+                });
             }
 
             // --- finalize MIDI (same as the procedural path) ---
@@ -545,6 +547,75 @@ namespace MidiGenPlay.Composition
             }
 
             return file;
+        }
+
+        /// <summary>
+        /// Deterministic, Unity-free core of <see cref="ComposeFromPattern"/>: resolves an
+        /// ordered authored-melody note list into the concrete (note, beat, duration,
+        /// velocity) sequence the render loop emits. RNG-free — same inputs ⇒ same sequence.
+        /// Mirrors the internal-seam testability idiom of
+        /// <c>ChordTrackComposer.TryDirectionalFirstChordCore</c>.
+        /// </summary>
+        /// <param name="ordered">Notes in render order (e.g. <see cref="MelodyPatternData.SnapshotOrdered"/>).</param>
+        /// <param name="tonality">Active Part tonality.</param>
+        /// <param name="rootNote">Active Part root.</param>
+        /// <param name="instrumentOctaveMin">Instrument octaveMin (the register band is octaveMin-1 .. octaveMax-1).</param>
+        /// <param name="instrumentOctaveMax">Instrument octaveMax.</param>
+        /// <param name="patternTotalBeats">The authored pattern's TotalBeats (loop length).</param>
+        /// <param name="partMeasures">The Part's measure count.</param>
+        /// <param name="beatsPerBar">The Part meter's beats per bar.</param>
+        /// <param name="minNoteBeats">Duration floor (see <see cref="MinNoteBeats"/>).</param>
+        public static List<ResolvedMelodyNote> ResolvePatternNotesCore(
+            IReadOnlyList<MelodyPatternData.MelodyNoteEvent> ordered,
+            Tonality tonality,
+            NoteName rootNote,
+            int instrumentOctaveMin,
+            int instrumentOctaveMax,
+            double patternTotalBeats,
+            int partMeasures,
+            int beatsPerBar,
+            double minNoteBeats)
+        {
+            // Degree -> pitch resolves against the active Part tonality/root (D-MEL4.2).
+            var scale = GetScaleFromTonality(tonality, rootNote);
+
+            // Reference register = the instrument's mid octave (ChooseMelodicRegister
+            // convention: octaveMin-1 .. octaveMax-1). octaveOffset is applied on top and
+            // clamped to that range, so resolution can't produce an out-of-range note.
+            int minOct = instrumentOctaveMin - 1;
+            int maxOct = instrumentOctaveMax - 1;
+            int refOct = Mathf.Clamp((minOct + maxOct) / 2, minOct, maxOct);
+
+            // Loop the authored pattern to fill the Part; truncate the final partial loop.
+            double loopBeats = Math.Max(1.0, patternTotalBeats);                       // Measures * beatsPerMeasure
+            double partTotalBeats = Math.Max(1.0, (double)(Mathf.Max(1, partMeasures) * beatsPerBar));
+            int repeats = Math.Max(1, (int)Math.Ceiling(partTotalBeats / loopBeats));
+
+            var result = new List<ResolvedMelodyNote>((ordered?.Count ?? 0) * repeats);
+            if (ordered == null) return result;
+
+            for (int r = 0; r < repeats; r++)
+            {
+                double baseBeat = r * loopBeats;
+
+                foreach (var ev in ordered)
+                {
+                    double whenBeats = baseBeat + ev.startBeat;
+                    if (whenBeats >= partTotalBeats) continue;                        // past the Part end
+
+                    int targetOct = Mathf.Clamp(refOct + ev.octaveOffset, minOct, maxOct);
+                    if (!GetNoteFromScale(scale, ev.degree, rootNote, targetOct, out var note)
+                        || note == null)
+                        continue;
+
+                    double durBeats = Math.Max(minNoteBeats, (double)ev.durationBeats);
+                    int velocity = Mathf.Clamp(ev.velocity, 1, 127);
+
+                    result.Add(new ResolvedMelodyNote(note, whenBeats, durBeats, velocity));
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

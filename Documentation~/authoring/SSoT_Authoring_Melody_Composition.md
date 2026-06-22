@@ -23,9 +23,23 @@
 > here in §5 ("Generation parameters & simplified generator (Phase 3)"). This remains
 > editor-side only and makes no runtime change.
 >
-> The following remains **planned, not yet implemented** — do not treat this SSoT as
-> authority for it:
-> - the pattern-override path in `MelodyTrackComposer` (`ComposeFromPattern`) — Phase 4
+> As of Phase 4 (closed 2026-06-17, Unity green + in-game smoke), the **runtime
+> pattern-override path** (`MelodyTrackComposer.ComposeFromPattern`) is implemented and
+> validated: an authored `MelodyPatternData` is played directly, with scale degrees
+> resolved to absolute pitch against the active Part tonality/root. This is the first
+> audible melody-authoring phase. The runtime contract is authoritative in
+> `runtime/SSoT_Composer_Melody_Track.md` §7; the authoring→runtime handoff is summarized
+> here in §7.
+>
+> As of Phase 5 (closed 2026-06-22), the pattern-override path's edge cases are validated
+> (empty / single-note / shorter-than-Part / longer-than-Part / extreme `octaveOffset`) as
+> correct and deterministic, and meter-mismatch handling is resolved as **D-MEL5.1 = A**: a
+> pattern whose `beatsPerMeasure` differs from the Part meter tiles by raw beats with a
+> warning — the documented MVP limitation; bar-time renormalization is post-MVP. The runtime
+> contract remains authoritative in `runtime/SSoT_Composer_Melody_Track.md` §7.
+>
+> All Melody Authoring MVP phases (1–5) are now closed and the **Melody Authoring MVP is
+> complete** (Phase 5 — polish, validation, documentation closure — closed 2026-06-22).
 >
 > See `planning/active/Roadmap_Melody_Authoring_MVP.md` for accepted design decisions.
 
@@ -102,9 +116,9 @@ sparse `List<MelodyNoteEvent> notes`.
 
 Pitch is **not** stored. A pattern stores scale degrees + octave offsets, and
 absolute MIDI pitch is resolved at runtime against the active Part tonality /
-root (see §7 and `runtime/SSoT_Composer_Melody_Track.md`; the consuming
-`ComposeFromPattern` branch is Phase 4, not yet implemented). The same pattern
-plays back identically — any randomness lives at generation time, not playback.
+root by the `ComposeFromPattern` branch (Phase 4, closed 2026-06-17; see §7 and
+`runtime/SSoT_Composer_Melody_Track.md` §7). The same pattern plays back
+identically — any randomness lives at generation time, not playback.
 This is the deliberate inversion of the legacy model, which re-rolled a degree
 and an octave per note at play time.
 
@@ -227,9 +241,28 @@ That concrete bundle is useful integration material, but it does **not** define 
 
 ## 7. Runtime handoff
 
-Runtime consumption of these authoring concepts is defined in:
+Runtime consumption of these authoring concepts is defined in
+`runtime/SSoT_Composer_Melody_Track.md` (authoritative). As of Phase 4 the authored
+`MelodyPatternData` reaches runtime as follows:
 
-- `runtime/SSoT_Composer_Melody_Track.md`
+- **Carrier.** The pattern is read either from a consumer melody card
+  (`MelodyCardConfigSO.patternOverride`, which wins) or from the track-level
+  `TrackParameters.Pattern` (`PatternDataSO`) fallback (D-MEL4.1 + D-MEL-INT1; no
+  melody-specific `TrackParameters` field was added). `MelodyTrackComposer` detects either
+  and renders it through `ComposeFromPattern` instead of the procedural pipeline. Full
+  precedence is in `runtime/SSoT_Composer_Melody_Track.md` §7.
+- **Pitch resolution.** Each note's `(degree, octaveOffset)` resolves to absolute pitch
+  against the active Part tonality/root from the instrument's mid register (D-MEL4.2) —
+  the runtime realization of the §5 determinism boundary. The chord progression is not used.
+- **Meter.** Timing stays in beats, quarter-mapped exactly as the procedural path does;
+  the authored loop is tiled to the Part (D-MEL4.3).
+- **Determinism.** No RNG; same pattern + same tonality/root + same meter ⇒ identical
+  MIDI.
+- **Handoff to harmony.** The authored line is cached as guide notes (D-MEL4.4), so a
+  harmony track can follow it.
+
+Authoring owns the pattern's *meaning* (this document); runtime owns *how it is
+consumed* (the runtime SSoT). Authoring tools never depend on the runtime path.
 
 ## 8. Update triggers
 
@@ -240,4 +273,4 @@ Update this SSoT when:
 - melody override model changes,
 - authoring-side melody concepts change independently of ALWTTT.
 
-Phases 1–3 of `Roadmap_Melody_Authoring_MVP.md` are now covered in §5: Phase 1 (closed 2026-06-16 — the `MelodyPatternData` canonical format and `MelodyGenerationParamsSO`), Phase 2 (closed 2026-06-16 — the ladder note-grid authoring semantics, "Grid authoring semantics (Phase 2)"), and Phase 3 (closed 2026-06-17 — the wizard's generation-parameters section + the editor-only `SimplifiedMelodyGenerator`, "Generation parameters & simplified generator (Phase 3)"). When Phase 4 (the `ComposeFromPattern` runtime-override handoff) lands, extend this SSoT and `runtime/SSoT_Composer_Melody_Track.md` to cover the runtime handoff — how the authored pattern reaches the composer and how degrees resolve to pitch against the active tonality/root.
+Phases 1–4 of `Roadmap_Melody_Authoring_MVP.md` are now covered: Phase 1 (closed 2026-06-16 — the `MelodyPatternData` canonical format and `MelodyGenerationParamsSO`, §5), Phase 2 (closed 2026-06-16 — the ladder note-grid authoring semantics, §5 "Grid authoring semantics (Phase 2)"), Phase 3 (closed 2026-06-17 — the wizard's generation-parameters section + the editor-only `SimplifiedMelodyGenerator`, §5 "Generation parameters & simplified generator (Phase 3)"), and Phase 4 (closed 2026-06-17 — the runtime handoff via `MelodyTrackComposer.ComposeFromPattern`, §7; runtime contract in `runtime/SSoT_Composer_Melody_Track.md` §7). Phase 5 (polish, validation, documentation closure) closed 2026-06-22 — edge cases validated and deterministic, meter-mismatch resolved as D-MEL5.1 = A (tiles-by-beats retained as the documented MVP limitation; bar-time renormalization is post-MVP), and the governed docs swept; the **Melody Authoring MVP is complete**.
