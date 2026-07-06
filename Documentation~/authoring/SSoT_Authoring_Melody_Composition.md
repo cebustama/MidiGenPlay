@@ -4,6 +4,12 @@
 > The authoring concepts described here — phrase palettes, phrase archetypes,
 > `MelodicLeadingConfig`, and `MelodicStyleSO` — are **current implemented truth**.
 >
+> Persistence (Phase 8, closed 2026-07-05, PATTERN-PERSIST-1): `MelodyPatternEditorWindow`
+> saves through the shared `TrackPatternConfigStoreResources<MelodyPatternData>` store.
+> The pattern save root is `Assets/Resources/ScriptableObjects/Patterns/Melodies`
+> (plural), aligned with the `PatternRepositoryResources` read root and the shipped
+> assets; the editor previously wrote to a singular `.../Patterns/Melody` folder.
+>
 > As of Phase 1 of `Roadmap_Melody_Authoring_MVP.md` (closed 2026-06-16), the
 > following are **implemented and documented here** (see §5):
 > - the deterministic `MelodyPatternData` canonical per-note format

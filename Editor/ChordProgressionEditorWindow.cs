@@ -2,6 +2,7 @@
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay;
 using MidiGenPlay.Composition;
+using MidiGenPlay.Services;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -33,6 +34,15 @@ public partial class ChordProgressionEditorWindow : EditorWindow
     }
 
     [SerializeField] private ChordProgressionData targetAsset;
+
+    // PATTERN-PERSIST-1 — shared package persistence store (read + write). Save root
+    // resolves to Assets/Resources/ScriptableObjects/Patterns/Chords — a real default
+    // folder for the first time (this editor previously passed no default folder at all).
+    private readonly TrackPatternConfigStoreResources<ChordProgressionData> _chordStore = new("Chords");
+
+    // PATTERN-PERSIST-1 / D3 — foldout state for the "browse saved progressions" list.
+    private bool _showBrowse;
+
     [SerializeField] private ChordProgressionPaletteSO targetPalette;
     private enum InputMode { RomanString, Grid }
     [SerializeField] private InputMode inputMode = InputMode.RomanString;
@@ -95,6 +105,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
     private void OnEnable()
     {
+        // PATTERN-PERSIST-1 / D3 — populate the browse cache once; saves keep it fresh.
+        _chordStore.Refresh();
+
         if (tonalityFlags == null)
         {
             tonalityFlags = Enum.GetValues(typeof(Tonality))
@@ -120,6 +133,44 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         {
             targetAsset = newTargetAsset;
             OnTargetAssetChanged();
+        }
+
+        // PATTERN-PERSIST-1 / D3 — browse progressions already saved under the canonical
+        // Resources root. Additive: the Target Asset object field above still works.
+        _showBrowse = EditorGUILayout.Foldout(_showBrowse, "Browse Saved Progressions", true);
+        if (_showBrowse)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                if (GUILayout.Button("Refresh List"))
+                    _chordStore.Refresh();
+
+                var saved = _chordStore.GetAll();
+                if (saved.Count == 0)
+                {
+                    EditorGUILayout.LabelField(
+                        $"No saved progressions under {_chordStore.AssetsSaveRootPath}.");
+                }
+                else
+                {
+                    foreach (var a in saved)
+                    {
+                        if (a == null) continue;
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            EditorGUILayout.ObjectField(a, typeof(ChordProgressionData), false);
+                            using (new EditorGUI.DisabledScope(a == targetAsset))
+                            {
+                                if (GUILayout.Button("Load", GUILayout.Width(52)))
+                                {
+                                    targetAsset = a;
+                                    OnTargetAssetChanged();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         targetPalette = (ChordProgressionPaletteSO)EditorGUILayout.ObjectField(
@@ -184,7 +235,7 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             EditorGUI.indentLevel++;
             foreach (var key in tonalityFlags.Keys.ToList())
             {
-                tonalityFlags[key] = 
+                tonalityFlags[key] =
                     EditorGUILayout.ToggleLeft(key.ToString(), tonalityFlags[key]);
             }
             EditorGUI.indentLevel--;
@@ -683,9 +734,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
         using (new EditorGUI.IndentLevelScope())
         {
-            gridEditingEvent.startStep = 
+            gridEditingEvent.startStep =
                 EditorGUILayout.IntField("Start Step", gridEditingEvent.startStep);
-            gridEditingEvent.lengthSteps = 
+            gridEditingEvent.lengthSteps =
                 EditorGUILayout.IntField("Length (steps)", gridEditingEvent.lengthSteps);
 
             // Degree popup
@@ -718,7 +769,7 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             gridEditingEvent.quality =
                 (ChordQuality)EditorGUILayout.EnumPopup("Quality", gridEditingEvent.quality);
 
-            gridEditingEvent.velocity = 
+            gridEditingEvent.velocity =
                 EditorGUILayout.IntSlider("Velocity", gridEditingEvent.velocity, 1, 127);
         }
 
@@ -897,7 +948,7 @@ public partial class ChordProgressionEditorWindow : EditorWindow
     {
         if (string.IsNullOrWhiteSpace(progressionInput))
         {
-            EditorUtility.DisplayDialog("Error", 
+            EditorUtility.DisplayDialog("Error",
                 "Progression input string is empty.", "OK");
             return;
         }
@@ -951,16 +1002,22 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         // Create asset if needed
         if (targetAsset == null)
         {
+            // PATTERN-PERSIST-1 — Chord gets a real default save folder for the first
+            // time; ensure it exists so the dialog defaults into it.
+            System.IO.Directory.CreateDirectory(_chordStore.AssetsSaveRootPath);
+            AssetDatabase.Refresh();
+
             string path = EditorUtility.SaveFilePanelInProject(
                 "Create Chord Progression",
                 "New Chord Progression Data",
                 "asset",
-                "Choose where to save the progression asset.");
+                "Choose where to save the progression asset.",
+                _chordStore.AssetsSaveRootPath);
 
             if (string.IsNullOrEmpty(path)) return;
 
             targetAsset = ScriptableObject.CreateInstance<ChordProgressionData>();
-            AssetDatabase.CreateAsset(targetAsset, path);
+            _chordStore.PersistNewAtPath(targetAsset, path);
         }
 
         Undo.RecordObject(targetAsset, "Update Chord Progression");
@@ -981,7 +1038,7 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         targetAsset.tonalities.Clear();
         foreach (var kv in tonalityFlags)
         {
-            if (kv.Value) 
+            if (kv.Value)
                 targetAsset.tonalities.Add(kv.Key);
         }
 
@@ -1028,8 +1085,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         // Keep grid view in sync with the asset we just wrote
         SyncGridFromAsset();
 
-        EditorUtility.SetDirty(targetAsset);
-        AssetDatabase.SaveAssets();
+        // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + cache refresh.
+        _chordStore.Save(targetAsset);
 
         // Keep the grid inspector view in sync with whatever we just wrote.
         SyncGridFromAsset(force: true);
@@ -1102,9 +1159,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         targetAsset.originalInput = romanFromGrid;
         targetAsset.UpdateDisplayNameAuto();
 
-        EditorUtility.SetDirty(targetAsset);
-        AssetDatabase.SaveAssets();
-        AssetDatabase.Refresh();
+        // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + Refresh + cache refresh.
+        _chordStore.Save(targetAsset);
 
         // Also refresh the previews based on the new Roman string
         ParseAndPreview(onlyPreview: true);
@@ -1298,19 +1354,19 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         // Simple, distinct-ish palette. Adjust to taste.
         switch (note)
         {
-            case NoteName.C:        return "ff6666";
-            case NoteName.CSharp:   return "ff9966";
-            case NoteName.D:        return "ffcc66";
-            case NoteName.DSharp:   return "ffff66";
-            case NoteName.E:        return "ccff66";
-            case NoteName.F:        return "99ff66";
-            case NoteName.FSharp:   return "66ff99";
-            case NoteName.G:        return "66ffff";
-            case NoteName.GSharp:   return "6699ff";
-            case NoteName.A:        return "9966ff";
-            case NoteName.ASharp:   return "cc66ff";
-            case NoteName.B:        return "ff66cc";
-            default:                return "ffffff";
+            case NoteName.C: return "ff6666";
+            case NoteName.CSharp: return "ff9966";
+            case NoteName.D: return "ffcc66";
+            case NoteName.DSharp: return "ffff66";
+            case NoteName.E: return "ccff66";
+            case NoteName.F: return "99ff66";
+            case NoteName.FSharp: return "66ff99";
+            case NoteName.G: return "66ffff";
+            case NoteName.GSharp: return "6699ff";
+            case NoteName.A: return "9966ff";
+            case NoteName.ASharp: return "cc66ff";
+            case NoteName.B: return "ff66cc";
+            default: return "ffffff";
         }
     }
 
@@ -1432,17 +1488,22 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 return;
             }
 
+            // PATTERN-PERSIST-1 — real default folder + store-owned write.
+            System.IO.Directory.CreateDirectory(_chordStore.AssetsSaveRootPath);
+            AssetDatabase.Refresh();
+
             string path = EditorUtility.SaveFilePanelInProject(
                 "Save Chord Progression As...",
                 "New Chord Progression Data",
                 "asset",
-                "Choose where to save the new progression asset.");
+                "Choose where to save the new progression asset.",
+                _chordStore.AssetsSaveRootPath);
 
             if (string.IsNullOrEmpty(path))
                 return;
 
             var newAsset = ScriptableObject.CreateInstance<ChordProgressionData>();
-            AssetDatabase.CreateAsset(newAsset, path);
+            _chordStore.PersistNewAtPath(newAsset, path);
 
             Undo.RecordObject(newAsset, "Create Chord Progression");
 
@@ -1505,8 +1566,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             SyncGridFromAsset(force: true);
             OnTargetAssetChanged();
 
-            EditorUtility.SetDirty(newAsset);
-            AssetDatabase.SaveAssets();
+            // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + cache refresh.
+            _chordStore.Save(newAsset);
             return;
         }
 
@@ -1520,17 +1581,22 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             return;
         }
 
+        // PATTERN-PERSIST-1 — real default folder + store-owned write.
+        System.IO.Directory.CreateDirectory(_chordStore.AssetsSaveRootPath);
+        AssetDatabase.Refresh();
+
         string gridPath = EditorUtility.SaveFilePanelInProject(
             "Save Chord Progression As...",
             "New Chord Progression Data",
             "asset",
-            "Choose where to save the new progression asset.");
+            "Choose where to save the new progression asset.",
+            _chordStore.AssetsSaveRootPath);
 
         if (string.IsNullOrEmpty(gridPath))
             return;
 
         var assetFromGrid = ScriptableObject.CreateInstance<ChordProgressionData>();
-        AssetDatabase.CreateAsset(assetFromGrid, gridPath);
+        _chordStore.PersistNewAtPath(assetFromGrid, gridPath);
 
         Undo.RecordObject(assetFromGrid, "Create Chord Progression (from grid)");
 
@@ -1564,8 +1630,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         SyncGridFromAsset(force: true);
         OnTargetAssetChanged();
 
-        EditorUtility.SetDirty(assetFromGrid);
-        AssetDatabase.SaveAssets();
+        // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + cache refresh.
+        _chordStore.Save(assetFromGrid);
     }
 
     /// <summary>

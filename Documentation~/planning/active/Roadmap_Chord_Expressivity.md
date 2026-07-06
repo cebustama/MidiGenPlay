@@ -93,10 +93,12 @@ after the window's two methods gained the ninth cases); two fixtures inverted
 
 ---
 
-## Chord inversions — DEFERRED
+## Chord inversions — BUILT (CQ-A1-OBJ2, closed 2026-07-05)
 
 Design analysis delivered (CQ-A1 Objective 2 recommendation): inversions belong
-to the **voicing layer**, not the Roman DSL.
+to the **voicing layer**, not the Roman DSL. **Built as recommended** (batch
+CQ-A1-OBJ2) — the historical rationale below is preserved unchanged; the
+closure record follows it.
 
 - The backing composer already chooses inversions via `VoiceLeadingConfig`
   scoring; an explicit per-chord inversion would either be redundant or require
@@ -106,12 +108,42 @@ to the **voicing layer**, not the Roman DSL.
 - Figured-bass numbers collide with extension numbers — now more so, since `6`
   and `9` are qualities.
 
-If built: a per-chord bass/inversion hint added to the *input set* (not the
-asset grammar), honoured by `ChordTrackComposer`, following the §6
-directional-modulation-hint precedent in `runtime/SSoT_Composer_Backing_Track.md`
-(a transient per-render voicing constraint; default-unset = bit-identical
-output; deterministic). Governed by the backing-track SSoT. **Gated on the same
-`VoiceLeading.cs` review as Tier B.**
+Built exactly along those lines: a per-chord inversion hint added to the
+*input set* (not the asset grammar), honoured by `ChordTrackComposer`,
+following the §6 directional-modulation-hint precedent (a transient per-render
+voicing constraint; default-unset = bit-identical output; deterministic).
+Governed by `runtime/SSoT_Composer_Backing_Track.md` **§7** (new). The
+`VoiceLeading.cs` gate was satisfied by the CQ-B1 inversion-loop review plus
+this batch's pre-implementation verification (sole `IChordVoicer` implementer
+confirmed; two structurally identical `VoiceChord` call sites).
+
+Decisions recorded at closure:
+
+- **D0 = A** — pin semantics: a valid pin forces the requested inversion (the
+  voicer still owns register/spacing); not a bias.
+- **D1 = A** — the hint is an inversion index (`0` = root, clamped conceptually
+  to chord arity), not a bass pitch-class; no figured-bass/slash-notation
+  collision.
+- **D2 = A** — per-chord scope: `PartConfig.ChordInversionHints :
+  IReadOnlyList<int?>`, index-aligned to the rendered progression's events.
+- **D2a = a** — sticky-per-position: the pin applies at its event position on
+  every pattern repeat within the render (the per-render one-shot lifecycle is
+  the `Compose` snapshot-and-clear, mirroring §6).
+- **D2b = a** — an out-of-range inversion value is a safe no-op (treated as
+  unset), never clamped — garbage input cannot silently force root position.
+- **D3 = A** — on the render's very first chord the §6 directional hint wins
+  when both are active; structural in both render loops (the voicer is never
+  invoked when §6 produces the chord).
+
+Delivered: pin in `BasicVoiceLeadingVoicer.GeneratePcCandidates` (made
+`internal` as the test seam); optional trailing `forcedInversion` on
+`IChordVoicer.VoiceChord`; `PartConfig.ChordInversionHints` transient;
+snapshot/clear + `ResolveInversionPin` threading through both chord render
+loops; `Tests/Editor/ChordTrackComposer_InversionPinTests.cs`; SSoT §7 (+ §8
+renumber) and `SSoT_Runtime_Song_Model_and_Config.md §1.1` registration.
+Definition of done met: unset = bit-identical (baseline candidate-set test);
+exact rotation at arbitrary positions; out-of-range/null no-ops; D3 precedence
+under a combined-hint scenario; dedicated D2a sticky-per-position test.
 
 ---
 

@@ -42,3 +42,18 @@
 - **PCE closed (2026-06-04); CE-F1 closed (2026-06-10):** `RhythmTrackComposer` consumes drum palettes via `RhythmCardConfigSO.PickPatternOverride`, now TS-aware through the shared `PaletteSelector`. The TS-toggle asymmetry (chord live / drum inert) is **resolved** — both toggles are live in the one selector.
 
 - **Melody Authoring MVP complete (Phase 5 closed 2026-06-22):** no primary-home flip — melody composer behavior stays primary under `runtime/SSoT_Composer_Melody_Track.md` (the `ComposeFromPattern` pattern-override path was added there at Phase 4) and melody authoring stays primary under `authoring/SSoT_Authoring_Melody_Composition.md`. Phase 5 was validation + documentation closure; meter-mismatch resolved as D-MEL5.1 = A (tiles-by-beats + warning is the documented MVP limitation; bar-time renormalization is post-MVP). Rows unchanged.
+
+- **Batch CQ-A1-OBJ2 closed (2026-07-05):** per-chord inversion voicing hint
+  (pin) built in the voicing layer. **No primary-home flip** — backing/chord
+  composer behavior stays primary under `runtime/SSoT_Composer_Backing_Track.md`,
+  which gained **§7** (per-chord inversion hint; update triggers renumbered to
+  §8); the transient field itself is registered in
+  `runtime/SSoT_Runtime_Song_Model_and_Config.md §1.1` alongside the modulation
+  hint, with composer semantics deferred to backing-track §7 (same split as §6).
+  The table above is unchanged. Governance note: the voicing layer
+  (`Strategies/VoiceLeading.cs`, previously ungoverned) and
+  `Interfaces/IChordVoicer.cs` are now listed under the backing-track SSoT
+  `governs:` — §7 documents their pin contract (mirrors the PATTERN-PERSIST-1
+  governs-B precedent of registering the files an SSoT section documents).
+
+- **Batch PATTERN-PERSIST-1 closed (2026-07-05):** pattern-asset persistence unified — all three pattern editors (`DrumPatternEditorWindow`, `ChordProgressionEditorWindow`, `MelodyPatternEditorWindow`) now save and read through the shared `TrackPatternConfigStoreResources<T>` store instead of ad-hoc `AssetDatabase` calls with per-window hardcoded folders (Drum `/Drums` unchanged; Chord `/Chords` — first real default folder; Melody realigned singular `/Melody` → plural `/Melodies`). **No concept → authority mapping changed:** the pattern-authoring "tool flow" rows and "Package-owned authoring tool conventions" stay primary under the `authoring/` SSoTs, with `authoring/SSoT_Authoring_Tools.md` §6 now documenting the persistence mechanism; the table above is unchanged and there is **no primary-home flip**. Governance note: the persistence Services layer (`TrackPatternConfigStoreResources.cs` / `ITrackPatternConfigStore.cs`, and the sibling `PatternRepositoryResources.cs` / `IPatternRepository.cs`) is now listed under `authoring/SSoT_Authoring_Tools.md` `governs:` (decision B), with a persistence-contract invariant — Runtime/ files governed by an authoring SSoT because Tools §6 documents the persistence mechanism.

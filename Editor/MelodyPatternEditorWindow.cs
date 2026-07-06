@@ -10,6 +10,7 @@ using ScaleDegree = MidiGenPlay.MusicTheory.MusicTheory.ScaleDegree;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 using MidiGenPlay.Composition;
 using MidiGenPlay.Authoring;
+using MidiGenPlay.Services;
 
 /// <summary>
 /// Package-owned Unity Editor window for authoring <see cref="MelodyPatternData"/> assets
@@ -49,7 +50,13 @@ public class MelodyPatternEditorWindow : EditorWindow
     // -------------------------------------------------------------------------
 
     private const string MenuPath = "MidiGenPlay/Melody Pattern Editor...";
-    private const string DefaultSaveFolder = "Assets/Resources/ScriptableObjects/Patterns/Melody";
+
+    // PATTERN-PERSIST-1 / D4 + D5: the former DefaultSaveFolder constant (".../Patterns/Melody",
+    // singular) was removed. Melody pattern writes now route through the shared store, whose
+    // canonical root is ".../Patterns/Melodies" (plural) — matching PatternRepositoryResources'
+    // read root and the shipped assets, closing the prior editor-writes-vs-repo-reads split.
+    // Read the root via _melodyStore.AssetsSaveRootPath.
+    // DefaultParamsFolder is a DIFFERENT asset kind (generation params) and is out of scope.
     private const string DefaultParamsFolder = "Assets/Resources/ScriptableObjects/GenerationParams/Melody";
 
     private const float RowHeight = 20f;
@@ -90,6 +97,13 @@ public class MelodyPatternEditorWindow : EditorWindow
     // -------------------------------------------------------------------------
 
     [SerializeField] private MelodyPatternData targetAsset;
+
+    // PATTERN-PERSIST-1 — shared package persistence store (read + write). Save root
+    // resolves to Assets/Resources/ScriptableObjects/Patterns/Melodies (D5=A realignment).
+    private readonly TrackPatternConfigStoreResources<MelodyPatternData> _melodyStore = new("Melodies");
+
+    // PATTERN-PERSIST-1 / D3 — foldout state for the "browse saved patterns" list.
+    private bool _showBrowse;
 
     [SerializeField] private MelodyGenerationParamsSO genParams;
     [SerializeField] private bool _genFoldout = true;
@@ -161,6 +175,9 @@ public class MelodyPatternEditorWindow : EditorWindow
 
     private void OnEnable()
     {
+        // PATTERN-PERSIST-1 / D3 — populate the browse cache once; saves keep it fresh.
+        _melodyStore.Refresh();
+
         if (targetAsset != null && (_working == null || _lastBound != targetAsset))
             BindAsset(targetAsset);
     }
@@ -212,6 +229,44 @@ public class MelodyPatternEditorWindow : EditorWindow
         {
             targetAsset = newAsset;
             BindAsset(targetAsset);
+        }
+
+        // PATTERN-PERSIST-1 / D3 — browse patterns already saved under the canonical
+        // Resources root. Additive: the Target Asset object field above still works.
+        _showBrowse = EditorGUILayout.Foldout(_showBrowse, "Browse Saved Patterns", true);
+        if (_showBrowse)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                if (GUILayout.Button("Refresh List"))
+                    _melodyStore.Refresh();
+
+                var saved = _melodyStore.GetAll();
+                if (saved.Count == 0)
+                {
+                    EditorGUILayout.LabelField(
+                        $"No saved patterns under {_melodyStore.AssetsSaveRootPath}.");
+                }
+                else
+                {
+                    foreach (var a in saved)
+                    {
+                        if (a == null) continue;
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            EditorGUILayout.ObjectField(a, typeof(MelodyPatternData), false);
+                            using (new EditorGUI.DisabledScope(a == targetAsset))
+                            {
+                                if (GUILayout.Button("Load", GUILayout.Width(52)))
+                                {
+                                    targetAsset = a;
+                                    BindAsset(targetAsset);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (_working == null)
@@ -939,8 +994,8 @@ public class MelodyPatternEditorWindow : EditorWindow
 
         Undo.RecordObject(targetAsset, "Melody Pattern Editor: Apply");
         CopyWorkingInto(targetAsset);
-        EditorUtility.SetDirty(targetAsset);
-        AssetDatabase.SaveAssets();
+        // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + cache refresh.
+        _melodyStore.Save(targetAsset);
 
         BindAsset(targetAsset);
         Debug.Log($"[MelodyPatternEditor] Applied to {AssetDatabase.GetAssetPath(targetAsset)}");
@@ -950,7 +1005,8 @@ public class MelodyPatternEditorWindow : EditorWindow
     {
         if (_working == null) return;
 
-        Directory.CreateDirectory(DefaultSaveFolder);
+        // Ensure the canonical root exists so the dialog can default into it.
+        Directory.CreateDirectory(_melodyStore.AssetsSaveRootPath);
         AssetDatabase.Refresh();
 
         string path = EditorUtility.SaveFilePanelInProject(
@@ -958,17 +1014,19 @@ public class MelodyPatternEditorWindow : EditorWindow
             BuildDefaultName(),
             "asset",
             "Choose where to save the new melody pattern asset.",
-            DefaultSaveFolder);
+            _melodyStore.AssetsSaveRootPath);
 
         if (string.IsNullOrEmpty(path)) return;
 
+        // PATTERN-PERSIST-1 / D6=C — window keeps the naming dialog above; the store
+        // owns the AssetDatabase write. Create at the chosen path, then populate under
+        // Undo, then Save() to flush field edits + refresh the browse cache.
         var newAsset = ScriptableObject.CreateInstance<MelodyPatternData>();
-        AssetDatabase.CreateAsset(newAsset, path);
+        _melodyStore.PersistNewAtPath(newAsset, path);
 
         Undo.RecordObject(newAsset, "Melody Pattern Editor: Save As New");
         CopyWorkingInto(newAsset, Path.GetFileNameWithoutExtension(path));
-        EditorUtility.SetDirty(newAsset);
-        AssetDatabase.SaveAssets();
+        _melodyStore.Save(newAsset);
 
         targetAsset = newAsset;
         BindAsset(targetAsset);

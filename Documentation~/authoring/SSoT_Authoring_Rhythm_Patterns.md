@@ -279,8 +279,13 @@ Key distinction from `DrumPatternEditorWindow`:
   with per-cell-diff round-trip preservation of non-canonical velocities.
 - The current runtime handoff is clear: `DrumPatternData` → `RhythmTrackComposer`.
 - Runtime may normalize the authored pattern to the Part meter, but authoring still defines the musical content.
-- `SnapshotAsIndices()` returns lane `defaultVelocity` per lane for existing runtime callers (behavior unchanged).
-- `SnapshotAsStepVelocities()` is available as the per-step-velocity-aware forward snapshot.
+- `ComposeFromGrid` consumes `SnapshotAsStepVelocities()`, so per-step velocity reaches
+  generated MIDI (closed 2026-05-23; see `runtime/SSoT_Composer_Rhythm_Track.md` §3B / §6).
+- `SnapshotAsIndices()` remains available as a default-velocity-only view but is no longer
+  called by any runtime composer.
+- Pattern saves route through the package persistence store
+  (`TrackPatternConfigStoreResources<DrumPatternData>`); the editor no longer owns a
+  hardcoded save folder (Phase 8, closed 2026-07-05).
 
 ### What is **not** true yet
 
@@ -292,10 +297,14 @@ The following are **not** current persisted truth:
 - per-cell same-resolution velocity grid in text mode (v2 plan, see §3A "Text mode")
 - per-lane configurable `AccentVelocity` / `GhostVelocity` (currently parser constants)
 - true per-row polymeter persisted in the runtime asset model
-- store-backed persistence routed through package repository abstractions (Phase 8)
-- `ComposeFromGrid` in `RhythmTrackComposer` consuming per-step velocity
-  (it currently uses `SnapshotAsIndices` with lane `defaultVelocity`; upgrading to
-  `SnapshotAsStepVelocities` is a future runtime change)
+
+_(2026-07-05 correction: this list previously carried a further item —
+"`ComposeFromGrid` in `RhythmTrackComposer` consuming per-step velocity ... it currently
+uses `SnapshotAsIndices` with lane `defaultVelocity`." That was stale; the runtime SSoT
+and `CURRENT_STATE.md` show this closed 2026-05-23. Moved to "What is already true" above.
+Documentation-only fix; no runtime behavior changed by this edit — mirrors the same-dated
+housekeeping correction already applied in `planning/active/Roadmap_Rhythm_Authoring_MVP.md`
+"Immediate next steps.")_
 
 ## 5. Planned UI target (not current persisted truth)
 
@@ -332,10 +341,11 @@ Runtime consumption, precedence and meter normalization rules live in:
 This document defines the authored asset side.
 Runtime docs define how that asset is interpreted and adapted during generation.
 
-Note: `RhythmTrackComposer.ComposeFromGrid` currently calls `SnapshotAsIndices()`
-and uses lane `defaultVelocity` uniformly per lane. The new `SnapshotAsStepVelocities()`
-method is available for a future runtime update that consumes per-step velocity.
-That update is independent of Phase 7 and Phase 8.
+Note: `RhythmTrackComposer.ComposeFromGrid` calls `SnapshotAsStepVelocities()`, so
+per-step velocity reaches generated MIDI (closed 2026-05-23 — see §4 above and
+`runtime/SSoT_Composer_Rhythm_Track.md` §3B / §6). `SnapshotAsIndices()` remains available
+as a default-velocity-only view but is no longer called by any runtime composer. This
+closure was independent of Phase 7 and Phase 8.
 
 ## 8. Current package priority
 

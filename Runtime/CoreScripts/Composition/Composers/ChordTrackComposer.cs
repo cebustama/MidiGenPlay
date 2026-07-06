@@ -50,6 +50,13 @@ namespace MidiGenPlay.Composition
         private readonly int? _previousFirstChordPitch;
         private readonly Action<int> _reportFirstChordPitch;
 
+        // CA-T1: Tier-1 chord articulation seam. Stateless and RNG-free by
+        // contract (velocity/timing are pure functions of beat position), so a
+        // single shared instance serves both render loops. Block emits the
+        // exact legacy MoveToTime+Chord pair (bit-identical when unset).
+        // See runtime/SSoT_Composer_Backing_Track.md §8.
+        private static readonly IChordArticulator _articulator = new ChordArticulator();
+
         public ChordTrackComposer(
             MidiGenPlayConfig settings,
             IChordVoicer voicer,
@@ -202,17 +209,28 @@ namespace MidiGenPlay.Composition
         {
             var instrument = (MIDIInstrumentSO)cfg.Instrument;
 
-            // One-shot modulation-direction hint: snapshot and immediately clear from
-            // PartConfig so it is consumed exactly once regardless of which render path
-            // runs below. Default Auto + null previous root => no-op (current behavior).
+            // Transient composer hints: snapshot and immediately clear from PartConfig
+            // so each is consumed exactly once regardless of which render path runs
+            // below. Defaults (Auto + null previous root; null inversion hints) are
+            // no-ops (current behavior, bit-identical).
             var modulationHint = part.ModulationOctaveHint;
             var previousRoot = part.PreviousRootNote;
+            var inversionHints = part.ChordInversionHints; // CQ-A1-OBJ2 per-chord pin (§7)
             part.ModulationOctaveHint = ModulationOctaveHint.Auto;
             part.PreviousRootNote = null;
+            part.ChordInversionHints = null;
 
             // 0) Resolve card style (BackingCardConfigSO) from TrackParameters.Style
             var backingStyle = cfg.Parameters?.Style as BackingCardConfigSO;
             var effectiveVL = backingStyle?.voiceLeadingOverride ?? _vl;
+
+            // CA-T1 (D-EXP1=A): persistent per-card expression selection, applied
+            // to the whole render. Not a transient hint (§6/§7 lifecycle does NOT
+            // apply); no snapshot-and-clear. Absent card => Block (legacy).
+            var chordExpression = backingStyle != null
+                ? backingStyle.chordExpression : ChordExpressionType.Block;
+            var arpeggioRate = backingStyle != null
+                ? backingStyle.arpeggioRate : ArpeggioRate.Eighth;
 
             // 1) Card-level progression override (if any)
             ChordProgressionData prog = null;
@@ -334,7 +352,8 @@ namespace MidiGenPlay.Composition
                 if (_settings?.logGenerator == true)
                     Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
                 return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL,
-                         modulationHint, previousRoot);
+                         modulationHint, previousRoot, inversionHints,
+                         chordExpression, arpeggioRate);
             }
 
             // Grid info
@@ -400,6 +419,10 @@ namespace MidiGenPlay.Composition
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                     // First chord of the render: directional override if requested.
+                    // D3 (CQ-A1-OBJ2): when the directional hint produces this chord,
+                    // VoiceChord is never invoked for it, so an inversion pin at
+                    // position 0 is inherently ignored on this one chord only. On
+                    // later repeats, position 0's pin applies normally (D2a=a).
                     IReadOnlyList<DryWetMidiNote> playable = null;
                     bool isFirstChord = repeatIsFirst && (eventIndex == 0);
                     if (isFirstChord)
@@ -412,9 +435,12 @@ namespace MidiGenPlay.Composition
 
                     if (playable == null)
                     {
+                        // CQ-A1-OBJ2: sticky-per-position pin — resolved from the
+                        // event position only, so it recurs on every repeat (§7).
+                        int? inversionPin = ResolveInversionPin(inversionHints, eventIndex);
                         playable =
                             (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin)
                             : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
                     }
 
@@ -442,10 +468,14 @@ namespace MidiGenPlay.Composition
                     double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
 
                     var startTime = beatSpan.Multiply(startBeats);
-                    var duration = beatSpan.Multiply(durBeats);
 
-                    pb.MoveToTime(startTime);
-                    pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
+                    // CA-T1: single unconditional articulation call — the SAME line
+                    // at both emission sites, so the figures can never diverge
+                    // per-site. Block inside Emit reproduces the legacy
+                    // MoveToTime+Chord pair verbatim (bit-identical).
+                    _articulator.Emit(pb, playable, startBeats, durBeats, beatSpan,
+                                      beatsPerBar, e.velocity, stepsPerBeat,
+                                      chordExpression, arpeggioRate);
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;
@@ -496,7 +526,10 @@ namespace MidiGenPlay.Composition
             int channel,
             VoiceLeadingConfig vlOverride,
             ModulationOctaveHint modulationHint,
-            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot)
+            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot,
+            IReadOnlyList<int?> inversionHints,
+            ChordExpressionType chordExpression,
+            ArpeggioRate arpeggioRate)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -518,7 +551,8 @@ namespace MidiGenPlay.Composition
 
             // Render using the same path as authored progressions
             return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride,
-                                 modulationHint, previousRoot);
+                                 modulationHint, previousRoot, inversionHints,
+                                 chordExpression, arpeggioRate);
         }
 
         /// <summary>
@@ -1107,6 +1141,27 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
+        /// CQ-A1-OBJ2: resolves the per-chord inversion pin for a progression event
+        /// position. Sticky-per-position (D2a=a): resolution depends only on the
+        /// event position, so the pin recurs on every pattern repeat within the
+        /// render — the per-render one-shot lifecycle is provided by the
+        /// snapshot+clear in Compose, not here. A null list, a position beyond the
+        /// list, or a null entry means no pin. The inversion VALUE is range-checked
+        /// at the voicer, where chord arity is known (out-of-range => unset, D2b=a).
+        /// Internal for direct testing via InternalsVisibleTo (no fixtures needed).
+        /// </summary>
+        /// <param name="hints">Per-chord hint list (index-aligned to prog.events), or null.</param>
+        /// <param name="eventIndex">Event position within the pattern (resets each repeat).</param>
+        /// <returns>The pinned inversion index, or null when unset.</returns>
+        public static int? ResolveInversionPin(
+            IReadOnlyList<int?> hints, int eventIndex)
+        {
+            if (hints == null) return null;
+            if (eventIndex < 0 || eventIndex >= hints.Count) return null;
+            return hints[eventIndex];
+        }
+
+        /// <summary>
         /// Renders a given ChordProgressionData by voicing each event's degree+quality
         /// under the part's tonality/root and writing notes at the appropriate times.
         /// </summary>
@@ -1116,6 +1171,10 @@ namespace MidiGenPlay.Composition
         /// <param name="prog">Progression to render (events in steps).</param>
         /// <param name="channel">MIDI channel (0..15).</param>
         /// <param name="ctx">Context providing chord voicer and RNG.</param>
+        /// <param name="vlOverride">Optional voice-leading config override.</param>
+        /// <param name="modulationHint">One-shot directional first-chord hint (§6).</param>
+        /// <param name="previousRoot">Previous tonic root for the directional hint.</param>
+        /// <param name="inversionHints">Per-chord inversion pins, index-aligned to prog.events (§7).</param>
         /// <returns>MIDI file with the rendered progression.</returns>
         private MidiFile RenderFromProgression(
             MIDIInstrumentSO instrument,
@@ -1126,7 +1185,10 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx,
             VoiceLeadingConfig vlOverride,
             ModulationOctaveHint modulationHint,
-            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot)
+            Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot,
+            IReadOnlyList<int?> inversionHints,
+            ChordExpressionType chordExpression,
+            ArpeggioRate arpeggioRate)
         {
             // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
             // reproject to a runtime clone before rendering.
@@ -1167,6 +1229,9 @@ namespace MidiGenPlay.Composition
                     var degreeRoot = scaleNames[(int)e.degree];
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
+                    // D3 (CQ-A1-OBJ2): same precedence as the inline path — when the
+                    // directional hint produces the first chord, its inversion pin is
+                    // inherently skipped for that one chord only (§7).
                     IReadOnlyList<DryWetMidiNote> playable = null;
                     bool isFirstChord = repeatIsFirst && (eventIndex == 0);
                     if (isFirstChord)
@@ -1179,9 +1244,11 @@ namespace MidiGenPlay.Composition
 
                     if (playable == null)
                     {
+                        // CQ-A1-OBJ2: sticky-per-position pin (§7).
+                        int? inversionPin = ResolveInversionPin(inversionHints, eventIndex);
                         playable =
                             (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin)
                             : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
                     }
 
@@ -1204,10 +1271,11 @@ namespace MidiGenPlay.Composition
                     double durBeats = (double)Mathf.Max(1, e.lengthSteps) / stepsPerBeat;
 
                     var startTime = beatSpan.Multiply(startBeats);
-                    var duration = beatSpan.Multiply(durBeats);
 
-                    pb.MoveToTime(startTime);
-                    pb.Chord(playable, duration, (SevenBitNumber)Mathf.Clamp(e.velocity, 0, 127));
+                    // CA-T1: same unconditional articulation call as the grid path.
+                    _articulator.Emit(pb, playable, startBeats, durBeats, beatSpan,
+                                      beatsPerBar, e.velocity, stepsPerBeat,
+                                      chordExpression, arpeggioRate);
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;

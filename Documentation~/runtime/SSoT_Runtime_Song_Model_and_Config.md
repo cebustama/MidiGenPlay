@@ -54,6 +54,17 @@ The canonical example is the directional modulation hint consumed by
 
 Composer-side behavior is defined in `runtime/SSoT_Composer_Backing_Track.md §6`.
 
+A second hint, consumed by the same composer, is the per-chord inversion pin
+(CQ-A1-OBJ2):
+
+- `PartConfig.ChordInversionHints : IReadOnlyList<int?>` — index-aligned to the
+  rendered progression's events; `null` / short-list / out-of-range entries are
+  no-ops; a valid entry pins that chord's inversion. Sticky-per-position within
+  the render; snapshot-and-cleared by `ChordTrackComposer.Compose` like the
+  modulation hint.
+
+Composer-side behavior is defined in `runtime/SSoT_Composer_Backing_Track.md §7`.
+
 Determinism contract: because these transients are inputs visible at the moment
 of composer entry, the deterministic-under-seed contract is preserved. A
 consumer that writes the transients deterministically before each render sees

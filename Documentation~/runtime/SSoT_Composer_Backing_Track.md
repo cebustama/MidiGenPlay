@@ -118,11 +118,86 @@ The two transient fields are package-defined and live on `PartConfig`
 (such as an ALWTTT `ModulationEffect`) write to the transients; the package
 consumes them. No consumer is required to use this surface.
 
-## 7. Update triggers
+## 7. Per-chord inversion hint (voicing pin)
+
+The composer honors a per-chord inversion pin when a consumer sets one
+transient field on `PartConfig` before the part is rendered:
+
+- `PartConfig.ChordInversionHints : IReadOnlyList<int?>`
+
+The list is index-aligned to the rendered progression's events. Each entry pins
+the voicing of the chord at that event position:
+
+- A `null` entry, a list shorter than the event count, or no list at all means
+  that chord is unset: the voicer generates and scores candidates exactly as
+  before.
+- A value `k` in `0..arity-1` (arity = the chord's voice count) means the voicer
+  realizes exactly rotation `k` of the chord's pitch classes (`0` = root
+  position, `1` = first inversion, …). Register and spacing remain the voicer's
+  responsibility (target-octave choice, `RealizeNear`, and the range clamp are
+  unchanged).
+- A value outside `0..arity-1` is treated as unset (a safe no-op). It is never
+  clamped, so a garbage value cannot silently force root position (D2b = a).
+
+Semantics (batch CQ-A1-OBJ2; decisions D0–D3 plus D2a/D2b):
+
+- **Pin, not bias (D0 = A).** A valid pin yields exactly one candidate — the
+  requested rotation — suppressing all alternatives including Drop-2, and
+  outranking the `useInversions` / `useDrop2` candidate-set toggles. Pinning
+  `0` is therefore *not* equivalent to leaving the chord unset: it forces root
+  position.
+- **Inversion index, not bass pitch-class (D1 = A).** No figured-bass or slash
+  notation enters the Roman DSL or any asset grammar; the pin lives in the
+  input set only.
+- **Per-chord scope (D2 = A), sticky-per-position (D2a = a).** The pin applies
+  at its event position on **every pattern repeat** within the render. It
+  addresses the progression's content, which recurs with the pattern — unlike
+  the §6 modulation hint, which describes the one-time transition into the
+  render.
+- **§6 wins on the render's first chord (D3 = A).** When a directional
+  modulation hint is active and produces the render's very first chord
+  (repeat 0, event 0), the inversion pin is ignored for that one chord only.
+  On later repeats, position 0's pin applies normally. This precedence is
+  structural in both render loops: when §6 yields the first chord, the voicer
+  is never invoked for it.
+- The pin applies only on the voice-leading path (`enableVoiceLeading == true`
+  with a voicer present). The simple-stack fallback (`RealizeChordSimple`)
+  ignores it.
+
+### 7.1 Lifecycle
+
+The field follows the §6 transient lifecycle exactly: `Compose` snapshots it on
+entry and clears it immediately, so it is consumed by exactly one render
+regardless of which internal render path runs. All chord render paths (inline
+card progression, library-selected, and fully procedural) normalize to
+progression events, so the index alignment is well-defined everywhere.
+
+### 7.2 Determinism
+
+Default-unset is bit-identical to prior behavior (mirrors §6.3). The pin itself
+is RNG-free: a pinned chord yields exactly one candidate, and non-pinned chords
+see an unchanged candidate set and scoring order. The hint is part of the input
+set: the same `SongConfig` (including the transients at the moment of `Compose`
+entry) plus the same seed produces the same output.
+
+### 7.3 Boundary
+
+`PartConfig.ChordInversionHints` is package-defined and lives with the other
+transient hints (`runtime/SSoT_Runtime_Song_Model_and_Config.md §1.1`). The pin
+is enforced in the voicing layer
+(`BasicVoiceLeadingVoicer.GeneratePcCandidates`); `IChordVoicer.VoiceChord`
+carries it as an optional trailing parameter (`int? forcedInversion = null`),
+so existing callers and alternative voicer implementations compile unchanged.
+Consumers write the transient; the package consumes it. No consumer is
+required to use this surface.
+
+## 8. Update triggers
 
 Update this SSoT when:
 
 - progression selection rules change,
 - fallback behavior changes,
 - time-signature normalization changes,
-- backing bundle input precedence changes.
+- backing bundle input precedence changes,
+- directional modulation hint semantics change (§6),
+- per-chord inversion pin semantics change (§7).

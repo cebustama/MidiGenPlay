@@ -87,7 +87,6 @@ Capabilities:
 
 Current limitations (known, not blocking):
 
-- save path uses a hardcoded default folder (Phase 8 will route through package store abstractions)
 - style textures created on first draw are not explicitly cleaned up on window close (low risk for editor windows)
 - unsaved new patterns are lost on domain reload if no asset is assigned
 - row view mode (`[T]`/`[V]`) is editor UI state only — not persisted in the asset, resets on domain reload or asset rebind
@@ -134,9 +133,6 @@ Status / scope (Phase 2):
 
 Current limitations (known, not blocking):
 
-- save path uses a hardcoded default folder
-  (`Assets/Resources/ScriptableObjects/Patterns/Melody`), same posture as the drum
-  editor pending the Phase 8 store abstraction
 - the grid fits to the window width, so cells shrink at high step counts
 - unsaved new patterns are lost on domain reload if no asset is assigned
 - the visible octave window and the current selection are editor UI state only —
@@ -231,23 +227,42 @@ The persisted data model is `List<StepState>` per lane, where each `StepState` c
 `bool active` and `int velocity` (0 = defer to lane default).
 See `authoring/SSoT_Authoring_Rhythm_Patterns.md` for the full data-model contract.
 
-**Asset-truth vs runtime-consumption gap**: the asset now carries per-step velocity,
-but the current runtime (`ComposeFromGrid`) still consumes via `SnapshotAsIndices`,
-which returns lane default velocity for all active steps. Closing this gap is a
-deferred runtime decision (see `runtime/SSoT_Composer_Rhythm_Track.md` Section 3B).
+**Asset-truth vs runtime-consumption alignment**: the asset carries per-step velocity,
+and runtime consumption matches it. `ComposeFromGrid` calls `SnapshotAsStepVelocities()`,
+so per-step velocity reaches generated MIDI; `SnapshotAsIndices()` remains available as a
+default-velocity-only view but is no longer called by any runtime composer (closed
+2026-05-23; see `runtime/SSoT_Composer_Rhythm_Track.md` §3B / §6).
 
-## 6. Next rhythm tooling target (Phase 8)
+_(2026-07-05 correction: this note previously described the gap as still open —
+"the current runtime (`ComposeFromGrid`) still consumes via `SnapshotAsIndices`." That
+was stale. The runtime SSoT and `CURRENT_STATE.md` both show the gap closed 2026-05-23.
+Documentation-only fix; no runtime behavior changed by this edit.)_
 
-Package store / repository persistence integration for `DrumPatternEditorWindow`.
+## 6. Pattern-asset persistence (Phase 8 — closed 2026-07-05, PATTERN-PERSIST-1)
 
-`DrumPatternEditorWindow` currently saves through direct `AssetDatabase` /
-`EditorUtility` calls with a hardcoded default folder. The codebase already
-contains `IPatternRepository` (in `Runtime/CoreScripts/Interfaces/`) and
-`PatternRepositoryResources` (in `Runtime/CoreScripts/Services/`) that should be
-the canonical write/read path.
+All three package pattern editors — `DrumPatternEditorWindow`,
+`ChordProgressionEditorWindow`, and `MelodyPatternEditorWindow` — persist through
+the shared generic store `TrackPatternConfigStoreResources<T>`
+(`Runtime/CoreScripts/Services/`) rather than ad-hoc `AssetDatabase` calls with
+per-window hardcoded folders. Each editor instantiates the store with its type
+folder (`"Drums"` / `"Chords"` / `"Melodies"`), which resolves the canonical save
+root `Assets/Resources/ScriptableObjects/Patterns/<TypeFolder>`:
 
-This is planning, not current truth. See
-`planning/active/Roadmap_Rhythm_Authoring_MVP.md` Phase 8.
+- Drum's save root is unchanged (`.../Patterns/Drums`).
+- Chord gained a real default save folder for the first time (`.../Patterns/Chords`);
+  previously its Save dialogs passed no default folder at all.
+- Melody's write folder realigned from a singular `.../Patterns/Melody` to the plural
+  `.../Patterns/Melodies` that `PatternRepositoryResources` reads and the shipped
+  assets live in.
+
+Division of responsibility: the editor window keeps ownership of the interactive
+`SaveFilePanelInProject` naming dialog and its `Undo.RecordObject` calls; the store
+owns the `AssetDatabase` write. For a new asset the window passes the dialog-chosen
+path to the store's editor-only `PersistNewAtPath(instance, path)` (so the dialog is
+preserved *and* the write routes through the store); in-place applies call `Save`.
+`IPatternRepository` / `PatternRepositoryResources` remain the runtime **read** path
+and were not extended. Each editor also exposes an additive, canonical-root "Browse
+Saved Patterns" list backed by the store's `GetAll()` / `Refresh()`.
 
 ## 7. Data-model note
 

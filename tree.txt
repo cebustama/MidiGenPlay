@@ -29,6 +29,7 @@
 |   |   +---active
 |   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
+|   |   |   +---Roadmap_Chord_Expressivity.md
 |   |   |   +---Roadmap_Composition_Expressivity.md
 |   |   |   +---Roadmap_Documentation_Migration.md
 |   |   |   +---Roadmap_LLM_Authoring_MVP.md
@@ -69,7 +70,8 @@
 |   +---MidiGenPlay_Project_Summary.md
 |   +---README.md
 |   +---SSoT_CONTRACTS.md
-|   \---SSoT_INDEX.md
+|   +---SSoT_INDEX.md
+|   \---ssot_manifest.yaml
 +---Editor
 |   +---AssemblyInfo.cs
 |   +---BankDropdownDrawer.cs
@@ -92,9 +94,11 @@
 |   +---DrumPatternTextWarning.cs
 |   +---LaneAliasDictionary.cs
 |   +---LaneShortNames.cs
+|   +---MelodyPatternEditorWindow.cs
 |   +---MidiGenPlay.Editor.asmdef
 |   +---PatchDropdownDrawer.cs
 |   +---RhythmGenreVocabularyBuilder.cs
+|   +---SimplifiedMelodyGenerator.cs
 |   +---SoundFontCacheSOEditor.cs
 |   \---SoundFontDropdownDrawer.cs
 +---Runtime
@@ -128,6 +132,7 @@
 |   |   |   |   +---MelodicLeadingConfig.cs
 |   |   |   |   +---MelodicStyleSO.cs
 |   |   |   |   +---MelodyCardConfigSO.cs
+|   |   |   |   +---MelodyGenerationParamsSO.cs
 |   |   |   |   +---ModulationOctaveHint.cs
 |   |   |   |   +---PaletteSelection.cs
 |   |   |   |   +---RhythmCardConfigSO.cs
@@ -442,11 +447,15 @@
 +---Tests
 |   \---Editor
 |       +---ChordProgressionEditorImporterTests.cs
+|       +---ChordProgressionEditorWindow_V2Tests.cs
 |       +---ChordProgressionEditorWindowWiringTests.cs
 |       +---ChordProgressionLLMGeneratorTests.cs
 |       +---ChordProgressionLLMPromptBuilderTests.cs
+|       +---ChordProgressionLLMResponseHandler_V2Tests.cs
 |       +---ChordProgressionLLMResponseHandlerTests.cs
+|       +---ChordQualityResolver_V2Tests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
+|       +---ChordTrackComposer_InversionPinTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
 |       +---DrumPatternEditorImporterTests.cs
 |       +---DrumPatternLLMGeneratorTests.cs
@@ -456,8 +465,12 @@
 |       +---DrumPatternTextParserTests.cs
 |       +---FakeLLMClient.cs
 |       +---LaneAliasDictionaryTests.cs
+|       +---MelodyTrackComposer_PatternDeterminismTests.cs
 |       +---MidiGenPlay.Tests.Editor.asmdef
-|       \---PaletteSelectorTests.cs
+|       +---MusicTheory_ChordQualityTests.cs
+|       +---PaletteSelectorTests.cs
+|       +---RomanProgressionParserTests.cs
+|       \---SongOrchestratorSeedTests.cs
 +---make-tree-unity.bat
 +---package.json
 \---README.md

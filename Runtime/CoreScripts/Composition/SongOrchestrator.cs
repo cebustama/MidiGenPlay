@@ -22,14 +22,15 @@ namespace MidiGenPlay.Composition
 
     public interface ISongOrchestrator
     {
-        MidiFile GenerateSong(SongConfig song);
+        MidiFile GenerateSong(SongConfig song, int? seedOverride = null);
 
         PartRender GenerateSinglePart(
             SongConfig.PartConfig part,
             IReadOnlyList<TrackRole> rolesForChannels,
-            int partIndex, 
-            int? bpmOverride,
-            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null);
+            int partIndex,
+            int? bpmOverride = null,
+            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null,
+            int? seedOverride = null);
     }
 
     /// Coordinates parts/repetitions, meta events, metronome, composer calls, trimming, shifting, and merging.
@@ -51,9 +52,13 @@ namespace MidiGenPlay.Composition
             _voicer = voicer;
         }
 
-        public MidiFile GenerateSong(SongConfig song)
+        public MidiFile GenerateSong(SongConfig song, int? seedOverride = null)
         {
             if (song == null) throw new ArgumentNullException(nameof(song));
+
+            // MGP-ALWTTT-SEED-1: resolve the base seed once per render call.
+            // Null => bit-identical to previous behavior (defaultSeed).
+            int baseSeed = ResolveBaseSeed(seedOverride, _settings.defaultSeed);
 
             var fullSong = new MidiFile();
 
@@ -115,7 +120,7 @@ namespace MidiGenPlay.Composition
                     var ctx = new MidiGenerator.GenContext
                     {
                         Settings = _settings,
-                        rng = new System.Random(_settings.defaultSeed + entry.PartIndex * 397 ^ rep),
+                        rng = new System.Random(ResolveRepContextSeed(baseSeed, entry.PartIndex, rep)),
                         ChordVoicer = _voicer,
                         chordVoicingPreset = _settings.voiceLeading,
                         DefaultMelodicInstrument = part.Tracks.FirstOrDefault(t => t.Instrument != null)?.Instrument,
@@ -207,9 +212,11 @@ namespace MidiGenPlay.Composition
                         var cfg = part.Tracks[i];
                         if (cfg.Role == TrackRole.Harmony) continue;
 
-                        // NEW: deterministically seed a RNG for THIS track in THIS rep
-                        var trackSeed = StableHash32(
-                            $"{_settings.defaultSeed}|p={entry.PartIndex}|rep={rep}|r={cfg.Role}|m={cfg.MusicianId}");
+                        // Deterministically seed a RNG for THIS track in THIS rep
+                        // (derived from the caller-supplied base seed when present).
+                        var trackSeed = ResolveTrackSeedSong(
+                            baseSeed, entry.PartIndex, rep, cfg.Role, cfg.MusicianId);
+
                         var trackRng = new System.Random(trackSeed);
 
                         GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
@@ -223,8 +230,9 @@ namespace MidiGenPlay.Composition
                         var cfg = part.Tracks[i];
                         if (cfg.Role != TrackRole.Harmony) continue;
 
-                        var trackSeed = StableHash32(
-                            $"{_settings.defaultSeed}|p={entry.PartIndex}|rep={rep}|r={cfg.Role}|m={cfg.MusicianId}");
+                        var trackSeed = ResolveTrackSeedSong(
+                            baseSeed, entry.PartIndex, rep, cfg.Role, cfg.MusicianId);
+
                         var trackRng = new System.Random(trackSeed);
 
                         GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
@@ -252,10 +260,15 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<TrackRole> rolesForChannels,
             int partIndex,
             int? bpmOverride = null,
-            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null)
+            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null,
+            int? seedOverride = null)
         {
             if (part == null || part.Tracks == null || part.Tracks.Count == 0)
                 return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
+
+            // MGP-ALWTTT-SEED-1: resolve the base seed once per render call.
+            // Null => bit-identical to previous behavior (defaultSeed).
+            int baseSeed = ResolveBaseSeed(seedOverride, _settings.defaultSeed);
 
             var full = new MidiFile();
             var metaChunk = new TrackChunk();
@@ -295,7 +308,7 @@ namespace MidiGenPlay.Composition
             var producedByRole = new Dictionary<TrackRole, MidiFile>();
 
             // --- GenContext (same delegates as GenerateSong) ---
-            var partSeed = _settings.defaultSeed + partIndex * 397;
+            var partSeed = ResolvePartContextSeed(baseSeed, partIndex);
             var ctx = new MidiGenerator.GenContext
             {
                 Settings = _settings,
@@ -392,8 +405,9 @@ namespace MidiGenPlay.Composition
                         cfg.Instrument = inst; // composer must honor this
                     }
 
-                    // Deterministic per-track RNG
-                    var trackSeed = StableHash32($"{_settings.defaultSeed}|p={partIndex}|r={cfg.Role}|m={cfg.MusicianId}");
+                    // Deterministic per-track RNG (derived from the caller-supplied
+                    // base seed when present).
+                    var trackSeed = ResolveTrackSeedPart(baseSeed, partIndex, cfg.Role, cfg.MusicianId);
                     var trackRng = new System.Random(trackSeed);
 
                     GenerateOne(full, part, cfg, channelMap[i], bpm,
@@ -672,7 +686,35 @@ namespace MidiGenPlay.Composition
             return p != null ? $"{p.GetType().Name}:{p.name}" : "-";
         }
 
-        private static int StableHash32(string s)
+        // ── Seed derivation seams (MGP-ALWTTT-SEED-1) ─────────────────────────
+        // Internal for test access (Tests/Editor/SongOrchestratorSeedTests.cs).
+        // These must stay bit-identical to the pre-batch inline expressions when
+        // the caller supplies no seed: baseSeed == settings.defaultSeed reproduces
+        // the original strings and arithmetic exactly. Seed POLICY (when the seed
+        // changes, what it derives from) is host-side; the package only consumes
+        // what it is given and never invents per-render entropy.
+
+        public static int ResolveBaseSeed(int? seedOverride, int defaultSeed)
+            => seedOverride ?? defaultSeed;
+
+        // GenerateSong ctx.rng — original operator precedence preserved:
+        // (baseSeed + partIndex * 397) ^ rep.
+        public static int ResolveRepContextSeed(int baseSeed, int partIndex, int rep)
+            => baseSeed + partIndex * 397 ^ rep;
+
+        // GenerateSinglePart ctx.rng.
+        public static int ResolvePartContextSeed(int baseSeed, int partIndex)
+            => baseSeed + partIndex * 397;
+
+        public static int ResolveTrackSeedSong(
+            int baseSeed, int partIndex, int rep, TrackRole role, string musicianId)
+            => StableHash32($"{baseSeed}|p={partIndex}|rep={rep}|r={role}|m={musicianId}");
+
+        public static int ResolveTrackSeedPart(
+            int baseSeed, int partIndex, TrackRole role, string musicianId)
+            => StableHash32($"{baseSeed}|p={partIndex}|r={role}|m={musicianId}");
+
+        public static int StableHash32(string s)
         {
             unchecked
             {

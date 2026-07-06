@@ -42,6 +42,15 @@ Its job is to:
 
 It should not become the hidden source of musical truth; the saved asset is the durable truth.
 
+Persistence (Phase 8, closed 2026-07-05, PATTERN-PERSIST-1): all four internal save
+sites — the Roman apply/create path, the grid apply path, and both Save-As-New paths
+(Roman + grid) — route through the shared
+`TrackPatternConfigStoreResources<ChordProgressionData>` store, which gives the editor
+a canonical default save folder (`Assets/Resources/ScriptableObjects/Patterns/Chords`)
+for the first time (previously every Save dialog passed no default folder). The
+interactive Save dialog and Undo behavior are unchanged; the store owns the
+`AssetDatabase` write.
+
 ## 4. Progression asset semantics
 
 `ChordProgressionData` is the package-owned asset for authored chord-event content.

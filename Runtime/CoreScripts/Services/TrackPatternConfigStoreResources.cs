@@ -14,11 +14,11 @@ namespace MidiGenPlay.Services
     /// <summary>
     /// Generic Resources-backed pattern store. Works for Chords/Drums/Melody SOs.
     /// </summary>
-    public class TrackPatternConfigStoreResources<T> : 
+    public class TrackPatternConfigStoreResources<T> :
         ITrackPatternConfigStore<T> where T : ScriptableObject
     {
-        private readonly string resourcesLoadPath;   // e.g., "MidiGenPlay/Patterns/Chords"
-        private readonly string assetsSaveRootPath;  // e.g., "Assets/Resources/MidiGenPlay/Patterns/Chords"
+        private readonly string resourcesLoadPath;   // e.g., "ScriptableObjects/Patterns/Chords"
+        private readonly string assetsSaveRootPath;  // e.g., "Assets/Resources/ScriptableObjects/Patterns/Chords"
         private readonly Func<T, bool> defaultPredicate; // optional
 
         private readonly List<T> cache = new();
@@ -32,6 +32,16 @@ namespace MidiGenPlay.Services
             assetsSaveRootPath = Path.Combine("Assets", "Resources", resourcesLoadPath);
             this.defaultPredicate = defaultPredicate;
         }
+
+        /// <summary>
+        /// Project-relative save root for this store's assets, e.g.
+        /// "Assets/Resources/ScriptableObjects/Patterns/Drums". Editor windows use this
+        /// to seed save dialogs and folder scans so the old per-window hardcoded
+        /// DefaultSaveFolder constants can be removed (PATTERN-PERSIST-1 / D4): the store
+        /// is the single source of "where this pattern type lives". Pure string, no
+        /// editor APIs — intentionally not #if UNITY_EDITOR-guarded.
+        /// </summary>
+        public string AssetsSaveRootPath => assetsSaveRootPath;
 
         public void Refresh()
         {
@@ -105,6 +115,26 @@ namespace MidiGenPlay.Services
             return clone;
         }
 
+        /// <summary>
+        /// PATTERN-PERSIST-1 / D6=C. Persist an in-memory instance as a NEW asset at an
+        /// explicit, caller-chosen project path (e.g. one returned by
+        /// EditorUtility.SaveFilePanelInProject). Unlike SaveAsNew, the path is NOT
+        /// auto-generated: the editor window keeps ownership of the interactive naming
+        /// dialog while the store owns the AssetDatabase write. This is create-only — if
+        /// the caller populates <paramref name="instance"/> under its own Undo scope
+        /// AFTER this call, it must follow with Save(instance) to flush those field edits
+        /// and refresh the cache. <paramref name="projectPath"/>'s folder must already
+        /// exist (SaveFilePanelInProject only returns paths inside existing folders).
+        /// </summary>
+        public void PersistNewAtPath(T instance, string projectPath)
+        {
+            if (instance == null) throw new ArgumentNullException(nameof(instance));
+            if (string.IsNullOrEmpty(projectPath))
+                throw new ArgumentException("A project-relative path is required.", nameof(projectPath));
+
+            AssetDatabase.CreateAsset(instance, projectPath);
+        }
+
         public void Delete(T asset)
         {
             if (asset == null) return;
@@ -125,7 +155,7 @@ namespace MidiGenPlay.Services
 
         private void EnsureFolders()
         {
-            // Ensure Assets/Resources/MidiGenPlay/Patterns/<TypeFolder> exists
+            // Ensure Assets/Resources/ScriptableObjects/Patterns/<TypeFolder> exists
             var parts = assetsSaveRootPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string accum = parts[0];
             for (int i = 1; i < parts.Length; i++)

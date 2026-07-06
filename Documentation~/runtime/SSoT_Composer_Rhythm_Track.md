@@ -135,7 +135,12 @@ PCE-era TS-toggle asymmetry no longer exists.
 Rhythm generation must be deterministic under the orchestration seed/RNG context.
 
 Current code-backed truth:
-- `SongOrchestrator` seeds `ctx.rng` deterministically
+- `SongOrchestrator` seeds `ctx.rng` deterministically from a per-render base
+  seed: `baseSeed = seedOverride ?? settings.defaultSeed` (the caller-supplied
+  seed surface added in MGP-ALWTTT-SEED-1; see
+  `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.1). Same supplied seed
+  ⇒ same RNG streams; no seed supplied ⇒ bit-identical to the historical
+  `defaultSeed` behavior.
 - `RhythmTrackComposer` uses that seeded RNG path for style choice
 - palette selection (`PickPatternOverride`) draws from the same `ctx.rng` and consumes one `NextDouble()` per pick through the shared `PaletteSelector`; same seed => same pattern picked
 - same seed should produce stable style selection and stable MIDI output, assuming unchanged inputs

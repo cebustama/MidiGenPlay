@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+ï»¿using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition;
 using System;
 using System.Collections.Generic;
@@ -25,7 +25,7 @@ namespace MidiGenPlay
 
             public Tonality Tonality;
             public NoteName RootNote;
-            
+
             public TempoRange TempoRange;
             public int? ExplicitBpm;
             public float TempoScale = 1f;
@@ -45,6 +45,23 @@ namespace MidiGenPlay
             [System.NonSerialized]
             public MidiGenPlay.Composition.ModulationOctaveHint ModulationOctaveHint;
 
+            // Per-chord inversion pin (CQ-A1-OBJ2), index-aligned to the rendered
+            // progression's events. Entry semantics: null entry, a list shorter
+            // than the event count, or no list at all => that chord is unset (the
+            // voicer scores candidates freely); a value in 0..chordArity-1 => that
+            // exact rotation is pinned (0 = root position â€” note: pinning 0 is NOT
+            // the same as unset, it suppresses all other candidates); a value
+            // outside 0..chordArity-1 => unset (safe no-op, never clamped; D2b=a).
+            // Sticky-per-position (D2a=a): the pin applies at its event position on
+            // EVERY pattern repeat within the render. Consumed and cleared by
+            // ChordTrackComposer.Compose, so it applies to exactly one render. On
+            // the render's very first chord the directional modulation hint above
+            // wins when both are active (D3=A).
+            //
+            // See: runtime/SSoT_Composer_Backing_Track.md Â§7
+            [System.NonSerialized]
+            public IReadOnlyList<int?> ChordInversionHints;
+
             public override string ToString()
             {
                 var ts = $"{TimeSignatureProperties[TimeSignature].BeatsPerMeasure}/" +
@@ -56,7 +73,7 @@ namespace MidiGenPlay
             }
 
             /// <summary>
-            /// A single track’s configuration
+            /// A single trackï¿½s configuration
             /// </summary>
             [System.Serializable]
             public class TrackConfig
@@ -115,17 +132,17 @@ namespace MidiGenPlay
     }
 
     [Serializable]
-    public class BackingRecipe 
+    public class BackingRecipe
     {
         public string BackingStyleId;
     }
     #endregion
 
     /// <summary>
-    /// Base for any role-specific data (drum patterns, chord progressions, melodies…)
+    /// Base for any role-specific data (drum patterns, chord progressions, melodiesï¿½)
     /// </summary>
     [System.Serializable]
-    public class TrackParameters 
+    public class TrackParameters
     {
         public PatternDataSO Pattern;
 

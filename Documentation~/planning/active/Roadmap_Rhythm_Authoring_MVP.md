@@ -43,7 +43,7 @@ The active package sequencing is now:
 1. ~~consolidate rhythm authoring and the dedicated authoring UX~~ — done (Phases 4–5)
 2. ~~row-local velocity view and data-model extension~~ — done (Phase 6)
 3. ~~text/DSL mode for rhythm authoring~~ — done (Phase 7)
-4. persistence/repository cleanup (Phase 8, next active)
+4. ~~persistence/repository cleanup~~ — done (Phase 8, closed 2026-07-05; widened to Chord + Melody)
 5. phrasing / feel knobs as organic variation layer (Phase 9)
 
 This is a deliberate reprioritization.
@@ -194,42 +194,52 @@ constraint empty).
 
 ---
 
-## Phase 8 — Persistence and repository cleanup (next active)
+## Phase 8 — Persistence and repository cleanup (Completed 2026-07-05)
 
-### Goal
-Align rhythm authoring tools with package-owned persistence abstractions
-instead of ad hoc direct save paths.
+### Status
+Completed — batch **PATTERN-PERSIST-1**. Scope was widened at batch open (D2)
+beyond rhythm to also cover the Chord and Melody editors; recorded in
+`CURRENT_STATE.md` + `changelog-ssot.md` (no separate Chord/Melody roadmap entries —
+this was persistence plumbing, not new track capability).
 
-### Current issue
-`DrumPatternEditorWindow` saves through `AssetDatabase` / `EditorUtility`
-calls with a hardcoded default folder
-(`Assets/Resources/ScriptableObjects/Patterns/Drums`). The codebase already
-contains `IPatternRepository` (in `Runtime/CoreScripts/Interfaces/`) and
-`PatternRepositoryResources` (in `Runtime/CoreScripts/Services/`) that should
-be the canonical write/read path.
+### Closed outcomes
+- All three pattern editors (`DrumPatternEditorWindow`,
+  `ChordProgressionEditorWindow`, `MelodyPatternEditorWindow`) persist through the
+  shared, previously-unused generic store `TrackPatternConfigStoreResources<T>`
+  instead of ad-hoc `AssetDatabase` calls with per-window hardcoded folders.
+- The store gained a public `AssetsSaveRootPath` accessor and an editor-only
+  `PersistNewAtPath(instance, path)` method (dialog-preserving write).
+- Drum's save root unchanged (`.../Patterns/Drums`); Chord gained a real default
+  folder for the first time (`.../Patterns/Chords`, across all four of its save
+  sites); Melody realigned from singular `.../Patterns/Melody` to plural
+  `.../Patterns/Melodies` (matches the repository read root + shipped assets).
+- Additive canonical-root "Browse Saved Patterns" list added to each editor.
+- Runtime read path (`IPatternRepository` / `PatternRepositoryResources`) unchanged;
+  determinism invariant untouched (no composer / RNG surface changed).
 
-### Target
-- package-owned write/read path is explicit
-- rhythm tools use the same persistence philosophy as the rest of the package
-- folder and repository behavior are no longer hidden inside tool-specific code
+### Decisions resolved at batch open
+- **D1**: route through the store `TrackPatternConfigStoreResources<T>`, **not**
+  `IPatternRepository` — the roadmap/tools docs previously named the repository, but
+  the store was the correct, already-editor-safe write path. Repository not extended.
+- **D2**: Chord + Melody in scope alongside Drum (explicit widening).
+- **D3**: browse affordance is additive (alongside the existing `ObjectField`) and
+  canonical-root-only (`Resources.LoadAll`, not a full-project scan).
+- **D4**: per-window hardcoded `DefaultSaveFolder` constants removed; the store is
+  the single source of the save root.
+- **D5**: Melody store key `"Melodies"` (plural) — realigns editor writes to the
+  runtime read root (no stray `/Melody` assets existed, so no migration).
+- **D6 = C**: the editor keeps its interactive Save dialog; the store owns the write
+  via `PersistNewAtPath` (the only option satisfying both "preserve the dialog" and
+  "route through the store").
 
-### Likely open decisions to surface at batch start
-- Whether the editor talks to `IPatternRepository` directly or via an
-  editor-side adapter
-- Whether `ChordProgressionEditorWindow`'s similar Save path is in or out of
-  scope for this batch
-- Whether read paths (loading by name) should also be routed through the
-  repository in this batch or deferred
-- Whether the hardcoded default folder is removed, made configurable, or
-  preserved as a fallback when the repository declines to handle a path
-
-### Definition of done
-- rhythm tool persistence is routed through an explicit package-sanctioned path
-- doc and code agree on where patterns come from and how they are saved
-- `authoring/SSoT_Authoring_Tools.md` "current limitations" loses the
-  "hardcoded default folder" bullet
-- `authoring/SSoT_Authoring_Rhythm_Patterns.md` §4 "What is not true yet"
-  loses the store-backed persistence line
+### Definition of done — met
+- rhythm (and, by widening, chord + melody) tool persistence routed through the
+  store ✓
+- doc and code agree on where patterns come from and how they are saved ✓
+- `authoring/SSoT_Authoring_Tools.md` "current limitations" hardcoded-folder bullets
+  removed (drum + melody); §6 flipped to a closed persistence note ✓
+- `authoring/SSoT_Authoring_Rhythm_Patterns.md` §4 store-backed-persistence line
+  moved to "What is already true" (reworded to name the store) ✓
 
 ---
 
@@ -285,12 +295,21 @@ without re-litigating the asmdef shape or `testables` handshake.
 
 ## Immediate next steps
 
-1. Surface and confirm Phase 8 open decisions (the four bullets under
-   "Likely open decisions" above)
-2. Decide and schedule the `ComposeFromGrid` → `SnapshotAsStepVelocities`
-   runtime micro-batch (independent of Phase 8)
-3. Confirm existing `.asset` files are re-authored or accepted as requiring
+1. Confirm existing `.asset` files are re-authored or accepted as requiring
    manual migration (Phase 6 carry-over)
+2. Phase 9 (phrasing / feel semantics) is the remaining rhythm-authoring phase;
+   per `CURRENT_STATE.md` it resumes now that Phase 8 is closed.
+
+_(2026-07-05: the former item 1 — "surface and confirm Phase 8 open decisions" —
+was removed; Phase 8 closed via batch PATTERN-PERSIST-1, with decisions D1–D6
+recorded in the Phase 8 section above.)_
+
+_(2026-07-05 drift fix: this list previously carried a third item — "decide
+and schedule the `ComposeFromGrid` → `SnapshotAsStepVelocities` runtime
+micro-batch." That work is already closed; see `CURRENT_STATE.md` and
+`runtime/SSoT_Composer_Rhythm_Track.md` §6 ("per-step velocity in generated
+MIDI... as of 2026-05-23"). Removed as stale; no roadmap-authority change —
+roadmaps are not implementation truth, this is a housekeeping correction.)_
 
 ## Related authorities
 

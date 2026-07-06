@@ -10,6 +10,19 @@ namespace MidiGenPlay.Composition
         [Header("Voice Leading (optional override)")]
         public VoiceLeadingConfig voiceLeadingOverride;
 
+        [Header("Chord Expression (Tier 1 articulation)")]
+        [Tooltip("Rhythmic articulation applied over the voiced chords for the whole " +
+                 "render (CA-T1, D-EXP1=A: persistent card-level selection, not a " +
+                 "transient hint). Block (default) = one sustained chord per event, " +
+                 "bit-identical to legacy output. " +
+                 "See runtime/SSoT_Composer_Backing_Track.md §8.")]
+        public ChordExpressionType chordExpression = ChordExpressionType.Block;
+
+        [Tooltip("Note rate for ArpeggioUp / ArpeggioDown; ignored by all other " +
+                 "expressions. Eighth (default) = two notes per beat, built on the " +
+                 "Part's beat span (meter authority), independent of the asset grid.")]
+        public ArpeggioRate arpeggioRate = ArpeggioRate.Eighth;
+
         [Header("Chord Progression (optional card override)")]
         [Tooltip("If set, this progression will be used for the backing track " +
                  "instead of library/procedural generation.")]

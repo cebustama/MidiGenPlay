@@ -1,5 +1,195 @@
 # changelog-ssot
 
+## 2026-07-05 — CQ-A1-OBJ2: per-chord inversion voicing hint (pin)
+
+### Added
+- `SongConfig.PartConfig.ChordInversionHints : IReadOnlyList<int?>` — new
+  transient (`[NonSerialized]`) per-chord inversion pin, index-aligned to the
+  rendered progression's events. Null entry / short list / out-of-range value
+  = unset (safe no-op, never clamped — D2b = a). Sticky-per-position (D2a = a):
+  applies at its event position on every pattern repeat within one render.
+- `ChordTrackComposer.ResolveInversionPin(hints, eventIndex)` — internal static
+  per-position resolver (the D2a test seam); threaded through both chord render
+  loops (inline card-progression path in `Compose` and `RenderFromProgression`).
+- `Tests/Editor/ChordTrackComposer_InversionPinTests.cs` — baseline
+  candidate-set identity (unset = bit-identical), exact-rotation pins (triad +
+  seventh, including pin `0` ≠ unset and pin-overrides-`useInversions`),
+  out-of-range/negative no-ops, D2a sticky-per-position, and D3 combined-hint
+  precedence at the seams.
+- `runtime/SSoT_Composer_Backing_Track.md` **§7 — Per-chord inversion hint
+  (voicing pin)** (behavior / lifecycle / determinism / boundary, mirroring
+  §6's shape); previous §7 "Update triggers" renumbered to **§8** and extended
+  with §6/§7 semantics-change triggers.
+
+### Changed
+- `IChordVoicer.VoiceChord` and `BasicVoiceLeadingVoicer.VoiceChord` gained an
+  optional trailing `int? forcedInversion = null`; existing callers compile
+  unchanged.
+- `BasicVoiceLeadingVoicer.GeneratePcCandidates` — pin enforcement site
+  (**D0 = A**: a valid pin yields exactly one candidate rotation, suppressing
+  Drop-2 and outranking the `useInversions`/`useDrop2` toggles); visibility
+  `private` → `internal` as the fixture-free test seam (mirrors
+  `TryDirectionalFirstChordCore`).
+- `ChordTrackComposer.Compose` — the transient snapshot-and-clear block now
+  also consumes `ChordInversionHints` (exactly-once-per-render lifecycle,
+  mirroring the §6 modulation hint).
+- `runtime/SSoT_Runtime_Song_Model_and_Config.md §1.1` — registers the new
+  transient alongside the modulation hint, pointing to backing-track §7.
+- `planning/active/Roadmap_Chord_Expressivity.md` — "Chord inversions" flipped
+  **DEFERRED → BUILT** with decisions D0–D3 + D2a/D2b recorded.
+
+### Decisions
+- D0 = A (pin, not bias) · D1 = A (inversion index, not bass pitch-class) ·
+  D2 = A (per-chord scope) · **D2a = a** (sticky-per-position) · **D2b = a**
+  (out-of-range value ⇒ unset, never clamped) · D3 = A (§6 wins the render's
+  first chord; structural in both loops).
+
+### Determinism
+- Default-unset is bit-identical to prior output. The pin is RNG-free; non-
+  pinned chords see an unchanged candidate set and scoring order.
+
+## 2026-07-05 — PATTERN-PERSIST-1: pattern-asset persistence unification
+
+### Added
+- `TrackPatternConfigStoreResources<T>` — `public string AssetsSaveRootPath`
+  (exposes the resolved `Assets/Resources/ScriptableObjects/Patterns/<TypeFolder>`
+  save root; pure string, not `#if UNITY_EDITOR`-guarded) and editor-only
+  `PersistNewAtPath(T instance, string projectPath)` (create-at-an-explicit-
+  caller-chosen-path, so the editor window keeps its interactive
+  `SaveFilePanelInProject` naming dialog while the store owns the `AssetDatabase`
+  write — D6 = C).
+- Additive "Browse Saved Patterns" foldout in all three pattern editors, reading
+  `store.GetAll()` / `Refresh()` off each type's canonical Resources root (D3 = A,
+  canonical-root-only). The existing `ObjectField` target picker is retained.
+
+### Changed
+- `DrumPatternEditorWindow` — `ApplyToAsset` / `SaveAsNewAsset` route writes through
+  `TrackPatternConfigStoreResources<DrumPatternData>("Drums")`; the palette-scan
+  folder list now reads `AssetsSaveRootPath`. Save root unchanged
+  (`.../Patterns/Drums`, byte-identical to the removed constant).
+- `ChordProgressionEditorWindow` — all four internal save sites (`ApplyToAsset`
+  in-place + create branch, `ApplyGridToTarget` in-place, `SaveAsNewAsset` Roman +
+  grid paths) route through `TrackPatternConfigStoreResources<ChordProgressionData>("Chords")`.
+  The editor now passes a real default save folder (`.../Patterns/Chords`) for the
+  first time — previously every `SaveFilePanelInProject` call passed no folder.
+- `MelodyPatternEditorWindow` — `ApplyToAsset` / `SaveAsNewAsset` route through
+  `TrackPatternConfigStoreResources<MelodyPatternData>("Melodies")`; the pattern
+  write folder realigns from singular `.../Patterns/Melody` to plural
+  `.../Patterns/Melodies` (D5 = A), matching `PatternRepositoryResources`' read root
+  and the shipped assets. `CreateNewParamsAsset` (a `MelodyGenerationParamsSO` save,
+  a different asset kind) is unchanged.
+- `TrackPatternConfigStoreResources<T>` — corrected two stale inline comments that
+  referenced `MidiGenPlay/Patterns/…` where the code resolves
+  `ScriptableObjects/Patterns/…` (comment-only).
+
+### Removed
+- Per-window hardcoded `DefaultSaveFolder` constants from `DrumPatternEditorWindow`
+  and `MelodyPatternEditorWindow` (the store is now the single source of the save
+  root, D4). Palette / gen-params folder constants and the catalogue-wizard folder
+  constants are a different asset kind and were intentionally left untouched.
+
+### Docs
+- `authoring/SSoT_Authoring_Tools.md` — removed the drum + melody "hardcoded default
+  folder" limitation bullets; §6 retitled from a Phase-8 "next target" to a closed
+  persistence note (all three editors persist via the store; `IPatternRepository`
+  remains the read path; the naming dialog is preserved via `PersistNewAtPath`).
+- `authoring/SSoT_Authoring_Rhythm_Patterns.md` §4 — the store-backed-persistence
+  line moved from "What is not true yet" to "What is already true," reworded to name
+  the store rather than "repository abstractions."
+- `authoring/SSoT_Authoring_Chord_Progressions.md` §3 — closure note (canonical
+  `.../Patterns/Chords` default; all four save sites via the store).
+- `authoring/SSoT_Authoring_Melody_Composition.md` — status-note line on the
+  `/Melody`→`/Melodies` realignment.
+- `planning/active/Roadmap_Rhythm_Authoring_MVP.md` — Phase 8 → Completed; open
+  decisions resolved (D1 store not repository; D2 chord+melody in scope; D3
+  additive/canonical; D4 constants removed; D5 `/Melodies`; D6 = C dialog-preserving);
+  widened-scope note recorded.
+- `CURRENT_STATE.md` — Phase 8 moved to "Just completed"; "Next" list updated.
+- `coverage-matrix.md` — closure note in "Notes on primary-home flips" (no concept →
+  authority row changed; no primary-home flip; records the deferred governs decision).
+
+### Governance
+- The persistence Services layer (`TrackPatternConfigStoreResources.cs` /
+  `ITrackPatternConfigStore.cs` + the sibling `PatternRepositoryResources.cs` /
+  `IPatternRepository.cs`) was brought under `SSoT_Authoring_Tools.md` `governs:`
+  (decision B), with a persistence-contract invariant added (editor owns the Save
+  dialog + Undo; store owns the `AssetDatabase` write; repository is read-only).
+  These Runtime/ files are governed by an authoring SSoT because Tools §6 documents
+  the persistence mechanism.
+
+## 2026-07-05 — MGP-ALWTTT-SEED-1: per-render seed threading
+
+### Added
+- `SongOrchestrator` — internal seed-derivation seams `ResolveBaseSeed`,
+  `ResolveRepContextSeed` (`(base + partIndex*397) ^ rep`; original operator
+  precedence preserved), `ResolvePartContextSeed`, `ResolveTrackSeedSong`,
+  `ResolveTrackSeedPart`; `StableHash32` visibility flipped `private → internal`
+  (test access via the existing `InternalsVisibleTo("MidiGenPlay.Tests.Editor")`).
+- `Tests/Editor/SongOrchestratorSeedTests.cs` (new) — golden FNV-1a values
+  captured against the **pre-batch** seed-string formats (the bit-identity
+  guard), null-override == explicit-`defaultSeed` equivalence, the
+  operator-precedence guard, distinct-seed ⇒ distinct-track-seed, and an
+  end-to-end `PaletteSelector` variance + repeatability test mirroring the ALWTTT
+  S5g acceptance (distinct seeds ⇒ ≥2 distinct picks over a 6-entry palette; same
+  seed ⇒ same pick). No Unity/`SongConfig` fixtures (the internal-seam idiom,
+  same as `MelodyTrackComposer_PatternDeterminismTests`).
+
+### Changed
+- `ISongOrchestrator` / `SongOrchestrator` — `GenerateSong(SongConfig song,
+  int? seedOverride = null)` and `GenerateSinglePart(..., int? seedOverride =
+  null)` (trailing optional parameters; the `bpmOverride` default was also added
+  to the interface signature to match the implementation). All five seed sites
+  now derive from `baseSeed = seedOverride ?? _settings.defaultSeed`, resolved
+  once per render call.
+- `runtime/SSoT_Runtime_Generation_Orchestration.md` — new **§5.1 Seed
+  threading** contract (base-seed resolution once per render; every part/rep/track
+  seed derives from it incl. the `PaletteSelector` RNG stream; host-side policy;
+  bit-exact backward compat; the internal seams named); §8 gains a seed-contract
+  update trigger.
+- `runtime/SSoT_Composer_Rhythm_Track.md` §4 — determinism contract now names the
+  base-seed source (`seedOverride ?? defaultSeed`); the
+  one-`NextDouble()`-per-pick line is unchanged.
+
+### Cross-project (ALWTTT side — tracked there; no package governs change)
+- `MidiMusicManager.RenderSinglePart` gains a pass-through `int? seedOverride =
+  null` forwarded to `GenerateSinglePart`, and ALWTTT owns the per-song seed
+  policy. `MidiMusicManager` is out-of-tree from the package (as with
+  ALWTTT-MOD-DIR-3 / CE-L1), so this is not a package changelog "Changed" item.
+  This batch delivers only the package seed surface + the adoption note;
+  host-side acceptance runs in ALWTTT S5g-b.
+
+### Decisions
+- **D1 (locked at open)** — the package accepts a caller-supplied seed; seed
+  policy stays host-side; the package never invents per-render entropy.
+- **D2 (locked at open)** — no seed supplied ⇒ bit-identical to the previous
+  behavior (`defaultSeed` fallback).
+- **D3 = A** — the seed surface is an optional trailing `int? seedOverride =
+  null` on both `GenerateSinglePart` and `GenerateSong` (stateless, per-call).
+  The GenContext-field and MidiGenerator-setter options were rejected: the
+  context is constructed inside the render methods, and a setter is stateful /
+  leak-prone.
+- **D4 = declined** — Pick-chain exclusion not implemented. Clone-on-pick (drum:
+  `Instantiate` inside the pick; chord: caller clones per CE-F1) means the host
+  never holds a palette-entry-identical reference, so `excludeIfPossible` by
+  reference would silently never match; and threading a previous-pick identity
+  host → composer → picker requires a GenContext meaning change beyond this
+  batch. ALWTTT ships probabilistic no-repeat (palettes ≥ 6). Revisit as its own
+  batch with an entry-identity decision if needed.
+
+### Not changed
+- `PaletteSelection.cs` / `Tests/Editor/PaletteSelectorTests.cs` — untouched
+  (D4 declined); the one-`NextDouble()`-per-`Pick` invariant is intact.
+- No behavior change for any caller that does not pass a seed.
+- No host-policy (per-song seed derivation) logic inside the package.
+
+### Known intentional deltas
+- The golden-value tests cover ASCII seed strings (all current role names and
+  typical musician IDs); a non-ASCII musician ID still hashes correctly but is
+  not golden-guarded.
+- ALWTTT acceptance advice: pin three fixed distinct seeds for the "≥2 distinct
+  PROG_PICKs over 3 songs" check to avoid a ~3% false-fail under a uniform
+  6-entry palette.
+
 ## 2026-06-22 — Melody Authoring MVP Phase 5: polish, validation, documentation closure (MVP complete)
 
 ### Validated (no runtime change)

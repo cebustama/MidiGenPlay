@@ -12,10 +12,13 @@ namespace MidiGenPlay.Composition
             NoteName[] pcs,
             MIDIInstrumentSO inst,
             IReadOnlyList<Note> last,
-            VoiceLeadingConfig cfg)
+            VoiceLeadingConfig cfg,
+            int? forcedInversion = null)
         {
-            // Candidate pitch-class sets (inversions & optional drop-2)
-            var pcCandidates = GeneratePcCandidates(pcs, cfg);
+            // Candidate pitch-class sets (inversions & optional drop-2), or a
+            // single pinned rotation when a valid forcedInversion is supplied
+            // (CQ-A1-OBJ2; see runtime/SSoT_Composer_Backing_Track.md §7).
+            var pcCandidates = GeneratePcCandidates(pcs, cfg, forcedInversion);
 
             // Realize near target register and clamp to range
             int targetOct = TargetOctave(inst, last, cfg);
@@ -52,9 +55,30 @@ namespace MidiGenPlay.Composition
             return realizations[bestIdx];
         }
 
-        static IEnumerable<NoteName[]> GeneratePcCandidates(
-            NoteName[] pcs, VoiceLeadingConfig cfg)
+        // internal (not private) so the pin contract is directly testable via
+        // [InternalsVisibleTo("MidiGenPlay.Tests.Editor")] without a
+        // MIDIInstrumentSO fixture (mirrors TryDirectionalFirstChordCore).
+        public static IEnumerable<NoteName[]> GeneratePcCandidates(
+            NoteName[] pcs, VoiceLeadingConfig cfg, int? forcedInversion = null)
         {
+            // Per-chord inversion pin (CQ-A1-OBJ2, D0=A pin semantics): a valid
+            // pinned index yields exactly ONE candidate — the requested rotation —
+            // regardless of cfg.useInversions / cfg.useDrop2 (an explicit pin
+            // outranks the candidate-set toggles). Note that pinning 0 is NOT the
+            // same as unset: it forces root position, suppressing all alternatives.
+            // Out-of-range values are treated as unset (D2b=a: safe no-op), never
+            // clamped, so a garbage value cannot silently force root position.
+            if (forcedInversion.HasValue)
+            {
+                int k = forcedInversion.Value;
+                if (k >= 0 && k < pcs.Length)
+                {
+                    yield return k == 0 ? pcs : Rotate(pcs, k);
+                    yield break;
+                }
+                // out-of-range: fall through to the unpinned candidate set
+            }
+
             yield return pcs; // root
             if (!cfg.useInversions) yield break;
 

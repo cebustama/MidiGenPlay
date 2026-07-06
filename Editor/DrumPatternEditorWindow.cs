@@ -4,6 +4,7 @@ using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay;
 using MidiGenPlay.Authoring;
 using MidiGenPlay.Composition;
+using MidiGenPlay.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -44,7 +45,10 @@ public class DrumPatternEditorWindow : EditorWindow
     // -------------------------------------------------------------------------
 
     private const string MenuPath = "MidiGenPlay/Drum Pattern Editor...";
-    private const string DefaultSaveFolder = "Assets/Resources/ScriptableObjects/Patterns/Drums";
+
+    // PATTERN-PERSIST-1 / D4: the former DefaultSaveFolder constant was removed.
+    // The shared store (_drumStore, below) is now the single source of the drum
+    // pattern save root; read it via _drumStore.AssetsSaveRootPath.
 
     // L5 (L-PAL) — default drum palette location (created on first save).
     private const string DefaultPaletteFolder = "Assets/Resources/ScriptableObjects/Patterns/Drums/Palettes";
@@ -88,6 +92,14 @@ public class DrumPatternEditorWindow : EditorWindow
     // -------------------------------------------------------------------------
 
     [SerializeField] private DrumPatternData targetAsset;
+
+    // PATTERN-PERSIST-1 — shared package persistence store (read + write). Save root
+    // resolves to Assets/Resources/ScriptableObjects/Patterns/Drums (unchanged from the
+    // former DefaultSaveFolder). Writes route through it; the D3 browse list reads from it.
+    private readonly TrackPatternConfigStoreResources<DrumPatternData> _drumStore = new("Drums");
+
+    // PATTERN-PERSIST-1 / D3 — foldout state for the "browse saved patterns" list.
+    private bool _showBrowse;
 
     // L5 (L-PAL) — palette affordances.
     [SerializeField] private DrumPatternPaletteSO targetPalette;
@@ -197,6 +209,9 @@ public class DrumPatternEditorWindow : EditorWindow
 
     private void OnEnable()
     {
+        // PATTERN-PERSIST-1 / D3 — populate the browse cache once; saves keep it fresh.
+        _drumStore.Refresh();
+
         if (targetAsset != null && (_working == null || _lastBound != targetAsset))
             BindAsset(targetAsset);
 
@@ -250,6 +265,44 @@ public class DrumPatternEditorWindow : EditorWindow
         {
             targetAsset = newAsset;
             BindAsset(targetAsset);
+        }
+
+        // PATTERN-PERSIST-1 / D3 — browse patterns already saved under the canonical
+        // Resources root. Additive: the Target Asset object field above still works.
+        _showBrowse = EditorGUILayout.Foldout(_showBrowse, "Browse Saved Patterns", true);
+        if (_showBrowse)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                if (GUILayout.Button("Refresh List"))
+                    _drumStore.Refresh();
+
+                var saved = _drumStore.GetAll();
+                if (saved.Count == 0)
+                {
+                    EditorGUILayout.LabelField(
+                        $"No saved patterns under {_drumStore.AssetsSaveRootPath}.");
+                }
+                else
+                {
+                    foreach (var a in saved)
+                    {
+                        if (a == null) continue;
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            EditorGUILayout.ObjectField(a, typeof(DrumPatternData), false);
+                            using (new EditorGUI.DisabledScope(a == targetAsset))
+                            {
+                                if (GUILayout.Button("Load", GUILayout.Width(52)))
+                                {
+                                    targetAsset = a;
+                                    BindAsset(targetAsset);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (_working == null)
@@ -1185,7 +1238,7 @@ public class DrumPatternEditorWindow : EditorWindow
         _paletteDropdownScanned = true;
 
         var folders = new List<string>();
-        foreach (var f in new[] { DefaultSaveFolder, DefaultPaletteFolder })
+        foreach (var f in new[] { _drumStore.AssetsSaveRootPath, DefaultPaletteFolder })
             if (AssetDatabase.IsValidFolder(f))
                 folders.Add(f);
 
@@ -1614,8 +1667,8 @@ public class DrumPatternEditorWindow : EditorWindow
 
         Undo.RecordObject(targetAsset, "Drum Pattern Editor: Apply");
         CopyWorkingInto(targetAsset);
-        EditorUtility.SetDirty(targetAsset);
-        AssetDatabase.SaveAssets();
+        // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + cache refresh.
+        _drumStore.Save(targetAsset);
 
         BindAsset(targetAsset);
         Debug.Log($"[DrumPatternEditor] Applied to {AssetDatabase.GetAssetPath(targetAsset)}");
@@ -1629,7 +1682,8 @@ public class DrumPatternEditorWindow : EditorWindow
         if (_inputMode == InputMode.Text)
             CommitTextToWorking();
 
-        Directory.CreateDirectory(DefaultSaveFolder);
+        // Ensure the canonical root exists so the dialog can default into it.
+        Directory.CreateDirectory(_drumStore.AssetsSaveRootPath);
         AssetDatabase.Refresh();
 
         string path = EditorUtility.SaveFilePanelInProject(
@@ -1637,17 +1691,19 @@ public class DrumPatternEditorWindow : EditorWindow
             BuildDefaultName(),
             "asset",
             "Choose where to save the new drum pattern asset.",
-            DefaultSaveFolder);
+            _drumStore.AssetsSaveRootPath);
 
         if (string.IsNullOrEmpty(path)) return;
 
+        // PATTERN-PERSIST-1 / D6=C — window keeps the naming dialog above; the store
+        // owns the AssetDatabase write. Create at the chosen path, then populate under
+        // Undo, then Save() to flush field edits + refresh the browse cache.
         var newAsset = ScriptableObject.CreateInstance<DrumPatternData>();
-        AssetDatabase.CreateAsset(newAsset, path);
+        _drumStore.PersistNewAtPath(newAsset, path);
 
         Undo.RecordObject(newAsset, "Drum Pattern Editor: Save As New");
         CopyWorkingInto(newAsset, Path.GetFileNameWithoutExtension(path));
-        EditorUtility.SetDirty(newAsset);
-        AssetDatabase.SaveAssets();
+        _drumStore.Save(newAsset);
 
         targetAsset = newAsset;
         BindAsset(targetAsset);
