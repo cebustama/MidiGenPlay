@@ -31,5 +31,12 @@ namespace MidiGenPlay.Composition
                  "(default) = two hits per beat, built on the Part's beat span " +
                  "(meter authority), independent of the asset grid.")]
         public ArpeggioRate arpeggioRate = ArpeggioRate.Eighth;
+
+        private void Reset()
+        {
+            // Unity editor-invoked message (not an editor-API dependency): assets
+            // created via the Create menu tag their cosmetic role as Bassline.
+            appliesTo = TrackRole.Bassline;
+        }
     }
 }

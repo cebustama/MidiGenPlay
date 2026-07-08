@@ -141,9 +141,11 @@ namespace MidiGenPlay.Composition
                 baseForThisPart = ResolveStrategy(_melodicStyle.baseStrategy);
 
             if (_settings?.logGenerator == true)
-                Debug.Log($"<color=yellow>[MelodyTrackComposer] Using melodic style " +
-                    $"'{_melodicStyle.name}' " +
-                          $"baseStrategy={_melodicStyle.baseStrategy}</color>");
+                Debug.Log(_melodicStyle != null
+                    ? $"<color=yellow>[MelodyTrackComposer] Using melodic style " +
+                      $"'{_melodicStyle.name}' baseStrategy={_melodicStyle.baseStrategy}</color>"
+                    : "<color=yellow>[MelodyTrackComposer] No melodic style card " +
+                      "(Style absent or not a MelodyCardConfigSO) — constructor defaults.</color>");
 
             // RNG, timeline, etc.
             var rng = ctx?.rng ?? new System.Random();
