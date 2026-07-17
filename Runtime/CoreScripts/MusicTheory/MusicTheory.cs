@@ -130,6 +130,30 @@ namespace MidiGenPlay.MusicTheory
             return validBPMs[random.Next(validBPMs.Count)];
         }
 
+        /// <summary>
+        /// BPM-DET-1 (D-BPM3=B): the ordered set of valid BPMs for a range+rule,
+        /// with NO random pick — pure and RNG-free. GetBPMFromRange keeps its own
+        /// unseeded pick (unchanged; its benign GetTimeSignatureDetails callers are
+        /// unaffected); the seeded render-path roll lives in
+        /// SongOrchestrator.RollTempoBpm and draws from this set.
+        /// </summary>
+        public static IReadOnlyList<int> GetValidBpms(TempoRange tempoRange, TempoRule rule)
+        {
+            if (!TempoRanges.TryGetValue(tempoRange, out var range))
+                throw new ArgumentException($"Invalid TempoRange: {tempoRange}");
+
+            return Enumerable.Range(range.Min, range.Max - range.Min + 1)
+                .Where(bpm => rule switch
+                {
+                    TempoRule.MultiplesOfTen => bpm % 10 == 0,
+                    TempoRule.MultiplesOfFive => bpm % 5 == 0,
+                    TempoRule.OnlyEven => bpm % 2 == 0,
+                    TempoRule.Any => true,
+                    _ => throw new ArgumentException($"Unknown TempoRule: {rule}")
+                })
+                .ToList();
+        }
+
         public static List<Note> GetNotesFromScale(
             Scale scale, NoteName startingNoteName, int startingOctave, int numberOfNotes)
         {

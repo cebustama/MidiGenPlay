@@ -18,16 +18,18 @@
 // round away-from-zero, clamp 1..127; Block keeps legacy clamp 0..127).
 // See runtime/SSoT_Composer_Backing_Track.md §8.
 
-using System.Collections.Generic;
-using System.Linq;
-using NUnit.Framework;
 using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
+using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition;
+using NUnit.Framework;
+using System.Collections.Generic;
+using System.Linq;
 using DwmNote = Melanchall.DryWetMidi.MusicTheory.Note;
 using DwmNoteName = Melanchall.DryWetMidi.MusicTheory.NoteName;
+using Note = Melanchall.DryWetMidi.MusicTheory.Note;
 
 namespace MidiGenPlay.Tests.Editor
 {
@@ -340,6 +342,60 @@ namespace MidiGenPlay.Tests.Editor
                     Assert.That(a[i].NoteIndex, Is.EqualTo(b[i].NoteIndex), expr.ToString());
                 }
             }
+        }
+
+        // ---------------- CA-T2: reshape (pitch) ----------------
+
+        private static Note N(int midi) => Note.Get((SevenBitNumber)midi);
+
+        [Test]
+        public void Reshape_PowerChord_DropsThird_KeepsRootFifthOctave()
+        {
+            var reshaper = new ChordReshaper();
+            // C major triad voiced C4(60) E4(64) G4(67); root pc = C.
+            var voiced = new List<Note> { N(60), N(64), N(67) };
+            var pcs = new[] { NoteName.C, NoteName.E, NoteName.G };
+
+            var outv = reshaper.Reshape(voiced, pcs, ChordExpressionType.PowerChord)
+                               .Select(n => (int)n.NoteNumber).OrderBy(x => x).ToList();
+
+            Assert.That(outv, Is.EquivalentTo(new[] { 60, 67, 72 })); // C, G, C(oct); no E
+        }
+
+        [Test]
+        public void Reshape_NonTier2_IsIdentity()
+        {
+            var reshaper = new ChordReshaper();
+            var voiced = new List<Note> { N(60), N(64), N(67) };
+            var pcs = new[] { NoteName.C, NoteName.E, NoteName.G };
+            foreach (var expr in new[] {
+                ChordExpressionType.Block, ChordExpressionType.PerBeat,
+                ChordExpressionType.ArpeggioUp, ChordExpressionType.Random })
+                Assert.That(reshaper.Reshape(voiced, pcs, expr), Is.SameAs(voiced));
+        }
+
+        // ---------------- CA-T2: chugging pulse (rhythm) ----------------
+
+        [Test]
+        public void Chugging_PulsesFullChord_AtArpeggioRate()
+        {
+            // 2-beat event, Eighth rate => 4 full-chord hits, all NoteIndex = -1.
+            var hits = ChordArticulator.PlanHits(
+                ChordExpressionType.Chugging, ArpeggioRate.Eighth,
+                startBeats: 0, durBeats: 2, beatsPerBar: 4, noteCount: 2, baseVelocity: 100);
+
+            Assert.That(hits.Count, Is.EqualTo(4));
+            Assert.That(hits.All(h => h.NoteIndex == -1), Is.True, "chug = full chord, not arpeggiated");
+        }
+
+        [Test]
+        public void PowerChord_DegradesToBlock_InArticulator()
+        {
+            var hits = ChordArticulator.PlanHits(
+                ChordExpressionType.PowerChord, ArpeggioRate.Eighth,
+                0, 4, 4, 3, 90);
+            Assert.That(hits.Count, Is.EqualTo(1));      // Block plan
+            Assert.That(hits[0].NoteIndex, Is.EqualTo(-1));
         }
     }
 }

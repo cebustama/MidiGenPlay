@@ -47,11 +47,48 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx)
         {
             var inst = (MIDIInstrumentSO)cfg.Instrument;
-            var prog = ctx?.GetProgressionForPart?.Invoke(part)
-                       ?? (cfg.Parameters?.Pattern as ChordProgressionData);
+
+            // MGP-ALWTTT-DBG-3 (Ask C): a patternOverride targeting Bassline is
+            // warn + ignore in v1. The bass owns no pattern channel — it renders
+            // the per-part SHARED progression — so honoring an override here
+            // would create a second mutation path into shared state. Override
+            // the Backing track instead (its override IS shared, by design).
+            if (ctx?.patternOverride != null)
+            {
+                Debug.LogWarning(
+                    $"[BassTrackComposer] patternOverride targeting Bassline is not " +
+                    $"supported in v1 (got '{ctx.patternOverride.name}'). The bass " +
+                    $"renders the shared progression; override the Backing track " +
+                    $"instead. Ignoring.");
+            }
+
+            // MGP-ALWTTT-DBG-1 (Ask A): source-tracked resolution — same
+            // precedence as before (shared cache, else TrackParameters).
+            var sharedProg = ctx?.GetProgressionForPart?.Invoke(part);
+            var prog = sharedProg ?? (cfg.Parameters?.Pattern as ChordProgressionData);
 
             if (prog == null || prog.events == null || prog.events.Count == 0)
+            {
+                // Ask A: nothing rendered.
+                ctx?.ReportResolved?.Invoke(new ResolvedTrackChoice
+                {
+                    source = ResolvedSource.None,
+                    usesSharedProgression = false,
+                });
                 return new MidiFile();
+            }
+
+            // Ask A: the corrected bass payload — flag + shared progression
+            // identity (roman formatted exactly like the backing readback).
+            ctx?.ReportResolved?.Invoke(new ResolvedTrackChoice
+            {
+                source = sharedProg != null
+                    ? ResolvedSource.SharedProgression
+                    : ResolvedSource.TrackParameters,
+                usesSharedProgression = sharedProg != null,
+                sourceAssetName = prog.name,
+                progressionRoman = ChordTrackComposer.RomanSequence(prog),
+            });
 
             // CA-F2 (SD-F2-4=A / SD-F2-5=A / D-EXP1=A): persistent card-level
             // articulation selection, resolved once at entry from the track's

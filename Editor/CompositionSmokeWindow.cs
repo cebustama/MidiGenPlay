@@ -60,20 +60,9 @@ namespace MidiGenPlay.EditorTools
             TrackRole.Rhythm, TrackRole.Backing, TrackRole.Melody, TrackRole.Bassline
         };
 
-        /// <summary>
-        /// One UI row. Wraps the runtime spec plus the editor-side no-asset
-        /// articulation fallback (D-SMOKE-MT-1=B): when 'spec.style' is null
-        /// and the role is Backing or Bassline, these two fields are injected
-        /// as an in-memory card SO right before assembly — preserving the
-        /// previous single-track window's workflow verbatim.
-        /// </summary>
-        [System.Serializable]
-        private class SmokeEntry
-        {
-            public SmokeTrackSpec spec = new SmokeTrackSpec();
-            public ChordExpressionType chordExpression = ChordExpressionType.Block;
-            public ArpeggioRate arpeggioRate = ArpeggioRate.Eighth;
-        }
+        // Row type promoted to the shared runtime SmokeEntry
+        // (MidiGenPlay.Composition.SmokeEntry) so window + runner read one
+        // SmokeSetupSO — D-SMOKE-RT-5=A. No nested duplicate here anymore.
 
         // --- Serialized window state ---
         [SerializeField] private MidiGenPlayConfig config;
@@ -82,6 +71,11 @@ namespace MidiGenPlay.EditorTools
         [SerializeField] private bool overrideSeed = false;
         [SerializeField] private int seed = 12345;
         [SerializeField] private bool stripMetronome = false; // D-SMOKE-MT-5=A
+
+        // D-SMOKE-RT-5=A: the shared source of truth. The window keeps its
+        // rich inline authoring, but Save/Load round-trips the whole setup to
+        // this asset so the runtime runner can replay identical inputs.
+        [SerializeField] private SmokeSetupSO setup;
 
         private Vector2 _scroll;
         private string _lastPath;
@@ -94,6 +88,9 @@ namespace MidiGenPlay.EditorTools
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
+            DrawSharedSetup();
+
+            EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("Assets", EditorStyles.boldLabel);
             config = (MidiGenPlayConfig)EditorGUILayout.ObjectField(
                 "MGP Config", config, typeof(MidiGenPlayConfig), false);
@@ -223,7 +220,17 @@ namespace MidiGenPlay.EditorTools
                         "Chord Expression", e.chordExpression);
                     e.arpeggioRate = (ArpeggioRate)EditorGUILayout.EnumPopup(
                         "Arpeggio Rate", e.arpeggioRate);
+
+                    // MGP-ALWTTT-ARTIC-1: Random selection policy knobs.
+                    if (e.chordExpression == ChordExpressionType.Random &&
+                        e.spec.role == TrackRole.Backing)
+                        DrawRandomArticulationKnobs(e);
                 }
+
+                // MGP-ALWTTT-ARTIC-1 (D6): Random is not wired on the bass yet.
+                var randWarn = RandomOnBasslineWarning(e);
+                if (randWarn != null)
+                    EditorGUILayout.HelpBox(randWarn, MessageType.Warning);
 
                 EditorGUILayout.EndVertical();
             }
@@ -232,6 +239,94 @@ namespace MidiGenPlay.EditorTools
 
             if (GUILayout.Button("+ Add track"))
                 entries.Add(new SmokeEntry());
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-ARTIC-1 (SD-1=A / SD-2=A). Only drawn for a Backing row with
+        /// no style asset and chordExpression = Random.
+        ///
+        /// - randomRerollChance: 1 = fresh figure per chord event (default);
+        ///   0 = one figure for the whole render (per-LOOP variety then comes from
+        ///   the host's per-render seed); intermediates = per-chord change chance.
+        /// - randomFigureWeights: empty = uniform over the six Tier-1 figures.
+        ///   Entries DEFINE the pool (unlisted excluded; weight &lt;= 0 excludes;
+        ///   duplicates sum; a degenerate list falls back to uniform + a package
+        ///   warning). Semantics live in the Backing composer SSoT §8.x — this
+        ///   window only exposes the authoring surface.
+        /// </summary>
+        private static void DrawRandomArticulationKnobs(SmokeEntry e)
+        {
+            EditorGUI.indentLevel++;
+
+            e.randomRerollChance = EditorGUILayout.Slider(
+                new GUIContent("Reroll Chance",
+                    "1 = roll a figure per chord event. 0 = one figure for the " +
+                    "whole render (per-loop variety via the seed). Intermediates " +
+                    "= chance of change per chord."),
+                e.randomRerollChance, 0f, 1f);
+
+            EditorGUILayout.LabelField(
+                new GUIContent("Figure Weights",
+                    "Empty = uniform over the six Tier-1 figures (Block included). " +
+                    "Entries define the pool; weight <= 0 excludes; duplicates sum."),
+                EditorStyles.miniLabel);
+
+            e.randomFigureWeights ??= new List<ChordExpressionWeight>();
+
+            int removeAt = -1;
+            for (int i = 0; i < e.randomFigureWeights.Count; i++)
+            {
+                var w = e.randomFigureWeights[i];
+                EditorGUILayout.BeginHorizontal();
+                w.figure = (ChordExpressionType)EditorGUILayout.EnumPopup(w.figure);
+                w.weight = EditorGUILayout.FloatField(w.weight, GUILayout.Width(60));
+                if (GUILayout.Button("−", GUILayout.Width(22)))
+                    removeAt = i;
+                EditorGUILayout.EndHorizontal();
+                e.randomFigureWeights[i] = w;
+
+                if (w.figure == ChordExpressionType.Random)
+                    EditorGUILayout.HelpBox(
+                        "A 'Random' entry is ignored by the roll pool.",
+                        MessageType.Info);
+            }
+            if (removeAt >= 0) e.randomFigureWeights.RemoveAt(removeAt);
+
+            if (GUILayout.Button("+ Add weighted figure"))
+                e.randomFigureWeights.Add(new ChordExpressionWeight
+                {
+                    figure = ChordExpressionType.Block,
+                    weight = 1f,
+                });
+
+            if (e.randomFigureWeights.Count == 0)
+                EditorGUILayout.LabelField(
+                    "(empty → uniform pool of all six Tier-1 figures)",
+                    EditorStyles.miniLabel);
+
+            EditorGUI.indentLevel--;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-ARTIC-1 (D6): the Random roll is wired on the Backing
+        /// composer only. A Bassline card selecting Random degrades to Block in
+        /// the articulator (never silent, but easy to mistake for a bug here).
+        /// Covers BOTH the in-memory fallback and an authored bassline asset.
+        /// </summary>
+        private static string RandomOnBasslineWarning(SmokeEntry e)
+        {
+            if (e.spec.role != TrackRole.Bassline) return null;
+
+            bool wantsRandom =
+                (e.spec.style == null && e.chordExpression == ChordExpressionType.Random) ||
+                (e.spec.style is BasslineCardConfigSO b &&
+                 b.chordExpression == ChordExpressionType.Random);
+
+            return wantsRandom
+                ? "Random articulation is not wired on the bass composer in v1 " +
+                  "(MGP-ALWTTT-ARTIC-1, D6): this row will render as Block. Use " +
+                  "the Backing row to exercise the roll."
+                : null;
         }
 
         // ---------- Validation (button gating; assembler re-validates) ----------
@@ -310,6 +405,78 @@ namespace MidiGenPlay.EditorTools
 
         // ---------- Render ----------
 
+        // D-SMOKE-RT-5=A. The shared setup asset + explicit round-trip. The
+        // window still authors inline (its proven GUI/render path is
+        // untouched); Save writes the whole inline state into the SO verbatim
+        // so the runtime runner replays byte-identical inputs. Workflow:
+        // author here -> Save to SO -> assign that SO to the runner -> render
+        // both -> compare. Re-Save after any inline edit before a parity run.
+        private void DrawSharedSetup()
+        {
+            EditorGUILayout.LabelField("Shared setup (parity source, RT-5=A)",
+                EditorStyles.boldLabel);
+            setup = (SmokeSetupSO)EditorGUILayout.ObjectField(
+                "Setup asset", setup, typeof(SmokeSetupSO), false);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(setup == null))
+                {
+                    if (GUILayout.Button("Save to SO"))
+                        SaveToSetup();
+                    if (GUILayout.Button("Load from SO"))
+                        LoadFromSetup();
+                }
+            }
+            EditorGUILayout.HelpBox(
+                "Assign the SAME asset to the runtime CompositionSmokeRunner. " +
+                "Save captures the inline state below into it; the runner " +
+                "replays identical inputs. Re-Save after editing before a " +
+                "parity run.", MessageType.None);
+            EditorGUILayout.Space(4);
+        }
+
+        private void SaveToSetup()
+        {
+            if (setup == null) return;
+            setup.config = config;
+            setup.partContext = CloneContext(partContext);
+            setup.entries = (entries ?? new List<SmokeEntry>())
+                .Where(e => e != null).Select(e => e.Clone()).ToList();
+            setup.overrideSeed = overrideSeed;
+            setup.seed = seed;
+            setup.stripMetronome = stripMetronome;
+            EditorUtility.SetDirty(setup);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[CompositionSmokeWindow] Saved {setup.entries.Count} " +
+                      $"track(s) to '{setup.name}'.");
+        }
+
+        private void LoadFromSetup()
+        {
+            if (setup == null) return;
+            config = setup.config;
+            partContext = CloneContext(setup.partContext);
+            entries = (setup.entries ?? new List<SmokeEntry>())
+                .Where(e => e != null).Select(e => e.Clone()).ToList();
+            overrideSeed = setup.overrideSeed;
+            seed = setup.seed;
+            stripMetronome = setup.stripMetronome;
+        }
+
+        private static SmokePartContext CloneContext(SmokePartContext c)
+        {
+            c ??= new SmokePartContext();
+            return new SmokePartContext
+            {
+                partName = c.partName,
+                tonality = c.tonality,
+                rootNote = c.rootNote,
+                timeSignature = c.timeSignature,
+                measures = c.measures,
+                bpm = c.bpm,
+            };
+        }
+
         private void RenderAndSave()
         {
             // 1) Editor-side spec build: inject the in-memory articulation SO
@@ -358,8 +525,15 @@ namespace MidiGenPlay.EditorTools
                 return;
             }
 
+            // Fingerprint BEFORE strip, matching the runner, so two logs line
+            // up chunk-for-chunk when diffing a parity failure.
+            SmokeRenderUtil.LogRenderFingerprint(
+                "window",
+                overrideSeed ? seed : (config != null ? config.defaultSeed : 0),
+                partContext, file);
+
             if (stripMetronome)
-                StripMetronomeChunks(file);
+                SmokeRenderUtil.StripMetronomeChunks(file); // lifted, D-SMOKE-RT-3=A
 
             int noteCount = 0;
             foreach (var _ in file.GetNotes()) noteCount++;
@@ -384,69 +558,16 @@ namespace MidiGenPlay.EditorTools
         }
 
         /// <summary>
-        /// Returns the spec to hand to the assembler. When the D-SMOKE-MT-1=B
-        /// fallback applies (no style asset, Backing/Bassline role), a fresh
-        /// in-memory card SO carrying the entry's articulation is injected —
-        /// persistent card-level surface (D-EXP1=A), never saved as an asset,
-        /// lives only for this render. Matches the previous single-track
-        /// window's behavior (which always injected for these roles).
+        /// Returns the spec to hand to the assembler. The D-SMOKE-MT-1=B
+        /// no-asset articulation fallback now lives in the shared runtime
+        /// helper SmokeRenderUtil.BuildEffectiveSpec (D-SMOKE-RT-2=B) so the
+        /// runtime CompositionSmokeRunner mirrors this window exactly.
         /// </summary>
-        private static SmokeTrackSpec BuildEffectiveSpec(SmokeEntry e)
-        {
-            var s = e.spec;
-            if (s.style != null ||
-                (s.role != TrackRole.Backing && s.role != TrackRole.Bassline))
-                return s;
+        private static SmokeTrackSpec BuildEffectiveSpec(SmokeEntry e) =>
+            SmokeRenderUtil.BuildEffectiveSpec(
+                e.spec, e.chordExpression, e.arpeggioRate,
+                e.randomRerollChance, e.randomFigureWeights);
 
-            TrackStyleBundleSO inMem;
-            if (s.role == TrackRole.Bassline)
-            {
-                var b = ScriptableObject.CreateInstance<BasslineCardConfigSO>();
-                b.chordExpression = e.chordExpression;
-                b.arpeggioRate = e.arpeggioRate;
-                inMem = b;
-            }
-            else
-            {
-                var b = ScriptableObject.CreateInstance<BackingCardConfigSO>();
-                b.chordExpression = e.chordExpression;
-                b.arpeggioRate = e.arpeggioRate;
-                inMem = b;
-            }
-            inMem.hideFlags = HideFlags.HideAndDontSave;
-
-            // Do not mutate the serialized entry — copy the spec with the
-            // in-memory style attached.
-            return new SmokeTrackSpec
-            {
-                role = s.role,
-                instrument = s.instrument,
-                percussionInstrument = s.percussionInstrument,
-                pattern = s.pattern,
-                style = inMem,
-            };
-        }
-
-        /// <summary>
-        /// D-SMOKE-MT-5=A. Removes chunks that contain at least one NoteOn and
-        /// whose NoteOns ALL sit on the metronome channel. Filtering by note
-        /// events (not any ChannelEvent) deliberately spares the conductor/meta
-        /// chunk, which carries an AllSoundOff ControlChange on the metronome
-        /// channel but no notes.
-        /// </summary>
-        private static void StripMetronomeChunks(Melanchall.DryWetMidi.Core.MidiFile file)
-        {
-            var toRemove = new List<TrackChunk>();
-            foreach (var chunk in file.GetTrackChunks())
-            {
-                var noteOns = chunk.Events.OfType<NoteOnEvent>().ToList();
-                if (noteOns.Count > 0 &&
-                    noteOns.All(n => n.Channel == MidiGenerator.MetronomeChannel))
-                    toRemove.Add(chunk);
-            }
-            foreach (var c in toRemove)
-                file.Chunks.Remove(c);
-        }
     }
 }
 #endif

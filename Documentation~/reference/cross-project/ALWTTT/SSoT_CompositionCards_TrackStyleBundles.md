@@ -178,7 +178,7 @@ The exact **composer precedence rules** and rendering internals live in the per-
 |---|---|---|---|
 | **Backing** | harmonic support: chords / comping | `BackingCardConfigSO`, `ChordProgressionData` / `ChordProgressionPaletteSO`, `VoiceLeadingConfig` | `ChordTrackComposer` → see `SSoT_Composer_BackingChordTrack_v2.md` |
 | **Rhythm** | drum kit groove / hits | `RhythmCardConfigSO`, `DrumPatternData` (+ optional `RhythmRecipe`) | `RhythmTrackComposer` (composer SSoT pending) |
-| **Bassline** | bass pattern supporting harmony | (TBD) (likely pattern + strategy bundle) | `BassTrackComposerFactory` (composer SSoT pending) |
+| **Bassline** | articulated monophonic root / chord-tone line supporting harmony | `BasslineCardConfigSO` (`chordExpression`, `arpeggioRate`) | `BassTrackComposer` → see `runtime/SSoT_Composer_Bass_Track.md` |
 | **Melody / Lead** | melodic line / lead instrument | (TBD) pattern + melodic strategy/leading | `MelodyTrackComposerFactory` (composer SSoT pending) |
 | **Harmony** | additional melodic support (counterlines / pads / chord tones) | (TBD) pattern + harmonic strategy/leading | `HarmonyTrackComposerFactory` (composer SSoT pending) |
 
@@ -193,7 +193,8 @@ The exact **composer precedence rules** and rendering internals live in the per-
 - Concrete bundles derive from this:
   - `BackingCardConfigSO`
   - `RhythmCardConfigSO`
-  - (future) `BasslineCardConfigSO`, `MelodyCardConfigSO`, `HarmonyCardConfigSO`
+  - `BasslineCardConfigSO`
+  - (future) `MelodyCardConfigSO`, `HarmonyCardConfigSO`
 
 ---
 
@@ -203,12 +204,24 @@ The exact **composer precedence rules** and rendering internals live in the per-
 - `voiceLeadingOverride : VoiceLeadingConfig` *(optional)*
 - `progressionOverride : ChordProgressionData` *(optional)*
 - `progressionPalette : ChordProgressionPaletteSO` *(optional)*
+- `chordExpression : ChordExpressionType` *(default `Block`)*
+- `arpeggioRate : ArpeggioRate` *(default `Eighth`; arpeggio figures only)*
+- `chordExpression` may also be `Random` (MGP-ALWTTT-ARTIC-1): per-chord
+  deterministic roll, see Backing composer SSoT §8.5.
+- `randomRerollChance : float 0..1` *(default 1; only when Random)*
+- `randomFigureWeights : List<ChordExpressionWeight>` *(default empty =
+  uniform six-figure pool; only when Random)*
 
 **Meaning**
 - If `progressionOverride` is set, it is the strongest authored harmonic override and wins before palette/library/procedural resolution.
 - If `progressionOverride` is null and `progressionPalette` is set, the Backing composer should resolve a progression from the palette using the TS-aware picker defined in the Backing composer SSoT.
 - If neither override is provided, the generator may fall back to cached/library/procedural progression selection.
 - Any resolved progression must be cloned for runtime use; project assets must never be mutated in place.
+- `chordExpression` selects the Tier-1 rhythmic articulation applied over the
+  voiced chords for the whole render (CA-T1). `Block` (default) is
+  bit-identical legacy output. This is a persistent card-level selection, not
+  a transient composer hint. Semantics live in the Backing composer SSoT §8;
+  this doc only records the authoring surface.
 
 **Selection semantics (authoring-facing)**
 - `progressionOverride` = direct single authored progression.
@@ -268,7 +281,30 @@ Additional hooks currently present on the bundle (but not yet wired into generat
 
 ---
 
-### 4.5 Placeholders (Bassline / Melody / Harmony)
+### 4.5 Bassline bundle (implemented — CA-F2)
+
+**`BasslineCardConfigSO : TrackStyleBundleSO`**
+- `chordExpression : ChordExpressionType` *(default `Block`)*
+- `arpeggioRate : ArpeggioRate` *(default `Eighth`; arpeggio figures only)*
+
+**Meaning**
+- `chordExpression` selects the Tier-1 rhythmic articulation applied over the
+  monophonic bass line for the whole render (CA-F2). `Block` (default) is
+  bit-identical legacy output. Persistent card-level selection (D-EXP1=A),
+  fully independent of the backing card (SD-F2-5=A): a bass track with no
+  bassline bundle always renders `Block`.
+- On a monophonic line, `ArpeggioUp`/`ArpeggioDown` are a repeated-note pulse
+  at `arpeggioRate`.
+- Semantics live in `runtime/SSoT_Composer_Bass_Track.md` (consumer) and
+  `runtime/SSoT_Composer_Backing_Track.md` §8 (engine); this doc only records
+  the authoring surface.
+
+**Where it is consumed**
+- `BassTrackComposer` — resolved from the track's `Parameters.Style` slot.
+
+---
+
+### 4.6 Placeholders (Melody / Harmony)
 
 These roles exist in card taxonomy but their authoring surface is still evolving.
 When they become “real”, they should follow the same structure:

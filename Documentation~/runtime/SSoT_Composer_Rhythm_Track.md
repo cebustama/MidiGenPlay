@@ -51,6 +51,10 @@ The code-backed inputs of documentary importance are:
 
 The current practical resolution visible in code is:
 
+0. `GenContext.patternOverride` as `DrumPatternData` (per-render override, Ask C
+   / D-DBG4=A) — **precedence step 0**, wins over every step below; clone-on-
+   apply; a non-`DrumPatternData` override is warn + ignore (fall through to
+   step 1).
 1. `RhythmCardConfigSO.patternOverride`
 2. `RhythmCardConfigSO.patternPalette` (weighted, seeded, **TS-aware** pick — clone-on-pick)
 3. `TrackParameters.Pattern` as `DrumPatternData`
@@ -58,6 +62,11 @@ The current practical resolution visible in code is:
 5. `TrackParameters.RhythmRecipe`
 6. `RhythmCardConfigSO.styleIdOverride` when procedural style selection is needed
 7. fallback procedural style selection through `RhythmStyleRegistry`
+
+Step 0 is resolved from `ctx.patternOverride` at the top of `Compose`, before the
+card pick. The chosen pattern's source (override / card-override / card-palette /
+TrackParameters / procedural style id) is reported via `ctx.ReportResolved`
+(Ask A, MGP-ALWTTT-DBG-1); source asset names are captured pre-clone.
 
 Steps 1–2 are resolved inside the TS-aware
 `RhythmCardConfigSO.PickPatternOverride(rng, timeSignature, settings, verbose)`, which
@@ -129,6 +138,19 @@ This shares one selector with the backing composer's
 `BackingCardConfigSO.PickProgressionOverride` seam. Both palettes'
 `preferExact*TimeSignatureMatches` toggles are consumed in that single selector, so the
 PCE-era TS-toggle asymmetry no longer exists.
+
+**Runtime drum-palette enumeration (Ask B, MGP-ALWTTT-DBG-2).**
+`DrumPatternPaletteSO` assets are enumerable at runtime with
+`new TrackPatternConfigStoreResources<DrumPatternPaletteSO>("Drums")` →
+`Refresh()` / `GetAll()`; canonical folder
+`Resources/ScriptableObjects/Patterns/Drums/Palettes` (already where the
+shipped palette lives — no migration needed). The three pattern domains
+themselves remain enumerable through `IPatternRepository` /
+`PatternRepositoryResources` (`GetAllDrumPatterns` / `GetDrumPatterns(ts)`
+etc.; package roots + `MidiGenPlayConfig` local roots) — the repository is the
+pattern read path; the store is the palette read path (the repository is never
+a palette surface). Display metadata per pattern: name / `DisplayName`,
+`TimeSignature`, `Measures`, `subdivisions`.
 
 ## 4. Determinism contract
 
@@ -223,3 +245,5 @@ Update this SSoT when:
 - `RhythmCardConfigSO` runtime meaning changes
 - phrasing/feel fields become semantically closed in runtime
 - the future rhythm editor changes authored data contracts consumed by runtime
+- the per-render override precedence (step 0) or the resolution readback changes
+  (MGP-ALWTTT-DBG-1+3).

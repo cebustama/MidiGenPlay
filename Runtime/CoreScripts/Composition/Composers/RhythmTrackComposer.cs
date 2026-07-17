@@ -54,8 +54,77 @@ namespace MidiGenPlay.Composition
                 pickRng = new System.Random(_settings != null ? _settings.defaultSeed : 0);
             }
 
-            var data = cardCfg?.PickPatternOverride(pickRng, part.TimeSignature, _settings, LogEnabled)
-                ?? cfg.Parameters?.Pattern as DrumPatternData;
+            // MGP-ALWTTT-DBG-3 (Ask C, D-DBG4=A) — precedence STEP 0: a
+            // per-render override installed on the context wins over the card
+            // pick and TrackParameters.Pattern. Clone-on-apply (normalization
+            // below mutates `data`); type mismatch = warn + ignore (fall
+            // through to the normal chain). When absent, the flow below is
+            // draw-for-draw identical to pre-batch (BC gate).
+            DrumPatternData overrideData = null;
+            var renderOverride = ctx?.patternOverride;
+            if (renderOverride != null)
+            {
+                overrideData = renderOverride as DrumPatternData;
+                if (overrideData == null)
+                {
+                    Debug.LogWarning(
+                        $"{LogTag} patternOverride type mismatch for role Rhythm: " +
+                        $"expected DrumPatternData, got {renderOverride.GetType().Name} " +
+                        $"('{renderOverride.name}'). Ignoring override.");
+                }
+                else
+                {
+                    overrideData = ScriptableObject.Instantiate(overrideData); // clone-on-apply
+                }
+            }
+
+            // MGP-ALWTTT-DBG-1 (Ask A): resolution with source tracking.
+            DrumPatternData data;
+            var resolvedSource = ResolvedSource.None;
+            string resolvedName = null;
+            string resolvedPalette = null;
+
+            if (overrideData != null)
+            {
+                data = overrideData;
+                resolvedSource = ResolvedSource.RenderOverride;
+                resolvedName = renderOverride.name; // pre-clone caller asset (D-DBG3)
+            }
+            else
+            {
+                var pickInfo = default(PatternPickInfo);
+                data = cardCfg != null
+                    ? cardCfg.PickPatternOverride(
+                        pickRng, part.TimeSignature, _settings, out pickInfo, LogEnabled)
+                    : null;
+
+                if (data != null)
+                {
+                    resolvedSource = pickInfo.fromPalette
+                        ? ResolvedSource.CardPalette : ResolvedSource.CardOverride;
+                    resolvedName = pickInfo.sourceAssetName;
+                    resolvedPalette = pickInfo.paletteName;
+                }
+                else if (cfg.Parameters?.Pattern is DrumPatternData trackPattern)
+                {
+                    data = trackPattern;
+                    resolvedSource = ResolvedSource.TrackParameters;
+                    resolvedName = trackPattern.name;
+                }
+            }
+
+            // Ask A report helper — at most one invoke per Compose, on every
+            // return path below. No-op when no sink is installed.
+            void ReportChoice(ResolvedSource src, string styleId = null)
+            {
+                ctx?.ReportResolved?.Invoke(new ResolvedTrackChoice
+                {
+                    source = src,
+                    sourceAssetName = resolvedName,
+                    paletteName = resolvedPalette,
+                    proceduralStyleId = styleId,
+                });
+            }
 
             var recipe = cardCfg?.recipeOverride ?? cfg.Parameters?.RhythmRecipe;
 
@@ -105,6 +174,9 @@ namespace MidiGenPlay.Composition
                     chosenPath: "Procedural(no pattern)",
                     chosenStyleId: style != null ? style.Id : null);
 
+                // Ask A: procedural resolution — identity is the style id.
+                ReportChoice(ResolvedSource.Procedural, style != null ? style.Id : null);
+
                 MidiFile pFile = (style != null)
                     ? style.Compose(kit, bpm, part.Measures, channel, recipe)
                     : ComposeProcedural(kit, bpm, part.TimeSignature, part.Measures, channel);
@@ -142,6 +214,11 @@ namespace MidiGenPlay.Composition
                     chosenPath: "Missing(pattern or kit)");
 
                 Debug.LogWarning("[RhythmTrackComposer] Missing pattern or percussion instrument.");
+                // Ask A: nothing rendered — report None so the caller sees the
+                // track resolved nothing this render.
+                resolvedName = null;
+                resolvedPalette = null;
+                ReportChoice(ResolvedSource.None);
                 return new MidiFile();
             }
 
@@ -168,6 +245,9 @@ namespace MidiGenPlay.Composition
                 bpm: bpm,
                 channel: channel,
                 chosenPath: hasGrid ? "Pattern(Grid)" : "Pattern(Legacy)");
+
+            // Ask A: pattern path — source/name/palette captured at resolution.
+            ReportChoice(resolvedSource);
 
             var file = hasGrid
                 ? ComposeFromGrid(kit, data, bpm, part.TimeSignature, part.Measures, channel)

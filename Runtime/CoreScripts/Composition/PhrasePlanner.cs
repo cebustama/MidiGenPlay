@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+﻿using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition.Phrases;
 using System;
 using System.Collections.Generic;
@@ -93,10 +93,45 @@ namespace MidiGenPlay.Composition
         /// The planner holds onto MelodicLeadingConfig (personality knobs)
         /// and rolling PhraseMemory so it can do things like call/response contour.
         /// </summary>
+        /// <summary>
+        /// MGP-ALWTTT-DBG-1 (Ask A): name of the phrase-archetype asset chosen
+        /// by the most recent <see cref="PlanPhraseSlotsForSpan"/> call, or
+        /// null (no usable palette / every entry's archetype reference null).
+        /// Observability only — reading or setting it never affects the draws.
+        /// </summary>
+        public string LastPlannedArchetypeName { get; private set; }
+
         public PhrasePlanner(MelodicLeadingConfig cfg, PhraseMemory initialMemory)
         {
             _cfg = cfg;
             _memory = initialMemory;
+        }
+
+        /// <summary>
+        /// MEL-NULL-1 � the single source of truth for "can the procedural melody
+        /// pipeline actually run with this leading config?".
+        ///
+        /// A palette is USABLE only when the leading config exists, carries a
+        /// PhrasePaletteSO, and that palette has at least one archetype entry.
+        /// Anything less and <see cref="PlanPhraseSlotsForSpan"/> cannot plan a
+        /// single slot.
+        ///
+        /// MelodyTrackComposer calls this as an up-front precondition so it can fail
+        /// once (empty melody track + one error) instead of once per chord span, and
+        /// the planner's own bail below uses it too � so the two checks can never
+        /// drift apart.
+        ///
+        /// Uses UnityEngine.Object's == overload deliberately (NOT `is null`), so
+        /// destroyed assets are reported as missing.
+        /// </summary>
+        public static bool HasUsablePalette(MelodicLeadingConfig cfg)
+        {
+            if (cfg == null) return false;
+
+            var palette = cfg.phrasePalette;
+            return palette != null
+                && palette.archetypes != null
+                && palette.archetypes.Count > 0;
         }
 
         /// <summary>
@@ -112,6 +147,13 @@ namespace MidiGenPlay.Composition
         /// 3. build slots accordingly (rests, bursts, sustain, accents, etc),
         /// 4. finalize/annotate, update memory,
         /// 5. return the slot list to the MelodyTrackComposer.
+        ///
+        /// RETURN CONTRACT (MEL-NULL-1): NEVER returns null. When no usable phrase
+        /// palette is present it returns an EMPTY list. Callers must read "no slots"
+        /// as "no notes for this span", never as an error state to dereference.
+        /// (It previously returned null here, and MelodyTrackComposer's slot loop
+        /// dereferenced it � an NRE that aborted the ENTIRE song render, taking
+        /// rhythm, backing and bass down with the melody.)
         /// </summary>
         public List<PhraseSlot> PlanPhraseSlotsForSpan(
             double chordStartBeat,
@@ -121,71 +163,92 @@ namespace MidiGenPlay.Composition
             System.Random rng,
             TonalityProfileSO profile)
         {
-            // 1) Try palette-driven path (if a palette is present in config)
-            var palette = _cfg.phrasePalette;
-            if (palette != null 
-                && palette.archetypes != null 
-                && palette.archetypes.Count > 0)
+            // MGP-ALWTTT-DBG-1 (Ask A): reset per span so a bail below never
+            // leaks the previous span's archetype into the readback.
+            LastPlannedArchetypeName = null;
+
+            // 1) Palette-driven path (the only path). MelodyTrackComposer already
+            //    enforces this precondition up front, so reaching the bail below means
+            //    some OTHER caller skipped the check � hence it stays a LogError.
+            if (!HasUsablePalette(_cfg))
             {
-                int contourDirArch = PickContourDirection(rng, palette.defaultContourBias);
-                var picked = WeightedPick(palette.archetypes, rng);
+                Debug.LogError(
+                    "[PhrasePlanner] No usable phrase palette on leading config " +
+                    $"'{(_cfg == null ? "null" : _cfg.name)}' � a PhrasePaletteSO with at " +
+                    "least one archetype is required to plan phrase slots. Returning an " +
+                    "EMPTY slot list (no notes for this span); the render continues. " +
+                    "Callers should gate on PhrasePlanner.HasUsablePalette(cfg).");
 
-                List<PhraseSlot> slotsArch;
-                if (picked != null)
-                {
-                    // call the ScriptableObject archetype (data-driven)
-                    slotsArch = picked.Build(
-                        chordStartBeat,
-                        chordBeats,
-                        beatsPerBar,
-                        chordIndex,
-                        contourDirArch,
-                        rng,
-                        profile,
-                        _cfg
-                    );
-                }
-                else
-                {
-                    // extremely defensive fallback if palette was empty at runtime
-                    slotsArch = new List<PhraseSlot>(0);
-                }
+                return new List<PhraseSlot>(0);
+            }
 
-                FinalizePhraseSlots(slotsArch, contourDirArch);
-                _memory.lastPhraseId = chordIndex;
-                _memory.lastContourDir = contourDirArch;
+            var palette = _cfg.phrasePalette;
 
-                if (useLogs)
-                {
-                    var archName = picked != null ? picked.name : "Palette(null)";
-                    var header =    $"<color=yellow>" +
-                                    $"[PhrasePlanner] arch={archName} chordIdx={chordIndex} " +
-                                    $"start={chordStartBeat:0.00} " +
-                                    $"beats={chordBeats:0.00} slots={slotsArch.Count}" +
-                                    $"</color>";
-                    Debug.Log(header);
-                    for (int i = 0; i < slotsArch.Count; i++)
-                    {
-                        var s = slotsArch[i];
-                        string dirTxt = s.desiredContourDir > 0 ? "+1" :
-                                        s.desiredContourDir < 0 ? "-1" : "0";
-                        Debug.Log(
-                            $"   [{i}] t={s.whenBeat:0.00} dur={s.durBeats:0.00} " +
-                            $"play={(s.playNote ? 1 : 0)} acc={(s.isAccent ? 1 : 0)} " +
-                            $"end={(s.isPhraseEnd ? 1 : 0)} dir={dirTxt} " +
-                            $"phraseId={s.phraseId} " +
-                            $"idx={s.slotIndexInPhrase}/{s.totalSlotsInPhrase}"
-                        );
-                    }
-                }
+            int contourDirArch = PickContourDirection(rng, palette.defaultContourBias);
+            var picked = WeightedPick(palette.archetypes, rng);
 
-                return slotsArch;
+            // MGP-ALWTTT-DBG-1 (Ask A): observability only — the archetype
+            // chosen for THIS span (null when every palette entry's archetype
+            // reference is null). Read by MelodyTrackComposer's readback
+            // accumulator right after this call; never affects the draws.
+            LastPlannedArchetypeName = picked != null ? picked.name : null;
+
+            List<PhraseSlot> slotsArch;
+            if (picked != null)
+            {
+                // call the ScriptableObject archetype (data-driven)
+                slotsArch = picked.Build(
+                    chordStartBeat,
+                    chordBeats,
+                    beatsPerBar,
+                    chordIndex,
+                    contourDirArch,
+                    rng,
+                    profile,
+                    _cfg
+                );
             }
             else
             {
-                Debug.LogError("No palette.");
-                return null;
+                // extremely defensive fallback: the palette has entries, but every
+                // one of them has a null archetype reference.
+                slotsArch = new List<PhraseSlot>(0);
             }
+
+            // Never hand a null list back to the composer, whatever an archetype's
+            // Build() decided to return (MEL-NULL-1).
+            if (slotsArch == null)
+                slotsArch = new List<PhraseSlot>(0);
+
+            FinalizePhraseSlots(slotsArch, contourDirArch);
+            _memory.lastPhraseId = chordIndex;
+            _memory.lastContourDir = contourDirArch;
+
+            if (useLogs)
+            {
+                var archName = picked != null ? picked.name : "Palette(null)";
+                var header = $"<color=yellow>" +
+                                $"[PhrasePlanner] arch={archName} chordIdx={chordIndex} " +
+                                $"start={chordStartBeat:0.00} " +
+                                $"beats={chordBeats:0.00} slots={slotsArch.Count}" +
+                                $"</color>";
+                Debug.Log(header);
+                for (int i = 0; i < slotsArch.Count; i++)
+                {
+                    var s = slotsArch[i];
+                    string dirTxt = s.desiredContourDir > 0 ? "+1" :
+                                    s.desiredContourDir < 0 ? "-1" : "0";
+                    Debug.Log(
+                        $"   [{i}] t={s.whenBeat:0.00} dur={s.durBeats:0.00} " +
+                        $"play={(s.playNote ? 1 : 0)} acc={(s.isAccent ? 1 : 0)} " +
+                        $"end={(s.isPhraseEnd ? 1 : 0)} dir={dirTxt} " +
+                        $"phraseId={s.phraseId} " +
+                        $"idx={s.slotIndexInPhrase}/{s.totalSlotsInPhrase}"
+                    );
+                }
+            }
+
+            return slotsArch;
         }
 
         /// <summary>
@@ -240,8 +303,8 @@ namespace MidiGenPlay.Composition
             if (list == null || list.Count == 0) return null;
 
             float sum = 0f;
-            foreach (var e in list) 
-                if (e?.archetype != null) 
+            foreach (var e in list)
+                if (e?.archetype != null)
                     sum += Mathf.Max(0f, e.weight);
 
             if (sum <= 0f)

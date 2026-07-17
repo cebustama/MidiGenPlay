@@ -29,6 +29,7 @@
 |   |   +---active
 |   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
+|   |   |   +---Roadmap_Chord_Articulation.md
 |   |   |   +---Roadmap_Chord_Expressivity.md
 |   |   |   +---Roadmap_Composition_Expressivity.md
 |   |   |   +---Roadmap_Documentation_Migration.md
@@ -60,6 +61,7 @@
 |   +---runtime
 |   |   +---README.md
 |   |   +---SSoT_Composer_Backing_Track.md
+|   |   +---SSoT_Composer_Bass_Track.md
 |   |   +---SSoT_Composer_Melody_Track.md
 |   |   +---SSoT_Composer_Rhythm_Track.md
 |   |   +---SSoT_Runtime_Generation_Orchestration.md
@@ -83,6 +85,7 @@
 |   +---ChordProgressionLLMGenerator.cs
 |   +---ChordProgressionLLMPromptBuilder.cs
 |   +---ChordProgressionLLMResponseHandler.cs
+|   +---CompositionSmokeWindow.cs
 |   +---DrumPatternCatalogueWizard.cs
 |   +---DrumPatternEditorImporter.cs
 |   +---DrumPatternEditorWindow.cs
@@ -108,6 +111,10 @@
 |   |   |   +---PatchDropdownAttribute.cs
 |   |   |   \---SoundFontDropdownAttribute.cs
 |   |   +---Composition
+|   |   |   +---Articulation
+|   |   |   |   +---ChordArticulator.cs
+|   |   |   |   +---ChordReshaper.cs
+|   |   |   |   \---RandomArticulationRoller.cs
 |   |   |   +---Composers
 |   |   |   |   +---BassTrackComposer.cs
 |   |   |   |   +---ChordTrackComposer.cs
@@ -123,6 +130,8 @@
 |   |   |   |   |   +---PhrasePaletteSO.cs
 |   |   |   |   |   \---SustainLeadInPhraseSO.cs
 |   |   |   |   +---BackingCardConfigSO.cs
+|   |   |   |   +---BasslineCardConfigSO.cs
+|   |   |   |   +---ChordExpressionType.cs
 |   |   |   |   +---ChordGenreVocabularySO.cs
 |   |   |   |   +---ChordProgressionLibrarySO.cs
 |   |   |   |   +---ChordProgressionPaletteSO.cs
@@ -142,10 +151,19 @@
 |   |   |   +---Factories
 |   |   |   |   \---ComposerFactories.cs
 |   |   |   +---Interfaces
+|   |   |   |   +---IChordArticulator.cs
+|   |   |   |   +---IChordReshaper.cs
 |   |   |   |   +---IChordVoicer.cs
 |   |   |   |   +---IHarmonyStrategy.cs
 |   |   |   |   +---IMelodyStrategy.cs
 |   |   |   |   \---ITrackComposer.cs
+|   |   |   +---Smoke
+|   |   |   |   +---CompositionSmokeRunner.cs
+|   |   |   |   +---SmokeEntry.cs
+|   |   |   |   +---SmokeRenderUtil.cs
+|   |   |   |   +---SmokeSetupSO.cs
+|   |   |   |   +---SmokeSongConfigAssembler.cs
+|   |   |   |   \---SmokeTrackSpec.cs
 |   |   |   +---Strategies
 |   |   |   |   +---Melody
 |   |   |   |   |   +---AscendingClimbMelodyStrategy.cs
@@ -160,6 +178,7 @@
 |   |   |   |   +---RhythmStyleRegistry.cs
 |   |   |   |   \---RhythmStyles.cs
 |   |   |   +---ChordQualityResolver.cs
+|   |   |   +---CompositionReadback.cs
 |   |   |   +---MidiGenerator.cs
 |   |   |   +---PhrasePlanner.cs
 |   |   |   +---RhythmGridQuantizer.cs
@@ -446,6 +465,8 @@
 |   \---ALWTTT.sf2
 +---Tests
 |   \---Editor
+|       +---BassTrackComposer_ArticulationTests.cs
+|       +---ChordMarkerParityTests.cs
 |       +---ChordProgressionEditorImporterTests.cs
 |       +---ChordProgressionEditorWindow_V2Tests.cs
 |       +---ChordProgressionEditorWindowWiringTests.cs
@@ -454,8 +475,10 @@
 |       +---ChordProgressionLLMResponseHandler_V2Tests.cs
 |       +---ChordProgressionLLMResponseHandlerTests.cs
 |       +---ChordQualityResolver_V2Tests.cs
+|       +---ChordTrackComposer_ArticulationTests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
 |       +---ChordTrackComposer_InversionPinTests.cs
+|       +---ChordTrackComposer_RandomArticulationTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
 |       +---DrumPatternEditorImporterTests.cs
 |       +---DrumPatternLLMGeneratorTests.cs
@@ -469,7 +492,9 @@
 |       +---MidiGenPlay.Tests.Editor.asmdef
 |       +---MusicTheory_ChordQualityTests.cs
 |       +---PaletteSelectorTests.cs
+|       +---PatternOverrideAndReadbackTests.cs
 |       +---RomanProgressionParserTests.cs
+|       +---SongOrchestratorKeyingTests.cs
 |       \---SongOrchestratorSeedTests.cs
 +---make-tree-unity.bat
 +---package.json

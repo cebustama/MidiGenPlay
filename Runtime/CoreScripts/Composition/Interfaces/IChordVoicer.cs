@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+ï»¿using Melanchall.DryWetMidi.MusicTheory;
 using System.Collections.Generic;
 
 namespace MidiGenPlay.Composition
@@ -15,13 +15,22 @@ namespace MidiGenPlay.Composition
         /// (0 = root position, 1 = 1st inversion, ...); the voicer still owns
         /// register and spacing. null or an out-of-range value = unset: the
         /// candidate set and scoring are bit-identical to prior behavior.
-        /// See runtime/SSoT_Composer_Backing_Track.md §7.
+        /// See runtime/SSoT_Composer_Backing_Track.md ï¿½7.
+        /// </param>
+        /// <param name="rng">
+        /// VL-DET-1: optional deterministic RNG for the first chord's random
+        /// start-register modes (RandomAroundCenter / Uniform01AroundCenter).
+        /// When supplied, those modes draw from this seeded stream instead of
+        /// the global unseeded UnityEngine.Random, making them reproducible.
+        /// null preserves prior behavior bit-identically; non-random start
+        /// modes never touch it, so they are unaffected either way.
         /// </param>
         IReadOnlyList<Note> VoiceChord(
             NoteName[] pitchClasses,
             MIDIInstrumentSO instrument,
             IReadOnlyList<Note> lastVoicing,
             VoiceLeadingConfig cfg,
-            int? forcedInversion = null);
+            int? forcedInversion = null,
+            System.Random rng = null);
     }
 }

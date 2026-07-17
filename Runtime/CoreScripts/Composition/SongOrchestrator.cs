@@ -13,9 +13,20 @@ namespace MidiGenPlay.Composition
     public sealed class PartRender
     {
         public MidiFile merged;
-        public Dictionary<string, MidiFile> stemsByMusician = new();
-        public Dictionary<string, MIDIInstrumentSO> melInstByMusician = new();
-        public Dictionary<string, MIDIPercussionInstrumentSO> percInstByMusician = new();
+        // MGP-ALWTTT-DBG-1 (D-DBG1=A, BREAKING re-key): every per-track
+        // surface is keyed on (musicianId, TrackRole). A musicianId alone is
+        // not unique — the same musician can own several roles in one part
+        // (the BASS-1 case) — so string keys were dropping stems/instruments.
+        public Dictionary<MusicianTrackKey, MidiFile> stemsByMusician = new();
+        public Dictionary<MusicianTrackKey, MIDIInstrumentSO> melInstByMusician = new();
+        public Dictionary<MusicianTrackKey, MIDIPercussionInstrumentSO> percInstByMusician = new();
+        // MGP-ALWTTT-DBG-1 (Ask A): per-track readback — what each composer
+        // actually resolved this render (source, pre-clone asset name,
+        // palette, figures/archetypes/progression per role). Populated by the
+        // sink GenerateOne installs on ctx.ReportResolved; tracks whose
+        // composer does not report (Harmony in v1, ID-2=A) simply have no
+        // entry.
+        public Dictionary<MusicianTrackKey, ResolvedTrackChoice> resolvedByTrack = new();
         public long partTicks;
         public int bpm;
     }
@@ -29,8 +40,15 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<TrackRole> rolesForChannels,
             int partIndex,
             int? bpmOverride = null,
-            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null,
-            int? seedOverride = null);
+            // MGP-ALWTTT-DBG-1 (D-DBG1=A, BREAKING): re-keyed to (musicianId, role).
+            Dictionary<MusicianTrackKey, MIDIInstrumentSO> instrumentOverrides = null,
+            int? seedOverride = null,
+            // MGP-ALWTTT-DBG-3 (Ask C, D-DBG4=A): per-render pattern/progression
+            // override, precedence step 0 in each composer. Value is the common
+            // PatternDataSO base (DrumPatternData / ChordProgressionData /
+            // MelodyPatternData); composers clone-on-apply and warn+ignore on
+            // type mismatch. Bassline entries are warn+ignore in v1.
+            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null);
     }
 
     /// Coordinates parts/repetitions, meta events, metronome, composer calls, trimming, shifting, and merging.
@@ -74,7 +92,13 @@ namespace MidiGenPlay.Composition
                 var part = song.Parts[entry.PartIndex];
                 if (part?.Tracks == null || part.Tracks.Count == 0) continue;
 
-                int bpm = GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+                // BPM-DET-1 (D-BPM1=A / D-BPM3=B): honor an explicit part BPM,
+                // else roll the tempo on a dedicated seeded substream (D-BPM2=A)
+                // instead of the unseeded MusicTheory helper — so a full-song
+                // render is reproducible under the same seed. Per part-occurrence.
+                int bpm = part.ExplicitBpm
+                    ?? RollTempoBpm(ResolveTempoSeed(baseSeed, entry.PartIndex),
+                                    part.TempoRange, TempoRule.MultiplesOfTen);
                 var partTempo = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
 
                 // Channel allocation for this part
@@ -112,8 +136,8 @@ namespace MidiGenPlay.Composition
 
                     var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
                     var producedByRole = new Dictionary<TrackRole, MidiFile>();
-                    var melodyByPartAndMusician = 
-                        new Dictionary<SongConfig.PartConfig, 
+                    var melodyByPartAndMusician =
+                        new Dictionary<SongConfig.PartConfig,
                         Dictionary<string, List<MidiGenerator.GuideNote>>>();
 
                     // --- GENERATION CONTEXT ---
@@ -129,7 +153,7 @@ namespace MidiGenPlay.Composition
                         ExtractMonophonicNotes = (mf) => mf?.GetNotes()?.OrderBy(n => n.Time).ToList()
                                                   ?? new List<Melanchall.DryWetMidi.Interaction.Note>(),
                         FindChordEventAt = (prog, tempoMap, ts, absTicks) => prog?.FindChordEventAt(tempoMap, ts, absTicks),
-                        
+
                         // Progression cache
                         GetProgressionForPart = (p) =>
                         {
@@ -169,7 +193,7 @@ namespace MidiGenPlay.Composition
 
                             if (!melodyByPartAndMusician.TryGetValue(p, out var dictForPart))
                             {
-                                dictForPart = 
+                                dictForPart =
                                     new Dictionary<string, List<MidiGenerator.GuideNote>>();
                                 melodyByPartAndMusician[p] = dictForPart;
                             }
@@ -220,7 +244,8 @@ namespace MidiGenPlay.Composition
                         var trackRng = new System.Random(trackSeed);
 
                         GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
-                            partTicks, cursorTicks, ctx, producedByRole, trackRng);
+                            partTicks, cursorTicks, ctx, producedByRole, trackRng,
+                            trackSeed);
 
                     }
 
@@ -236,7 +261,8 @@ namespace MidiGenPlay.Composition
                         var trackRng = new System.Random(trackSeed);
 
                         GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
-                            partTicks, cursorTicks, ctx, producedByRole, trackRng);
+                            partTicks, cursorTicks, ctx, producedByRole, trackRng,
+                            trackSeed);
                     }
 
                     // Boundary event at exact end (safety)
@@ -260,8 +286,9 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<TrackRole> rolesForChannels,
             int partIndex,
             int? bpmOverride = null,
-            Dictionary<string, MIDIInstrumentSO> instrumentOverrides = null,
-            int? seedOverride = null)
+            Dictionary<MusicianTrackKey, MIDIInstrumentSO> instrumentOverrides = null,
+            int? seedOverride = null,
+            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null)
         {
             if (part == null || part.Tracks == null || part.Tracks.Count == 0)
                 return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
@@ -276,7 +303,14 @@ namespace MidiGenPlay.Composition
             var metaMgr = metaChunk.ManageTimedEvents();
 
             // --- Tempo / TS / timing ---
-            int bpm = bpmOverride ?? GetBPMFromRange(part.TempoRange, TempoRule.MultiplesOfTen);
+            // BPM-DET-1 (D-BPM1=A): bpmOverride (host) > part.ExplicitBpm >
+            // seeded roll. ExplicitBpm becomes a live reader here and in
+            // GenerateSong; for every current caller it is null and/or an override
+            // is supplied, so the golden bpmOverride path stays bit-identical.
+            int bpm = bpmOverride
+                ?? part.ExplicitBpm
+                ?? RollTempoBpm(ResolveTempoSeed(baseSeed, partIndex),
+                                part.TempoRange, TempoRule.MultiplesOfTen);
             if (_settings?.logGenerator == true)
             {
                 Debug.Log($"{LogTag} [BPM] Part='{part.Name}' idx={partIndex} " +
@@ -380,7 +414,7 @@ namespace MidiGenPlay.Composition
             };
 
             // Channel allocation must mirror the session channel layout
-            var channelMap = 
+            var channelMap =
                 BuildChannelMap((rolesForChannels ?? Array.Empty<TrackRole>()).ToList());
 
 
@@ -394,15 +428,40 @@ namespace MidiGenPlay.Composition
                     var cfg = part.Tracks[i];
                     if (!rolePredicate(cfg.Role)) continue;
 
+                    // MGP-ALWTTT-DBG-1: all per-track lookups keyed on
+                    // (musicianId, role) — D-DBG1=A.
+                    var trackKey = new MusicianTrackKey(cfg.MusicianId, cfg.Role);
+
                     // Honor pinned instrument, if any
                     if (instrumentOverrides != null
                         && !string.IsNullOrEmpty(cfg.MusicianId)
-                        && instrumentOverrides.TryGetValue(cfg.MusicianId, out var inst)
+                        && instrumentOverrides.TryGetValue(trackKey, out var inst)
                         && inst != null)
                     {
                         if (_settings?.logGenerator == true)
                             Debug.Log($"{LogTag} [Override] Using pinned instrument '{inst.InstrumentName}' for mus='{cfg.MusicianId}' role={cfg.Role}.");
                         cfg.Instrument = inst; // composer must honor this
+                    }
+
+                    // MGP-ALWTTT-DBG-3 (Ask C): per-render pattern override for
+                    // THIS track only. Stateless: looked up per call and handed
+                    // to GenerateOne, which swap/restores it on the context.
+                    PatternDataSO patternOverride = null;
+                    if (patternOverrides != null &&
+                        patternOverrides.TryGetValue(trackKey, out var po))
+                    {
+                        patternOverride = po;
+                    }
+
+                    // MGP-ALWTTT-DBG-1 (Ask A): collection sink. The composer
+                    // fills the content fields; identity (musicianId, role) is
+                    // stamped HERE, authoritatively, from the track config.
+                    void CollectResolved(ResolvedTrackChoice choice)
+                    {
+                        if (choice == null) return;
+                        choice.musicianId = cfg.MusicianId;
+                        choice.role = cfg.Role;
+                        render.resolvedByTrack[trackKey] = choice;
                     }
 
                     // Deterministic per-track RNG (derived from the caller-supplied
@@ -411,11 +470,12 @@ namespace MidiGenPlay.Composition
                     var trackRng = new System.Random(trackSeed);
 
                     GenerateOne(full, part, cfg, channelMap[i], bpm,
-                        partTicks, cursorTicks: 0, ctx, producedByRole, trackRng);
+                        partTicks, cursorTicks: 0, ctx, producedByRole, trackRng,
+                        trackSeed, patternOverride, CollectResolved);
 
                     // Report back the actually-used instrument so caller can pin it
                     if (!string.IsNullOrEmpty(cfg.MusicianId) && cfg.Instrument != null)
-                        render.melInstByMusician[cfg.MusicianId] = cfg.Instrument;
+                        render.melInstByMusician[trackKey] = cfg.Instrument;
                 }
             }
 
@@ -432,17 +492,19 @@ namespace MidiGenPlay.Composition
                     (SevenBitNumber)(byte)ControlName.AllSoundOff, (SevenBitNumber)0)
                 { Channel = (FourBitNumber)MidiGenerator.MetronomeChannel }, endTick));
 
-            // --- Collect stems by musicianId (TagTrackWithMusician happens in GenerateOne) ---
-            render.stemsByMusician = new Dictionary<string, MidiFile>();
+            // --- Collect stems by (musicianId, role) — MGP-ALWTTT-DBG-1 (ID-1=A):
+            // the tag itself carries both fields ("mus:{id}:{role}", stamped by
+            // TagTrackWithMusician in GenerateOne), so the chunk remains the
+            // single source of its own identity (no side maps to keep in sync).
+            render.stemsByMusician = new Dictionary<MusicianTrackKey, MidiFile>();
             foreach (var chunk in full.GetTrackChunks())
             {
                 var tag = chunk.Events.OfType<TextEvent>()
                             .FirstOrDefault(te => te.Text != null && te.Text.StartsWith("mus:"));
-                if (tag != null)
+                if (tag != null && TryParseMusicianTag(tag.Text, out var musId, out var role))
                 {
-                    var musId = tag.Text.Substring(4);
                     var stemFile = new MidiFile(new TrackChunk(chunk.Events.ToArray()));
-                    render.stemsByMusician[musId] = stemFile;
+                    render.stemsByMusician[new MusicianTrackKey(musId, role)] = stemFile;
                 }
             }
 
@@ -462,7 +524,13 @@ namespace MidiGenPlay.Composition
             long cursorTicks,
             MidiGenerator.GenContext ctx,
             IDictionary<TrackRole, MidiFile> producedByRole,
-            System.Random rng)
+            System.Random rng,
+            int trackSeed,
+            // MGP-ALWTTT-DBG (Ask C / Ask A): both trailing params are
+            // stateless per call and default to null — GenerateSong passes
+            // nothing (no override channel, no PartRender to collect into).
+            PatternDataSO patternOverride = null,
+            Action<ResolvedTrackChoice> reportResolved = null)
         {
             if (!_factories.TryGetValue(cfg.Role, out var factory))
             {
@@ -487,13 +555,29 @@ namespace MidiGenPlay.Composition
 
             var prev = ctx.rng;
             if (rng != null) ctx.rng = rng;
+            // MGP-ALWTTT-ARTIC-1: expose the seed int behind trackRng so
+            // composers can derive dedicated substreams (same swap/restore
+            // discipline as rng).
+            var prevSeed = ctx.trackSeed;
+            ctx.trackSeed = trackSeed;
+            // MGP-ALWTTT-DBG (D-DBG2=A / D-DBG4=A): install the per-render
+            // pattern override and the readback sink for exactly the duration
+            // of THIS Compose — the same swap/restore discipline as rng and
+            // trackSeed, so neither can leak across tracks or renders.
+            var prevOverride = ctx.patternOverride;
+            ctx.patternOverride = patternOverride;
+            var prevReport = ctx.ReportResolved;
+            ctx.ReportResolved = reportResolved;
 
             var trackFile = composer.Compose(part, cfg, bpm, channel, ctx);
 
+            ctx.ReportResolved = prevReport;
+            ctx.patternOverride = prevOverride;
+            ctx.trackSeed = prevSeed;
             if (rng != null) ctx.rng = prev;
 
             TrimFileToLength(trackFile, partTicks);
-            TagTrackWithMusician(trackFile, cfg.MusicianId);
+            TagTrackWithMusician(trackFile, cfg.MusicianId, cfg.Role);
 
             if (_settings?.logGenerator == true)
             {
@@ -607,11 +691,44 @@ namespace MidiGenPlay.Composition
                 target.Chunks.Add(chunk.Clone());
         }
 
-        private static void TagTrackWithMusician(MidiFile trackFile, string musicianId)
+        // MGP-ALWTTT-DBG-1 (ID-1=A): the "mus:" tag now carries the role —
+        // "mus:{musicianId}:{TrackRole}" — because a musicianId alone cannot
+        // disambiguate a musician owning two roles. The tag format is internal
+        // surface (stamped and parsed only here); parse tolerates ':' inside
+        // musicianId by treating the LAST segment as the role. A legacy
+        // "mus:{id}" tag (no role segment) fails the parse and is skipped —
+        // stamping and collection change together in this file, so no mixed
+        // state exists within a render.
+        private static void TagTrackWithMusician(
+            MidiFile trackFile, string musicianId, TrackRole role)
         {
             var chunk = trackFile.GetTrackChunks().FirstOrDefault();
             if (chunk == null || string.IsNullOrEmpty(musicianId)) return;
-            chunk.Events.Insert(0, new TextEvent($"mus:{musicianId}"));
+            chunk.Events.Insert(0, new TextEvent(FormatMusicianTag(musicianId, role)));
+        }
+
+        // Internal for test access (Tests/Editor/SongOrchestratorKeyingTests.cs).
+        public static string FormatMusicianTag(string musicianId, TrackRole role)
+            => $"mus:{musicianId}:{role}";
+
+        // Internal for test access (Tests/Editor/SongOrchestratorKeyingTests.cs).
+        public static bool TryParseMusicianTag(
+            string text, out string musicianId, out TrackRole role)
+        {
+            musicianId = null;
+            role = default;
+            if (string.IsNullOrEmpty(text)) return false;
+            if (!text.StartsWith("mus:", StringComparison.Ordinal)) return false;
+
+            var payload = text.Substring(4);
+            int sep = payload.LastIndexOf(':');
+            if (sep <= 0 || sep >= payload.Length - 1) return false;
+
+            var roleStr = payload.Substring(sep + 1);
+            if (!Enum.TryParse(roleStr, out role)) return false;
+
+            musicianId = payload.Substring(0, sep);
+            return true;
         }
 
         private static void TrimFileToLength(MidiFile file, long maxTicks)
@@ -714,6 +831,37 @@ namespace MidiGenPlay.Composition
             int baseSeed, int partIndex, TrackRole role, string musicianId)
             => StableHash32($"{baseSeed}|p={partIndex}|r={role}|m={musicianId}");
 
+        // MGP-ALWTTT-ARTIC-1: dedicated articulation substream seed. Derived
+        // from the per-track seed (itself derived from baseSeed, SEED-1 chain),
+        // so the random-articulation stream is fully caller-seed deterministic
+        // WITHOUT consuming ctx.rng (CA-T1 shared-stream hazard). Consumed by
+        // ChordTrackComposer when a backing card selects
+        // ChordExpressionType.Random.
+        public static int ResolveArticulationSeed(int trackSeed)
+            => StableHash32($"{trackSeed}|artic");
+
+        // BPM-DET-1 (D-BPM2=A): dedicated tempo substream seed. FNV-1a over a
+        // documented string keyed on (baseSeed, partIndex) — the tempo is chosen
+        // per part-occurrence, not per rep, so rep is intentionally NOT in the
+        // string (D-BPM2-KEY=A: two occurrences of the same part index roll the
+        // same tempo). Distinct from the arithmetic ctx.rng seeds, so the tempo
+        // roll cannot perturb any per-part/track draw.
+        public static int ResolveTempoSeed(int baseSeed, int partIndex)
+            => StableHash32($"{baseSeed}|p={partIndex}|tempo");
+
+        // BPM-DET-1 (D-BPM3=B): the seeded tempo roll lives in the orchestrator,
+        // NOT in MusicTheory (which stays a dumb, unseeded helper). Same valid-BPM
+        // set as MusicTheory.GetBPMFromRange (via GetValidBpms) but drawn from a
+        // seeded stream. Degenerate empty set (not reachable for the shipped ranges
+        // + MultiplesOfTen) falls back to 120, matching the empty-part fallback.
+        public static int RollTempoBpm(int tempoSeed, TempoRange range, TempoRule rule)
+        {
+            var valid = GetValidBpms(range, rule);
+            if (valid.Count == 0) return 120;
+            var rng = new System.Random(tempoSeed);
+            return valid[rng.Next(valid.Count)];
+        }
+
         public static int StableHash32(string s)
         {
             unchecked
@@ -728,7 +876,7 @@ namespace MidiGenPlay.Composition
             }
         }
 
-        private Action<SongConfig.PartConfig, ChordProgressionData> 
+        private Action<SongConfig.PartConfig, ChordProgressionData>
             CreateSetProgressionForPart(
             Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart)
         {

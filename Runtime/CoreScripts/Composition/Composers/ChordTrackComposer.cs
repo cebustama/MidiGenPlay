@@ -56,6 +56,9 @@ namespace MidiGenPlay.Composition
         // exact legacy MoveToTime+Chord pair (bit-identical when unset).
         // See runtime/SSoT_Composer_Backing_Track.md §8.
         private static readonly IChordArticulator _articulator = new ChordArticulator();
+        // CA-T2 (D-T2-SEAM=B): stateless, RNG-free voicing reshaper; runs between
+        // VoiceChord and the articulator at BOTH emission sites.
+        private static readonly IChordReshaper _reshaper = new ChordReshaper();
 
         public ChordTrackComposer(
             MidiGenPlayConfig settings,
@@ -232,20 +235,98 @@ namespace MidiGenPlay.Composition
             var arpeggioRate = backingStyle != null
                 ? backingStyle.arpeggioRate : ArpeggioRate.Eighth;
 
-            // 1) Card-level progression override (if any)
+            // MGP-ALWTTT-ARTIC-1 (D1..D6, SD-1..3 = A): Random selection
+            // policy, resolved composer-side per chord event from a DEDICATED
+            // stream derived off the per-track seed (SEED-1 chain:
+            // ResolveArticulationSeed(ctx.trackSeed)) — never ctx.rng (CA-T1
+            // shared-stream hazard: voicing draws are untouched, so toggling
+            // Fixed<->Random changes articulation only, never voicings). The
+            // articulator stays RNG-free and never sees Random. Null roller
+            // (any fixed figure) => CA-T1 behavior, bit-identical.
+            RandomArticulationRoller articRoller = null;
+            if (chordExpression == ChordExpressionType.Random)
+            {
+                int articSeed = SongOrchestrator.ResolveArticulationSeed(
+                    ctx != null ? ctx.trackSeed : 0);
+                articRoller = new RandomArticulationRoller(
+                    new System.Random(articSeed),
+                    backingStyle != null ? backingStyle.randomRerollChance : 1f,
+                    backingStyle != null ? backingStyle.randomFigureWeights : null);
+            }
+
+            // MGP-ALWTTT-DBG-1 (Ask A): readback payload for this render;
+            // content fields fill as resolution progresses, identity is
+            // stamped by the orchestrator's sink. Reported at most once, at
+            // each return path.
+            var resolvedChoice = new ResolvedTrackChoice();
+
+            // 0) MGP-ALWTTT-DBG-3 (Ask C, D-DBG4=A) — precedence STEP 0: a
+            // per-render override installed on the context wins over the card
+            // pick, the shared cache and TrackParameters.Pattern.
+            // Clone-on-apply; type mismatch = warn + ignore. Shared with the
+            // other tracks under the SAME don't-overwrite discipline as the
+            // card override below (the progression is deliberately shared
+            // state — overriding backing IS overriding the part's harmony).
             ChordProgressionData prog = null;
-            if (backingStyle != null)
+            var renderOverride = ctx?.patternOverride;
+            if (renderOverride != null)
+            {
+                if (renderOverride is ChordProgressionData overrideProg)
+                {
+                    prog = ScriptableObject.Instantiate(overrideProg); // clone-on-apply
+                    resolvedChoice.source = ResolvedSource.RenderOverride;
+                    resolvedChoice.sourceAssetName = overrideProg.name; // pre-clone (D-DBG3)
+
+                    // Ask C / D-DBG4=A: the per-render override is precedence
+                    // step 0 — the max-authority source for the whole part. It
+                    // must IMPOSE the shared progression unconditionally (unlike
+                    // the card-override path below, whose "don't overwrite"
+                    // guard exists to avoid stepping on another track): otherwise
+                    // GetProgressionForPart's authored fallback
+                    // (FindProgressionForPart -> the Backing track's Pattern)
+                    // keeps returning the pre-override progression and the bass /
+                    // other shared-progression consumers diverge from the backing.
+                    // Track order runs Backing before Bassline, so the bass sees
+                    // the overridden progression.
+                    ctx?.SetProgressionForPart?.Invoke(part, prog);
+
+                    if (_settings?.logGenerator == true)
+                    {
+                        Debug.Log(
+                            $"<color=green>[ChordTrackComposer]</color> " +
+                            $"Per-render progression override used: '{overrideProg.name}' " +
+                            $"for part='{part.Name}'.");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        $"[ChordTrackComposer] patternOverride type mismatch for role " +
+                        $"Backing: expected ChordProgressionData, got " +
+                        $"{renderOverride.GetType().Name} ('{renderOverride.name}'). " +
+                        $"Ignoring override.");
+                }
+            }
+
+            // 1) Card-level progression override (if any)
+            if (prog == null && backingStyle != null)
             {
                 var rng = ctx?.rng ?? new System.Random();
                 prog = backingStyle.PickProgressionOverride(
                     rng,
                     part.TimeSignature,
                     _settings,
+                    out var pickInfo,
                     verbose: _settings?.logGenerator == true
                 );
 
                 if (prog != null)
                 {
+                    resolvedChoice.source = pickInfo.fromPalette
+                        ? ResolvedSource.CardPalette : ResolvedSource.CardOverride;
+                    resolvedChoice.sourceAssetName = pickInfo.sourceAssetName;
+                    resolvedChoice.paletteName = pickInfo.paletteName;
+
                     // Share override with other tracks (melody, bass, etc.)
                     // but don't overwrite if some other system already set it.
                     if (ctx?.GetProgressionForPart?.Invoke(part) == null)
@@ -266,8 +347,19 @@ namespace MidiGenPlay.Composition
             // 2) If still null, use cached or explicitly authored pattern
             if (prog == null)
             {
-                prog = ctx?.GetProgressionForPart?.Invoke(part)
-                       ?? (cfg.Parameters?.Pattern as ChordProgressionData);
+                var cached = ctx?.GetProgressionForPart?.Invoke(part);
+                if (cached != null)
+                {
+                    prog = cached;
+                    resolvedChoice.source = ResolvedSource.SharedProgression;
+                    resolvedChoice.sourceAssetName = cached.name;
+                }
+                else if (cfg.Parameters?.Pattern is ChordProgressionData trackProg)
+                {
+                    prog = trackProg;
+                    resolvedChoice.source = ResolvedSource.TrackParameters;
+                    resolvedChoice.sourceAssetName = trackProg.name;
+                }
             }
 
             // 2b) If the progression constrains tonalities, align the part's mode to it.
@@ -351,9 +443,23 @@ namespace MidiGenPlay.Composition
             {
                 if (_settings?.logGenerator == true)
                     Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
-                return ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL,
+                var proceduralFile = ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL,
                          modulationHint, previousRoot, inversionHints,
-                         chordExpression, arpeggioRate);
+                         chordExpression, arpeggioRate, articRoller);
+
+                // Ask A: procedural path. The built progression was cached by
+                // ComposeProcedural via SetProgressionForPart; the resolved
+                // figure sequence (Random only) is the roller's history (ID-3:
+                // the roller's existing observability state — no new roller
+                // responsibilities, no extra draws).
+                resolvedChoice.source = ResolvedSource.Procedural;
+                resolvedChoice.sourceAssetName = null;
+                resolvedChoice.progressionRoman =
+                    RomanSequence(ctx?.GetProgressionForPart?.Invoke(part));
+                resolvedChoice.resolvedFigures = SnapshotRolls(articRoller);
+                ctx?.ReportResolved?.Invoke(resolvedChoice);
+
+                return proceduralFile;
             }
 
             // Grid info
@@ -440,7 +546,7 @@ namespace MidiGenPlay.Composition
                         int? inversionPin = ResolveInversionPin(inversionHints, eventIndex);
                         playable =
                             (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin, ctx?.rng) // VL-DET-1
                             : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
                     }
 
@@ -473,13 +579,36 @@ namespace MidiGenPlay.Composition
                     // at both emission sites, so the figures can never diverge
                     // per-site. Block inside Emit reproduces the legacy
                     // MoveToTime+Chord pair verbatim (bit-identical).
-                    _articulator.Emit(pb, playable, startBeats, durBeats, beatSpan,
+                    // MGP-ALWTTT-ARTIC-1: per-event figure resolution (null
+                    // roller => fixed CA-T1 figure). Emit remains the single
+                    // unconditional call; only the figure VALUE varies.
+                    var effectiveExpression = articRoller != null
+                        ? articRoller.NextFigure() : chordExpression;
+                    // CA-T2 (D-T2-SEAM=B): Tier-2 pitch reshape AFTER voicing,
+                    // BEFORE the pitch-preserving articulator. Tier-1/Block/Random
+                    // => same list (bit-identical). lastVoicing already captured the
+                    // full harmonic voicing above, so voice-leading continuity and
+                    // the first-chord stash are unaffected — only the emitted
+                    // voicing is reshaped. Passing effectiveExpression straight
+                    // through is correct: the articulator degrades PowerChord->Block
+                    // and renders Chugging as a chord pulse.
+                    var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
+
+                    _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,
-                                      chordExpression, arpeggioRate);
+                                      effectiveExpression, arpeggioRate);
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;
                 }
+            }
+
+            // MGP-ALWTTT-ARTIC-1 observability: the resolved figure sequence for
+            // this render (logging only; no draws, no semantic effect).
+            if (_settings?.logGenerator == true && articRoller != null)
+            {
+                Debug.Log($"<color=#c9f>[ChordTrackComposer]</color> ARTIC-1 roll " +
+                          $"(grid) part='{part.Name}' {articRoller.DescribeRolls()}");
             }
 
             var pattern = pb.Build();
@@ -502,8 +631,45 @@ namespace MidiGenPlay.Composition
                 Debug.Log($"[ChordTrackComposer] tracks={chunks} notes={notes} lastTick={lastTick}");
             }
 
+            // Ask A: grid path. Roman sequence uses grid-site formatting
+            // (accidental-prefixed); figures are the roller's history.
+            resolvedChoice.progressionRoman = RomanSequence(prog);
+            resolvedChoice.resolvedFigures = SnapshotRolls(articRoller);
+            ctx?.ReportResolved?.Invoke(resolvedChoice);
+
             return file;
         }
+
+        /// <summary>
+        /// MGP-ALWTTT-DBG-1 (Ask A): compact roman-numeral sequence of a
+        /// progression, formatted exactly like the grid emission site
+        /// (accidental prefix "b"/"#"). Internal so BassTrackComposer's
+        /// readback reuses the same formatting.
+        /// </summary>
+        internal static string RomanSequence(ChordProgressionData prog)
+        {
+            if (prog == null || prog.events == null || prog.events.Count == 0)
+                return null;
+
+            return string.Join(" ", prog.events.Select(e =>
+            {
+                var rn = ToRomanRich(e.degree, e.quality);
+                if (e.degreeAccidental < 0) rn = "b" + rn;
+                else if (e.degreeAccidental > 0) rn = "#" + rn;
+                return rn;
+            }));
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-DBG-1 (Ask A / ID-3): snapshot of the roller's resolved
+        /// figure history (emission order). Null roller (fixed articulation)
+        /// => null. Copy, not the live list.
+        /// </summary>
+        private static List<ChordExpressionType> SnapshotRolls(
+            RandomArticulationRoller roller)
+            => roller == null
+                ? null
+                : new List<ChordExpressionType>(roller.History);
 
         /// <summary>
         /// Procedural path: builds a per-bar chord progression using modal rules
@@ -529,7 +695,8 @@ namespace MidiGenPlay.Composition
             Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot,
             IReadOnlyList<int?> inversionHints,
             ChordExpressionType chordExpression,
-            ArpeggioRate arpeggioRate)
+            ArpeggioRate arpeggioRate,
+            RandomArticulationRoller articRoller)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -552,7 +719,7 @@ namespace MidiGenPlay.Composition
             // Render using the same path as authored progressions
             return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride,
                                  modulationHint, previousRoot, inversionHints,
-                                 chordExpression, arpeggioRate);
+                                 chordExpression, arpeggioRate, articRoller);
         }
 
         /// <summary>
@@ -1176,7 +1343,10 @@ namespace MidiGenPlay.Composition
         /// <param name="previousRoot">Previous tonic root for the directional hint.</param>
         /// <param name="inversionHints">Per-chord inversion pins, index-aligned to prog.events (§7).</param>
         /// <returns>MIDI file with the rendered progression.</returns>
-        private MidiFile RenderFromProgression(
+        // MGP-ALWTTT-DBG (chd: contract promotion): internal so the marker
+        // parity test (grid site vs this site) can drive both emission paths
+        // with the same progression — the InternalsVisibleTo test-seam idiom.
+        public MidiFile RenderFromProgression(
             MIDIInstrumentSO instrument,
             int bpm,
             SongConfig.PartConfig part,
@@ -1188,7 +1358,8 @@ namespace MidiGenPlay.Composition
             Melanchall.DryWetMidi.MusicTheory.NoteName? previousRoot,
             IReadOnlyList<int?> inversionHints,
             ChordExpressionType chordExpression,
-            ArpeggioRate arpeggioRate)
+            ArpeggioRate arpeggioRate,
+            RandomArticulationRoller articRoller)
         {
             // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
             // reproject to a runtime clone before rendering.
@@ -1227,6 +1398,12 @@ namespace MidiGenPlay.Composition
                 foreach (var e in prog.events)
                 {
                     var degreeRoot = scaleNames[(int)e.degree];
+                    // chd: contract parity with the grid site: apply the
+                    // degree accidental to root and marker. Guarded so the
+                    // accidental==0 case (every procedural progression today)
+                    // stays bit-identical to pre-batch output.
+                    if (e.degreeAccidental != 0)
+                        degreeRoot = TransposeNoteName(degreeRoot, e.degreeAccidental);
                     var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                     // D3 (CQ-A1-OBJ2): same precedence as the inline path — when the
@@ -1248,7 +1425,7 @@ namespace MidiGenPlay.Composition
                         int? inversionPin = ResolveInversionPin(inversionHints, eventIndex);
                         playable =
                             (effectiveVL != null && effectiveVL.enableVoiceLeading && voicer != null)
-                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin)
+                            ? voicer.VoiceChord(chordPcs, instrument, lastVoicing, effectiveVL, inversionPin, ctx?.rng) // VL-DET-1
                             : RealizeChordSimple(chordPcs, instrument, ctx?.rng);
                     }
 
@@ -1262,6 +1439,9 @@ namespace MidiGenPlay.Composition
                     lastVoicing = playable;
 
                     var rn = ToRomanRich(e.degree, e.quality);
+                    // chd: contract parity with the grid site (accidental prefix).
+                    if (e.degreeAccidental < 0) rn = "b" + rn;
+                    else if (e.degreeAccidental > 0) rn = "#" + rn;
                     var sym = GetChordSymbol(degreeRoot, e.quality);
                     int degIdx = ((int)e.degree) + 1;
                     string q = e.quality.ToString();
@@ -1273,9 +1453,17 @@ namespace MidiGenPlay.Composition
                     var startTime = beatSpan.Multiply(startBeats);
 
                     // CA-T1: same unconditional articulation call as the grid path.
-                    _articulator.Emit(pb, playable, startBeats, durBeats, beatSpan,
+                    // MGP-ALWTTT-ARTIC-1: per-event figure resolution (null
+                    // roller => fixed CA-T1 figure). Emit remains the single
+                    // unconditional call; only the figure VALUE varies.
+                    var effectiveExpression = articRoller != null
+                        ? articRoller.NextFigure() : chordExpression;
+                    // CA-T2: same reshape+emit as the grid path.
+                    var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
+
+                    _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,
-                                      chordExpression, arpeggioRate);
+                                      effectiveExpression, arpeggioRate);
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;
@@ -1284,6 +1472,13 @@ namespace MidiGenPlay.Composition
 
             if (_settings?.logGenerator == true)
             {
+                if (articRoller != null)
+                {
+                    // MGP-ALWTTT-ARTIC-1 observability (logging only).
+                    Debug.Log($"<color=#c9f>[ChordTrackComposer]</color> ARTIC-1 roll " +
+                              $"(progression) part='{part.Name}' {articRoller.DescribeRolls()}");
+                }
+
                 var name = effectiveVL != null ? effectiveVL.name : "(none)";
                 Debug.Log($"<color=red>[ChordTrackComposer] RenderFromProgression part='{part.Name}' " +
                           $"VL effective='{name}' (override param={vlOverride != null})</color>");

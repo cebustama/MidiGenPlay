@@ -76,6 +76,32 @@ namespace MidiGenPlay
         {
             public MidiGenPlayConfig Settings;
             public System.Random rng;
+            // MGP-ALWTTT-ARTIC-1: the per-track seed int behind rng, swap/
+            // restored by SongOrchestrator.GenerateOne exactly like rng. Lets
+            // composers derive dedicated deterministic substreams (e.g.
+            // SongOrchestrator.ResolveArticulationSeed) WITHOUT consuming the
+            // shared rng stream. 0 when a composer runs outside GenerateOne
+            // (direct test/tooling calls) — still deterministic.
+            public int trackSeed;
+            // MGP-ALWTTT-DBG-1 (Ask A, D-DBG2=A): per-track readback sink.
+            // Installed/collected by SongOrchestrator.GenerateOne with the
+            // SAME swap/restore discipline as rng and trackSeed. Composers
+            // invoke it AT MOST ONCE per Compose with what they actually
+            // resolved (ResolvedTrackChoice); null outside GenerateOne or in
+            // GenerateSong (no PartRender to collect into) — composers must
+            // null-check (ctx?.ReportResolved?.Invoke(...)). ITrackComposer
+            // is unchanged by design.
+            public Action<ResolvedTrackChoice> ReportResolved;
+            // MGP-ALWTTT-DBG-3 (Ask C, D-DBG4=A): per-render pattern/
+            // progression override — precedence STEP 0 (wins over card
+            // override/palette, TrackParameters.Pattern, recipes and
+            // procedural). Stateless per call: swap/restored by
+            // SongOrchestrator.GenerateOne exactly like rng/trackSeed, so it
+            // can never leak across tracks. Composers clone-on-apply and
+            // treat a type mismatch as warn + ignore (fall through to the
+            // normal precedence chain). Bassline ignores it in v1 (the bass
+            // renders the shared progression; override Backing instead).
+            public PatternDataSO patternOverride;
             public IChordVoicer ChordVoicer;
             public VoiceLeadingConfig chordVoicingPreset;
             public MIDIInstrumentSO DefaultMelodicInstrument;

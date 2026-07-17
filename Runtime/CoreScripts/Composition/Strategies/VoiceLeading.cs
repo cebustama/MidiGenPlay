@@ -13,7 +13,8 @@ namespace MidiGenPlay.Composition
             MIDIInstrumentSO inst,
             IReadOnlyList<Note> last,
             VoiceLeadingConfig cfg,
-            int? forcedInversion = null)
+            int? forcedInversion = null,
+            System.Random rng = null)
         {
             // Candidate pitch-class sets (inversions & optional drop-2), or a
             // single pinned rotation when a valid forcedInversion is supplied
@@ -21,7 +22,7 @@ namespace MidiGenPlay.Composition
             var pcCandidates = GeneratePcCandidates(pcs, cfg, forcedInversion);
 
             // Realize near target register and clamp to range
-            int targetOct = TargetOctave(inst, last, cfg);
+            int targetOct = TargetOctave(inst, last, cfg, rng); // VL-DET-1
 
             var realizations = pcCandidates
                 .Select(pc => RealizeNear(pc, targetOct, inst))
@@ -112,8 +113,10 @@ namespace MidiGenPlay.Composition
             return b;
         }
 
+        // VL-DET-1: 'rng' seeds the random start-register modes when non-null.
         static int TargetOctave(
-            MIDIInstrumentSO inst, IReadOnlyList<Note> last, VoiceLeadingConfig cfg)
+            MIDIInstrumentSO inst, IReadOnlyList<Note> last, VoiceLeadingConfig cfg,
+            System.Random rng = null)
         {
             // If we already have a voicing, steer near its average octave.
             if (last != null && last.Count > 0)
@@ -139,7 +142,9 @@ namespace MidiGenPlay.Composition
                 case VoiceLeadingConfig.StartRegisterMode.RandomAroundCenter:
                     {
                         int maxDev = Mathf.Max(0, cfg.startRegisterRandomRangeSemitones);
-                        int jitterSemis = UnityEngine.Random.Range(-maxDev, maxDev + 1);
+                        int jitterSemis = rng != null
+                            ? rng.Next(-maxDev, maxDev + 1)
+                            : UnityEngine.Random.Range(-maxDev, maxDev + 1); // VL-DET-1
                         int bias = Mathf.RoundToInt(jitterSemis / 12f);
                         return Mathf.Clamp(center + bias, inst.octaveMin, inst.octaveMax);
                     }
@@ -156,8 +161,12 @@ namespace MidiGenPlay.Composition
                         int maxOffset = Mathf.RoundToInt(halfRange * Mathf.Clamp01(cfg.startRegisterSpread01));
 
                         // choose a side (down/up) uniformly, and an integer offset uniformly in [0..maxOffset]
-                        int side = (UnityEngine.Random.value < 0.5f) ? -1 : 1;
-                        int offset = UnityEngine.Random.Range(0, maxOffset + 1);
+                        int side = (rng != null
+                            ? (rng.NextDouble() < 0.5)
+                            : (UnityEngine.Random.value < 0.5f)) ? -1 : 1; // VL-DET-1
+                        int offset = rng != null
+                            ? rng.Next(0, maxOffset + 1)
+                            : UnityEngine.Random.Range(0, maxOffset + 1); // VL-DET-1
 
                         return Mathf.Clamp(center + side * offset, min, max);
                     }

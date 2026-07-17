@@ -58,6 +58,51 @@ It produces `PhraseSlot` structures carrying information such as:
 - accent / phrase-end information
 - phrase-local state cues for strategies
 
+### Missing palette / planner return contract (MEL-NULL-1)
+
+`PhrasePlanner.PlanPhraseSlotsForSpan` **never returns null.** When it cannot plan,
+it returns an **empty slot list**. Callers read "no slots" as "no notes", never as
+an error to dereference.
+
+A **usable phrase palette** is a **hard precondition of the procedural pipeline**.
+`PhrasePlanner.HasUsablePalette(MelodicLeadingConfig)` is the single definition:
+leading config present, carrying a `PhrasePaletteSO`, with **at least one archetype
+entry**. Both the planner's bail and the composer's precondition gate on this one
+predicate; they must not re-derive it.
+
+`MelodyTrackComposer.ComposeMelodyFromProgression` checks it up front and, on
+failure, logs a single error and returns an **empty melody track** — every other
+role still renders. A missing optional authoring asset must never abort the render.
+
+Palette resolution (unchanged): card `phrasePaletteOverride` > card
+`leadingOverride.phrasePalette` > `MidiGenPlayConfig.melodicLeading.phrasePalette`.
+An authored `MelodyPatternData` takes the §7 `ComposeFromPattern` path and needs no
+palette.
+
+Determinism: the empty-track early-out consumes no RNG draws and per-track streams
+are isolated, so no other track's output changes. Every usable-palette
+configuration is bit-identical to pre-MEL-NULL-1 behavior.
+
+### Runtime phrase-vocabulary enumeration (Ask B, MGP-ALWTTT-DBG-2, E-2=A)
+
+`PhrasePaletteSO` and `PhraseArchetypeSO` reach the composer only by reference
+(`MelodicLeadingConfig.phrasePalette`); for catalog/debug UIs they are
+enumerable with
+`new TrackPatternConfigStoreResources<PhrasePaletteSO>("Phrases")` and
+`new TrackPatternConfigStoreResources<PhraseArchetypeSO>("Phrases")` →
+`Refresh()` / `GetAll()`. Canonical folder:
+`Resources/ScriptableObjects/Patterns/Phrases` (archetypes may live in any
+subfolder; `LoadAll` is recursive and type-filtered — `PhraseArchetypeSO` is
+abstract, so concrete archetype assets load under it). Migration note: the
+shipped phrase assets predate this contract and lived under
+`Resources/ScriptableObjects/Phrases`; the folder must sit under `Patterns/`
+to be enumerable (GUID references from `MelodicLeadingConfig` survive the
+move). Display metadata: palette → name, `defaultContourBias`,
+`allowCrossChordPhrases`, archetype entries (asset name + weight); archetype →
+name (the concrete type conveys the shape) and `forcedContourDir`. This is a
+documented contract only — `IPatternRepository` is NOT extended (E-2=A/E-3=A;
+phrase vocabulary is not a track pattern).
+
 ## 5. Leading/style contract
 
 `MelodicLeadingConfig` expresses pitch-motion and expressive defaults.
@@ -83,6 +128,10 @@ composer's `DrumPatternData` → `ComposeFromGrid` branch.
 The authored melody can reach the composer two ways, in this precedence (mirroring
 `RhythmCardConfigSO.patternOverride`):
 
+0. **`GenContext.patternOverride`** as `MelodyPatternData` (per-render override,
+   Ask C / D-DBG4=A) — **precedence step 0**, wins over the card override and
+   `TrackParameters.Pattern`; clone-on-apply; a non-`MelodyPatternData` override
+   is warn + ignore.
 1. **`MelodyCardConfigSO.patternOverride`** (D-MEL-INT1) — read off `TrackParameters.Style`
    when the bundle is a `MelodyCardConfigSO` with a non-null `patternOverride`. This is the
    consumer-card path (e.g. ALWTTT).
@@ -92,7 +141,9 @@ The authored melody can reach the composer two ways, in this precedence (mirrori
 
 At the top of `Compose`, after the instrument null-check and before progression resolution:
 
-    var melodyPattern = (cfg.Parameters?.Style as MelodyCardConfigSO)?.patternOverride
+    var overridePattern = ctx?.patternOverride as MelodyPatternData; // clone-on-apply; mismatch warn+ignore
+    var melodyPattern = overridePattern
+                        ?? (cfg.Parameters?.Style as MelodyCardConfigSO)?.patternOverride
                         ?? (cfg.Parameters?.Pattern as MelodyPatternData);
     if (melodyPattern != null) return ComposeFromPattern(...);
 
@@ -102,6 +153,12 @@ At the top of `Compose`, after the instrument null-check and before progression 
   overrides are all skipped — the authored pattern wins over procedural);
 - none present ⇒ the procedural path runs unchanged (and still reads
   `Pattern as ChordProgressionData` for its harmonic-context fallback).
+
+The authored path reports `source` + pre-clone `sourceAssetName`; the procedural
+path reports the LIST of phrase archetypes chosen per chord span
+(`melodyArchetypesBySpan`, from `PhrasePlanner.LastPlannedArchetypeName`,
+observability-only) — there is no single pattern identity on that path
+(MGP-ALWTTT-DBG-1, Ask A).
 
 `MelodyPatternData` and `ChordProgressionData` are mutually exclusive on a single concrete
 `Pattern` instance, so there is no track-level collision. In a normal multi-track song the
@@ -171,8 +228,13 @@ in `authoring/SSoT_Authoring_Melody_Composition.md` §5/§7; it does not own the
 Update this SSoT when:
 
 - phrase planner/composer responsibilities change,
-- override precedence changes (incl. the card `patternOverride` ↔ `TrackParameters.Pattern` order),
+- override precedence changes (incl. the per-render `patternOverride` step 0 and
+  the card `patternOverride` ↔ `TrackParameters.Pattern` order),
 - strategy/style resolution changes,
 - runtime use of melody bundles changes,
 - the authored-pattern path (`ComposeFromPattern`) — its integration surface,
-  degree→pitch resolution, meter handling, or guide-note handoff — changes.
+  degree→pitch resolution, meter handling, or guide-note handoff — changes,
+- the phrase-planner return contract, the definition of a *usable* palette
+  (`PhrasePlanner.HasUsablePalette`), or the missing-palette behavior changes
+  (MEL-NULL-1: never returns null; a procedural melody without a usable palette
+  yields an empty track and one error, not a failed render).

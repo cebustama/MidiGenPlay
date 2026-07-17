@@ -88,11 +88,35 @@ namespace MidiGenPlay.Composition
             MidiGenPlayConfig settings,
             bool verbose = false)
         {
+            // Delegates to the info-capturing overload; identical draws.
+            return PickPatternOverride(
+                rng, desiredTimeSignature, settings, out _, verbose);
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-DBG-1 (D-DBG3=A): same TS-aware pick, additionally
+        /// reporting the source identity (pre-clone asset name + palette name
+        /// + override-vs-palette) so the composer's readback can name what was
+        /// picked without relying on Unity clone-name suffixes. Filling
+        /// <paramref name="pickInfo"/> changes no draw and no pick behavior.
+        /// </summary>
+        public DrumPatternData PickPatternOverride(
+            System.Random rng,
+            TimeSignature desiredTimeSignature,
+            MidiGenPlayConfig settings,
+            out PatternPickInfo pickInfo,
+            bool verbose = false)
+        {
+            pickInfo = default;
             rng ??= new System.Random();
 
             // 1) Single explicit override always wins.
             if (patternOverride != null)
+            {
+                pickInfo.fromPalette = false;
+                pickInfo.sourceAssetName = patternOverride.name; // pre-clone
                 return ScriptableObject.Instantiate(patternOverride);
+            }
 
             // 2) TS-aware palette pick via the shared Finder (clone-on-pick).
             if (patternPalette != null)
@@ -101,7 +125,12 @@ namespace MidiGenPlay.Composition
                 var picked = PatternFinder.Pick(
                     patternPalette, desiredTimeSignature, minHarmonicSubdivisions, rng, verbose);
                 if (picked != null)
+                {
+                    pickInfo.fromPalette = true;
+                    pickInfo.sourceAssetName = picked.name; // pre-clone
+                    pickInfo.paletteName = patternPalette.name;
                     return ScriptableObject.Instantiate(picked);
+                }
             }
 
             // 3) No override defined

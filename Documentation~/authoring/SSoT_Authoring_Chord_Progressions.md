@@ -106,6 +106,25 @@ five-voice chords: drop-2 is triad-oriented (effectively inert for ninths), and
 a very tall five-voice stack near an instrument's range edge can have voices
 collapsed by the range clamp. Neither affects ≤4-voice chords.
 
+### 4.2 Runtime consumption of the grammar (MGP-ALWTTT-DBG-4)
+
+The setup-card + fenced-Roman grammar defined by this document is now
+consumable at runtime via
+`MidiGenPlay.Composition.ChordProgressionRuntimeImporter`
+(`MidiGenPlay.Runtime` assembly): `ParsePayload` is the RELOCATED body of the
+former editor importer, and `ChordProgressionEditorImporter` (editor) is a thin
+forwarder over it — one grammar, one code path, by construction. The builder
+half (`TryParsePayload` / `TryParseRoman`) materializes a never-persisted
+`ChordProgressionData` (`HideFlags.DontSave`) through the same pipeline as the
+editor's Roman apply path (`RomanProgressionParser` → `RhythmGridQuantizer` →
+`ChordQualityResolver`), enforcing the D-L4.5 zero-warning guard
+(out-of-alphabet suffix = hard fail; the canonical allowlist now lives
+runtime-side and the editor response handler delegates to it).
+
+Grammar semantics note, now test-pinned: a bare `7` suffix is literal
+`Dominant7` regardless of Roman case (`ii7` = Supertonic + Dominant7; a minor
+seventh requires `m7`).
+
 ## 5. Palette semantics
 
 Progression palettes group progression assets into reusable themed packs for runtime selection.
@@ -113,12 +132,19 @@ Progression palettes group progression assets into reusable themed packs for run
 Palette grouping is an authoring concern.
 Selection logic and fallback behavior live in runtime documentation.
 
+Canonical palette folder (MGP-ALWTTT-DBG-2):
+`Resources/ScriptableObjects/Patterns/Chords/Palettes`. The runtime enumeration
+contract lives in `runtime/SSoT_Composer_Backing_Track.md` §2.2.
+
 ## 6. Runtime handoff
 
 This document defines how progressions are authored.
 Runtime consumption is defined in:
 
 - `runtime/SSoT_Composer_Backing_Track.md`
+- `MidiGenPlay.Composition.ChordProgressionRuntimeImporter` builds
+  never-persisted `ChordProgressionData` from the same grammar at runtime
+  (§4.2; consumption contract in the backing SSoT §2.2).
 
 ## 7. Update triggers
 

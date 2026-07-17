@@ -75,6 +75,10 @@ Important layers:
 
 Phrase-related assets define the expressive/rhythmic plan later consumed by runtime.
 
+> Runtime enumeration of the phrase vocabulary (canonical folder
+> `Resources/ScriptableObjects/Patterns/Phrases`, store-based) is defined in
+> `runtime/SSoT_Composer_Melody_Track.md` §4 (MGP-ALWTTT-DBG-2).
+
 This includes ideas such as:
 
 - contour bias

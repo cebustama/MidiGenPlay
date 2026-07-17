@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.Common;
+ï»¿using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Interaction;
 using System;
@@ -12,7 +12,7 @@ namespace MidiGenPlay.Composition
     /// <summary>
     /// Tier-1 chord articulator (CA-T1). Stateless, RNG-free, deterministic.
     ///
-    /// Structure: <see cref="PlanHits"/> is the pure planning seam — it maps
+    /// Structure: <see cref="PlanHits"/> is the pure planning seam ï¿½ it maps
     /// (expression, event window, meter, base velocity) to a list of
     /// <see cref="Hit"/> values with no DryWetMIDI emission involved, and is the
     /// unit-test surface (internal, via Runtime/AssemblyInfo InternalsVisibleTo).
@@ -24,12 +24,12 @@ namespace MidiGenPlay.Composition
     /// - All non-Block hit velocities are Clamp(round(base * factor), 1, 127)
     ///   (min 1: velocity-0 note-on is note-off semantics).
     /// - Accent curve is a pure function of absolute beat position within the
-    ///   Part meter: downbeat ×1.00, other on-beat ×0.85, off-beat ×0.80.
+    ///   Part meter: downbeat ï¿½1.00, other on-beat ï¿½0.85, off-beat ï¿½0.80.
     /// - Never silent: figures that cannot fit the event degrade to the Block
     ///   plan for that event.
     /// - No hit ever overshoots the event window [startBeats, startBeats+durBeats).
     ///
-    /// See runtime/SSoT_Composer_Backing_Track.md §8.
+    /// See runtime/SSoT_Composer_Backing_Track.md ï¿½8.
     /// </summary>
     public sealed class ChordArticulator : IChordArticulator
     {
@@ -124,6 +124,16 @@ namespace MidiGenPlay.Composition
             int noteCount,
             int baseVelocity)
         {
+            // ARTIC-1 + CA-T2 defensive degrade. Random is a selection-policy
+            // sentinel; PowerChord's rhythm is a plain sustain â€” neither is a
+            // rhythm this switch renders, so a leak degrades to Block (never
+            // silent, still RNG-free). Chugging IS rendered here (chord pulse);
+            // its pitch reshape was applied upstream by IChordReshaper, so this
+            // only re-strikes the given voicing (Â§8 pitch-preserving holds).
+            if (expression == ChordExpressionType.Random ||
+                expression == ChordExpressionType.PowerChord)
+                expression = ChordExpressionType.Block;
+
             double end = startBeats + Math.Max(0.0, durBeats);
 
             switch (expression)
@@ -145,6 +155,10 @@ namespace MidiGenPlay.Composition
                     return ArpeggioPlan(startBeats, durBeats, end, beatsPerBar,
                                         baseVelocity, noteCount, arpeggioRate);
 
+                case ChordExpressionType.Chugging:
+                    return ChordPulsePlan(startBeats, durBeats, end, beatsPerBar,
+                                          baseVelocity, arpeggioRate);
+
                 case ChordExpressionType.Block:
                 default:
                     return BlockPlan(startBeats, durBeats, baseVelocity);
@@ -152,7 +166,7 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>Legacy emission: one full-length chord hit at the onset,
-        /// velocity Clamp(base, 0, 127) — exactly the pre-CA-T1 pair.</summary>
+        /// velocity Clamp(base, 0, 127) ï¿½ exactly the pre-CA-T1 pair.</summary>
         private static IReadOnlyList<Hit> BlockPlan(
             double startBeats, double durBeats, int baseVelocity)
         {
@@ -255,6 +269,33 @@ namespace MidiGenPlay.Composition
             return hits;
         }
 
+        /// <summary>
+        /// CA-T2 Chugging: the full voicing (reshaped to a power chord upstream)
+        /// re-struck at the arpeggio rate, anchored at the event onset. Every hit
+        /// is a full chord (NoteIndex = -1) â€” pitch-preserving, so Â§8 holds. Same
+        /// timing model as <see cref="ArpeggioPlan"/> without note cycling. Events
+        /// shorter than one hit degrade to Block.
+        /// </summary>
+        private static IReadOnlyList<Hit> ChordPulsePlan(
+            double startBeats, double durBeats, double end, int beatsPerBar,
+            int baseVelocity, ArpeggioRate rate)
+        {
+            double interval = ArpeggioIntervalBeats(rate);
+            if (durBeats < interval - Eps)
+                return BlockPlan(startBeats, durBeats, baseVelocity); // degrade
+
+            var hits = new List<Hit>();
+            for (int k = 0; ; k++)
+            {
+                double t = startBeats + k * interval;
+                if (t >= end - Eps) break;
+                double dur = System.Math.Min(interval, end - t);
+                hits.Add(new Hit(t, dur,
+                    CurvedVelocity(t, beatsPerBar, baseVelocity), -1)); // -1 = full chord
+            }
+            return hits;
+        }
+
         /// <summary>One arpeggio hit length in beats for the given rate.</summary>
         public static double ArpeggioIntervalBeats(ArpeggioRate rate)
         {
@@ -270,8 +311,8 @@ namespace MidiGenPlay.Composition
         /// <summary>
         /// SD-5=A velocity model: multiplicative accent curve over the authored
         /// per-event base velocity, as a pure function of absolute beat position
-        /// within the Part meter. Downbeat ×1.00, other on-beat ×0.85,
-        /// off-beat ×0.80; round away-from-zero; clamp 1..127.
+        /// within the Part meter. Downbeat ï¿½1.00, other on-beat ï¿½0.85,
+        /// off-beat ï¿½0.80; round away-from-zero; clamp 1..127.
         /// </summary>
         internal static int CurvedVelocity(double posBeats, int beatsPerBar, int baseVelocity)
         {

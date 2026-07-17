@@ -57,14 +57,58 @@ namespace MidiGenPlay.Composition
                 return new MidiFile();
             }
 
+            // MGP-ALWTTT-DBG-3 (Ask C, D-DBG4=A) — precedence STEP 0: a
+            // per-render override installed on the context wins over the card's
+            // patternOverride and TrackParameters.Pattern. Clone-on-apply; type
+            // mismatch (anything that isn't a MelodyPatternData, e.g. a
+            // ChordProgressionData aimed at this track) = warn + ignore.
+            MelodyPatternData overridePattern = null;
+            var renderOverride = ctx?.patternOverride;
+            if (renderOverride != null)
+            {
+                overridePattern = renderOverride as MelodyPatternData;
+                if (overridePattern == null)
+                {
+                    Debug.LogWarning(
+                        $"[MelodyTrackComposer] patternOverride type mismatch for role " +
+                        $"{cfg.Role}: expected MelodyPatternData, got " +
+                        $"{renderOverride.GetType().Name} ('{renderOverride.name}'). " +
+                        $"Ignoring override.");
+                }
+                else
+                {
+                    overridePattern = ScriptableObject.Instantiate(overridePattern); // clone-on-apply
+                }
+            }
+
             // Phase 4 (D-MEL4.1) + INT1 (D-MEL-INT1): authored-melody override. A melody card's
             // patternOverride wins (mirrors RhythmCardConfigSO.patternOverride precedence); else a
             // track-level TrackParameters.Pattern is used. When present, render the authored pattern
             // directly and skip the procedural pipeline (cf. RhythmTrackComposer's ComposeFromGrid).
-            var melodyPattern = (cfg.Parameters?.Style as MelodyCardConfigSO)?.patternOverride
+            var cardPattern = (cfg.Parameters?.Style as MelodyCardConfigSO)?.patternOverride;
+            var melodyPattern = overridePattern
+                                ?? cardPattern
                                 ?? (cfg.Parameters?.Pattern as MelodyPatternData);
             if (melodyPattern != null)
-                return ComposeFromPattern(instrument, bpm, part, cfg, melodyPattern, channel, ctx);
+            {
+                var patternFile = ComposeFromPattern(
+                    instrument, bpm, part, cfg, melodyPattern, channel, ctx);
+
+                // MGP-ALWTTT-DBG-1 (Ask A): authored-path readback (source +
+                // pre-clone asset name; the archetype list belongs to the
+                // procedural path only).
+                ctx?.ReportResolved?.Invoke(new ResolvedTrackChoice
+                {
+                    source = overridePattern != null ? ResolvedSource.RenderOverride
+                           : cardPattern != null ? ResolvedSource.CardOverride
+                           : ResolvedSource.TrackParameters,
+                    sourceAssetName = overridePattern != null
+                        ? renderOverride.name // pre-clone (D-DBG3)
+                        : melodyPattern.name,
+                });
+
+                return patternFile;
+            }
 
             // Tonality profile for this part (Dorian, Mixolydian, Pentatonic, etc.)
             var profile = ctx?.GetTonalityProfileForPart?.Invoke(part);
@@ -131,8 +175,34 @@ namespace MidiGenPlay.Composition
                 allowedDegrees = new HashSet<int>(effectiveLeading.allowedScaleDegrees);
             }
 
+            // MEL-NULL-1 (C): the phrase palette is a HARD PRECONDITION of the procedural
+            // pipeline, not an optional flourish. Without one, PhrasePlanner cannot plan a
+            // single slot — it logged an error per chord span and returned null, and the
+            // composer's `foreach` over that null aborted the ENTIRE song render (rhythm,
+            // backing and bass included) with an NRE. A missing optional authoring asset
+            // must never kill the render: fail once, loudly, and yield an empty melody track
+            // so every other role still renders. Surfaced by the multi-track smoke harness.
+            if (effectiveLeading == null || effectiveLeading.phrasePalette == null)
+            {
+                Debug.LogError(
+                    $"[MelodyTrackComposer] No phrase palette for part '{part?.Name}' " +
+                    $"(musician='{trackCfg?.MusicianId}', leading=" +
+                    $"'{effectiveLeading?.name ?? "null"}'). The procedural melody pipeline " +
+                    "cannot run — emitting an EMPTY melody track so the rest of the song " +
+                    "still renders. Fix by assigning a PhrasePaletteSO to the leading config " +
+                    "(MidiGenPlayConfig.melodicLeading), or to the melody card's " +
+                    "leadingOverride / phrasePaletteOverride, or by giving the track an " +
+                    "authored MelodyPatternData (which takes the ComposeFromPattern path and " +
+                    "needs no palette).");
+                return new MidiFile();
+            }
+
             // Make the planner use the effective leading (so the palette is honored)
             _phrasePlanner = new PhrasePlanner(effectiveLeading, _phraseMemory);
+
+            // MGP-ALWTTT-DBG-1 (Ask A): archetype-per-span accumulator for the
+            // procedural readback (one entry per chord span, in span order).
+            var archetypesBySpan = new List<string>();
 
             // Per-part base strategy from style (if any); otherwise keep constructor default
             var baseForThisPart = _baseStrategy;
@@ -220,6 +290,10 @@ namespace MidiGenPlay.Composition
                 // --- 3. Ask the PhrasePlanner to create expressive phrase slots ---
                 var phraseSlots = _phrasePlanner.PlanPhraseSlotsForSpan(
                     chordStartBeats, chordBeats, beatsPerBar, chordIndex, rng, profile);
+
+                // MGP-ALWTTT-DBG-1 (Ask A): capture the archetype chosen for
+                // THIS span (planner observability property — no extra draws).
+                archetypesBySpan.Add(_phrasePlanner.LastPlannedArchetypeName);
 
                 // Choose the active strategy for THIS phrase (style can override per-phrase)
                 IMelodyStrategy activeStrategy = baseForThisPart;
@@ -437,6 +511,15 @@ namespace MidiGenPlay.Composition
                 var musicianId = trackCfg?.MusicianId;
                 ctx.SetMelodyForPartMusician(part, musicianId, capturedMelody);
             }
+
+            // MGP-ALWTTT-DBG-1 (Ask A): procedural readback — the corrected
+            // melody payload is the LIST of archetypes chosen per chord span
+            // (not a single pattern identity; no pattern asset exists here).
+            ctx?.ReportResolved?.Invoke(new ResolvedTrackChoice
+            {
+                source = ResolvedSource.Procedural,
+                melodyArchetypesBySpan = archetypesBySpan,
+            });
 
             return file;
         }

@@ -1,7 +1,6 @@
 ﻿#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using BCS.LLM.Core.Clients;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
@@ -242,97 +241,15 @@ namespace MidiGenPlay.Authoring
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// Quality-suffix allowlist, lower-cased. Mirrors the accepted cases in
-        /// <c>RomanProgressionParser.TryParseQualitySuffix</c> and the prompt's
-        /// declared alphabet. An empty suffix (plain triad) is always allowed and
-        /// is not listed here.
-        /// </summary>
-        private static readonly HashSet<string> AllowedSuffixes = new HashSet<string>(
-            StringComparer.Ordinal)
-        {
-            // minor triad
-            "m", "min", "mi", "mn", "-", "min3", "mtri", "mtriad",
-            // major triad (explicit)
-            "maj", "ma", "mjr", "mja",
-            // diminished / augmented triads
-            "dim", "o", "°", "aug", "+", "+5",
-            // sevenths
-            "7", "dom", "dom7",
-            "maj7", "ma7", "m7+", "mm7", "mmaj7",
-            "m7", "-7", "min7",
-            "ø", "ø7", "m7b5", "min7b5",
-            "dim7", "o7", "°7",
-            // suspended
-            "sus2", "sus4", "sus",
-            // sixth chords (v2 Tier A)
-            "6", "m6", "min6",
-            // suspended dominant (v2 Tier A)
-            "7sus4",
-            // ninths (v2 Tier B)
-            "9", "dom9", "maj9", "ma9", "m9", "min9",
-        };
-
-        // Token shape: optional accidental (b/#/♭/♯) + Roman core (IVXivx) + suffix.
-        // We isolate the suffix (everything after the Roman core) and test it.
-        private static readonly Regex TokenSplitRegex = new Regex(
-            @"^[b#♭♯]?(?<roman>[IVXivx]+)(?<suffix>.*)$",
-            RegexOptions.Compiled);
-
-        /// <summary>
-        /// Scan the progression for any chord token whose quality suffix is not in
-        /// the allowlist. Rest tokens (S / REST / R) and bare durations are
-        /// skipped. Returns the first offending token, if any.
+        /// MGP-ALWTTT-DBG-4: the allowlist + scan were RELOCATED to the runtime
+        /// assembly (<see cref="MidiGenPlay.Composition.ChordProgressionRuntimeImporter"/>)
+        /// so the Ask D runtime API enforces the exact same zero-warning guard.
+        /// This internal forwarder keeps the handler's guard call site and its
+        /// V2 tests unchanged while guaranteeing a single canonical alphabet.
         /// </summary>
         internal static bool TryFindForbiddenToken(string progression, out string offending)
-        {
-            offending = null;
-            if (string.IsNullOrWhiteSpace(progression)) return false;
-
-            // Same separators the parser splits on.
-            string normalized = progression.Replace('\n', ' ');
-            string[] tokens = normalized.Split(
-                new[] { '–', '-', '—' }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var raw in tokens)
-            {
-                string token = raw.Trim();
-                if (token.Length == 0) continue;
-
-                // Strip a trailing "(x)" duration before inspecting quality.
-                int paren = token.IndexOf('(');
-                if (paren >= 0) token = token.Substring(0, paren).Trim();
-                if (token.Length == 0) continue; // bare duration → rest
-
-                // Skip rests.
-                string upper = token.ToUpperInvariant();
-                if (upper == "S" || upper == "REST" || upper == "R") continue;
-
-                var m = TokenSplitRegex.Match(token);
-                if (!m.Success)
-                {
-                    // No recognizable Roman core at all — definitely not in alphabet.
-                    offending = raw.Trim();
-                    return true;
-                }
-
-                string suffix = m.Groups["suffix"].Value.Trim();
-                if (suffix.Length == 0) continue; // plain triad, allowed
-
-                // Normalize the way the parser does before its switch.
-                string s = suffix.Replace(" ", "")
-                                 .Replace("Δ", "maj")
-                                 .Replace("∆", "maj")
-                                 .ToLowerInvariant();
-
-                if (!AllowedSuffixes.Contains(s))
-                {
-                    offending = raw.Trim();
-                    return true;
-                }
-            }
-
-            return false;
-        }
+            => MidiGenPlay.Composition.ChordProgressionRuntimeImporter
+                .TryFindForbiddenToken(progression, out offending);
     }
 }
 #endif

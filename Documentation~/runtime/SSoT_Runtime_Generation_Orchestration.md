@@ -60,6 +60,9 @@ This keeps role-selection logic separate from orchestration and from composer-sp
 - RNG/seeded context
 - helper delegates/services used by composers
 - cross-composer coordination inputs
+- **per-render pattern override** (`patternOverride`, Ask C / D-DBG4=A) and the
+  **per-track readback sink** (`ReportResolved`, Ask A) — both swap/restored by
+  `GenerateOne` exactly like `rng` and `trackSeed` (§5.3)
 
 This context should be treated as orchestration-owned runtime state, not as a gameplay/session bridge.
 
@@ -68,7 +71,7 @@ This context should be treated as orchestration-owned runtime state, not as a ga
 Both render entry points accept an optional caller-supplied seed:
 
 - `GenerateSong(SongConfig song, int? seedOverride = null)`
-- `GenerateSinglePart(part, rolesForChannels, partIndex, bpmOverride, instrumentOverrides, int? seedOverride = null)`
+- `GenerateSinglePart(part, rolesForChannels, partIndex, bpmOverride, instrumentOverrides, seedOverride, patternOverrides)` — `instrumentOverrides` and `patternOverrides` are keyed on `MusicianTrackKey` (§5.3)
 
 The contract:
 
@@ -90,10 +93,116 @@ The contract:
 - **Derivation seams are internal, testable functions** on `SongOrchestrator`:
   `ResolveBaseSeed`, `ResolveRepContextSeed` (`(base + partIndex*397) ^ rep`),
   `ResolvePartContextSeed` (`base + partIndex*397`), `ResolveTrackSeedSong`,
-  `ResolveTrackSeedPart` (both FNV-1a over the legacy seed-string formats).
+  `ResolveTrackSeedPart` (both FNV-1a over the legacy seed-string formats),
+  `ResolveArticulationSeed` (FNV-1a over `"{trackSeed}|artic"`,
+  MGP-ALWTTT-ARTIC-1) — a dedicated substream seed for the backing
+  composer's Random-articulation roll, derived from the per-track seed so it
+  never consumes the shared `ctx.rng` stream — and `ResolveTempoSeed`
+  (FNV-1a over `"{baseSeed}|p={partIndex}|tempo"`, BPM-DET-1) — a dedicated
+  per-part-occurrence substream seed for the render-path tempo roll (§5.2),
+  derived from the base seed and independent of every arithmetic context seed
+  above.
+- **`GenContext.trackSeed`** exposes the per-track seed int behind the
+  per-track RNG; `GenerateOne` swap/restores it exactly like `ctx.rng`.
+  Composers may derive dedicated deterministic substreams from it but must
+  not repurpose it as an entropy source of their own invention. Outside
+  `GenerateOne` it is `0` (still deterministic).
 - Consumer projects reach this surface through their render bridge (e.g.
   `MidiMusicManager.RenderSinglePart` forwards `seedOverride`); the bridge is a
   pure pass-through and holds no seed policy either.
+
+### 5.2 Tempo resolution (BPM-DET-1)
+
+Per-part tempo (BPM) is resolved once per part-occurrence, in strict precedence:
+
+- **`GenerateSinglePart`:** `bpmOverride ?? PartConfig.ExplicitBpm ?? seeded-roll`.
+- **`GenerateSong`:** `PartConfig.ExplicitBpm ?? seeded-roll` (there is no
+  `bpmOverride` parameter on the song entry).
+
+`PartConfig.ExplicitBpm` is a **live reader** on both entries (BPM-DET-1 flipped
+it from written-never-read). The **seeded roll** picks uniformly from
+`MusicTheory.GetValidBpms(range, rule)` — the same valid-BPM set the legacy
+helper used (multiples-of-ten within the `TempoRange` band) — using a
+`System.Random` seeded by `SongOrchestrator.ResolveTempoSeed(baseSeed, partIndex)`:
+`SongOrchestrator.RollTempoBpm(tempoSeed, range, rule)`. Both are internal,
+testable seams (`Tests/Editor/SongOrchestratorSeedTests.cs`).
+
+Contract points:
+
+- The tempo seed keys on `(baseSeed, partIndex)` only — **not** `rep`. Tempo is
+  chosen per part-occurrence (the roll sits above the repetition loop), so all
+  repeats of a part-occurrence share a tempo, and two `Structure` entries that
+  reuse the same part index roll the **same** tempo (a deliberate consequence of
+  D-BPM2-KEY; this output has no pre-seed golden to preserve).
+- The roll is a dedicated substream: it draws from its own `System.Random` and
+  never perturbs `ctx.rng` or any per-part/track draw.
+- `MusicTheory.GetBPMFromRange` is **unchanged** and stays off the render path;
+  its remaining callers (`ChordTrackComposer`, which reads only `BeatsPerMeasure`
+  from `GetTimeSignatureDetails`) are unaffected by construction. Seed policy
+  stays in the orchestrator; `MusicTheory` stays an unseeded helper.
+- **Backward compatibility:** for any caller supplying `bpmOverride` (or a part
+  with `ExplicitBpm` set), the resolved BPM — and therefore the render — is
+  bit-identical to before. Only the previously-unseeded roll changes
+  (unseeded → seeded); there is no reproducible baseline to preserve, so no
+  golden is faked (determinism is asserted instead).
+
+### 5.3 Per-track keying, readback, and per-render override (MGP-ALWTTT-DBG-1+3)
+
+**Keying (D-DBG1=A).** Every per-track surface of `PartRender` and the
+per-render override map is keyed on `MusicianTrackKey (musicianId, TrackRole)`,
+not on `musicianId` alone. A single `musicianId` may own several roles in one
+part (the BASS-1 case); a string key silently dropped the second role's stem /
+instrument. The re-keyed surfaces are `PartRender.stemsByMusician`,
+`melInstByMusician`, `percInstByMusician`, the new `resolvedByTrack`, and the
+`GenerateSinglePart` `instrumentOverrides` parameter.
+
+**Track identity tag (ID-1=A).** `SongOrchestrator` tags each rendered track
+chunk with `mus:{musicianId}:{TrackRole}` (was `mus:{musicianId}`). The tag is
+the single source of a chunk's identity; stem collection parses it back. The
+format is internal surface (stamped and parsed only in `SongOrchestrator` via
+`FormatMusicianTag` / `TryParseMusicianTag`); parsing treats the LAST `:`
+segment as the role, so a `musicianId` containing `:` round-trips. A legacy
+`mus:{id}` tag (no role segment) fails the parse and is skipped — stamping and
+collection change together, so no mixed-format state exists within a render.
+
+**Readback (Ask A, D-DBG2=A, D-DBG3=A).** `GenContext.ReportResolved :
+Action<ResolvedTrackChoice>` is a per-track sink installed and collected by
+`GenerateOne` with the same swap/restore discipline as `ctx.rng` / `ctx.trackSeed`
+(null outside `GenerateOne`, and in `GenerateSong` there is no `PartRender` to
+collect into). A composer invokes it AT MOST ONCE per `Compose` with what it
+actually resolved; `ITrackComposer` is unchanged. The orchestrator's sink stamps
+`(musicianId, TrackRole)` authoritatively — composers fill only content fields.
+Source identity is by **source-asset name captured pre-clone** (D-DBG3=A); no
+GUIDs at runtime. `ResolvedTrackChoice` content by role:
+Rhythm → source / sourceAssetName / paletteName / proceduralStyleId;
+Backing → source / sourceAssetName / paletteName / progressionRoman /
+resolvedFigures (Random articulation only, emission order);
+Melody → source / sourceAssetName (authored) or melodyArchetypesBySpan
+(procedural, one entry per chord span);
+Bassline → usesSharedProgression / source / progressionRoman.
+**Harmony is not reported in v1** (ID-2=A — outside the ALWTTT Asks); the sink is
+null-safe, so a Harmony track simply produces no `resolvedByTrack` entry.
+
+**Per-render override (Ask C, D-DBG4=A).** `GenerateSinglePart` accepts a
+trailing `IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides`.
+The orchestrator installs the matching entry on `GenContext.patternOverride` for
+exactly the duration of each track's `Compose` (swap/restored like `rng`). It is
+**precedence step 0** in each composer — it wins over card override/palette,
+`TrackParameters.Pattern`, recipes, and procedural generation. Composers
+clone-on-apply and treat a type mismatch as **warn + ignore** (fall through to
+the normal precedence chain). The value type is the common `PatternDataSO` base
+(`DrumPatternData` / `ChordProgressionData` / `MelodyPatternData`). **Bassline
+ignores the override in v1** (warn) — the bass renders the shared progression, so
+overriding it there would open a second mutation path into shared state; override
+the Backing track instead (its override is the shared progression, by the same
+don't-overwrite discipline the card override already uses).
+
+**Backward compatibility.** With no `patternOverrides` map (or an empty one) and
+no seed, output is bit-identical to pre-batch: no composer consumes
+`ctx.patternOverride` when it is null, `ReportResolved` is side-effect-free
+observability, and the re-key does not alter draw order. Guarded by
+`Tests/Editor/PatternOverrideAndReadbackTests.cs` (null-map == empty-map ==
+re-run FNV equality) and `SongOrchestratorKeyingTests.cs`.
 
 ## 6. Meter and timing rule
 
@@ -125,4 +234,11 @@ Update this SSoT when:
 - `GenContext` meaning changes,
 - meter/loop/render contracts change,
 - the seed-threading contract (§5.1) changes: new seed sites, a change to base-seed
-  resolution, or any move of seed policy into the package.
+  resolution, or any move of seed policy into the package,
+- the tempo-resolution contract (§5.2) changes: the precedence
+  (`bpmOverride ?? ExplicitBpm ?? seeded-roll`), the tempo seed's key material,
+  or the split between the orchestrator's seeded roll and `MusicTheory`'s
+  unseeded helper,
+- the `PartRender` keying, the `mus:` tag format, the `ReportResolved` /
+  `patternOverride` `GenContext` surface, or the per-render override precedence
+  change (MGP-ALWTTT-DBG-1+3, §5.3).

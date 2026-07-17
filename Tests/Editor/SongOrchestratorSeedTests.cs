@@ -22,11 +22,12 @@
 //    over a 6-entry palette, while the same seed always re-picks the same entry
 //    (in-package mirror of the ALWTTT S5g acceptance).
 
-using System.Collections.Generic;
-using System.Linq;
-using NUnit.Framework;
 using MidiGenPlay;
 using MidiGenPlay.Composition;
+using NUnit.Framework;
+using System.Collections.Generic;
+using System.Linq;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 namespace MidiGenPlay.Tests.Editor
@@ -164,6 +165,41 @@ namespace MidiGenPlay.Tests.Editor
             // (the property ALWTTT relies on for mid-song re-renders).
             for (int baseSeed = 0; baseSeed < 10; baseSeed++)
                 Assert.That(PickWithBaseSeed(baseSeed), Is.EqualTo(picks[baseSeed]));
+        }
+
+        // ---------------- BPM-DET-1: tempo seed + seeded roll ----------------
+
+        [Test]
+        public void ResolveTempoSeed_MatchesStringFormat_AndOmitsRep()
+        {
+            // Format guard (algorithm itself is guarded by StableHash32_MatchesGoldenValues).
+            Assert.That(SongOrchestrator.ResolveTempoSeed(0, 0),
+                Is.EqualTo(SongOrchestrator.StableHash32("0|p=0|tempo")));
+            Assert.That(SongOrchestrator.ResolveTempoSeed(12345, 2),
+                Is.EqualTo(SongOrchestrator.StableHash32("12345|p=2|tempo")));
+            // rep intentionally absent (D-BPM2-KEY=A): tempo is per part-occurrence.
+        }
+
+        [Test]
+        public void RollTempoBpm_IsDeterministicForSameSeed_AndOnGridInBand()
+        {
+            int seed = SongOrchestrator.ResolveTempoSeed(42, 1);
+            int a = SongOrchestrator.RollTempoBpm(seed, TempoRange.Moderate, TempoRule.MultiplesOfTen);
+            int b = SongOrchestrator.RollTempoBpm(seed, TempoRange.Moderate, TempoRule.MultiplesOfTen);
+            Assert.That(a, Is.EqualTo(b), "same tempo seed must reproduce the same BPM");
+            Assert.That(a % 10, Is.EqualTo(0));
+            Assert.That(a, Is.InRange(121, 160)); // Moderate band
+        }
+
+        [Test]
+        public void RollTempoBpm_DifferentSeeds_CanReachDifferentBpms()
+        {
+            var bpms = new HashSet<int>();
+            for (int baseSeed = 0; baseSeed < 20; baseSeed++)
+                bpms.Add(SongOrchestrator.RollTempoBpm(
+                    SongOrchestrator.ResolveTempoSeed(baseSeed, 0),
+                    TempoRange.Moderate, TempoRule.MultiplesOfTen));
+            Assert.That(bpms.Count, Is.GreaterThanOrEqualTo(2));
         }
     }
 }

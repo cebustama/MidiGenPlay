@@ -2,16 +2,233 @@
 
 ## Active now
 
-- **No batch currently active.** **Melody Authoring MVP — COMPLETE (all phases 1–5 closed; Phase 5 — polish, validation, documentation closure — closed 2026-06-22)** (its own arc, `Roadmap_Melody_Authoring_MVP`): an authored `MelodyPatternData` plays verbatim via `ComposeFromPattern` — degrees resolve to absolute pitch against the active Part tonality/root from the instrument's mid register, the loop tiles to the Part (quarter-mapped beats), guide notes are cached for harmony — and the procedural pipeline runs unchanged when no pattern is present. Runtime-only, deterministic (no RNG), no `SongConfig`/`TrackParameters` schema change (D-MEL4.1). All phases (1–5) are closed and the MVP is complete: Phase 5 validated the `ComposeFromPattern` edge cases (correct and deterministic) and resolved meter-mismatch as **D-MEL5.1 = A** — a mismatched-meter pattern tiles by raw beats with a warning (the documented MVP limitation; bar-time renormalization is post-MVP). A melody-determinism EditMode fixture has landed (F-A) via an extracted byte-identical internal seam (`MelodyTrackComposer.ResolvePatternNotesCore`); no contract change. Also in flight: **melody card-pattern integration (D-MEL-INT1)** — package half implemented (`MelodyCardConfigSO.patternOverride` + a card-wins dispatch, mirroring `RhythmCardConfigSO.patternOverride`); ALWTTT half (fold the pattern GUID into `trackInputsHash`; set the card field) + a joint card-path smoke pending, tracked on the ALWTTT side. Recently
-  closed on other arcs: **CQ-A1 + CQ-B1** (chord quality alphabet v2, Tier A+B —
-  6ths/7sus4, then 9ths) 2026-06-16, and the **Composition Expressivity (CE)** arc
-  (CE-E1/CE-F1 2026-06-10, CE-L1 2026-06-11), and the cross-project per-render
-  seed surface (MGP-ALWTTT-SEED-1, 2026-07-05), and the chord-inversion voicing
-  hint (CQ-A1-OBJ2, 2026-07-05 — the last open CQ-A1 thread; the CQ arc's
-  deferred items are now all closed or explicitly future-work). Other open
-  threads: D-L4.3 generic unification, and palette/seed-library expansion.
+- **No batch currently active** (MGP-ALWTTT-DBG-4+2 closed 2026-07-17, completing
+  the **composition-debug arc package half** — DBG-1+3 + DBG-4+2 both done; the
+  only remaining arc work is the single ALWTTT consumer session, driven by the
+  DBG-4+2 handoff. BPM-DET-1 + CA-T2 closed 2026-07-16; tests green, docs applied). The **Chord Articulation (CA) arc**
+  (`planning/active/Roadmap_Chord_Articulation.md`) has **CA-T1** (Tier-1 engine),
+  **CA-F2** (monophonic bass consumer), **MGP-ALWTTT-ARTIC-1** (Random selection
+  policy — seeded variation part 1), and now **CA-T2** (Tier-2 voicing-reshaping:
+  power chord + chugging) DONE. Remaining in the arc: **CA-V1 part 2** (seeded
+  velocity jitter + randomized arpeggio-rate variety) and the **Tier-2 bossa
+  bass/upper split**, spun out of CA-T2 (needs register-selective emission the
+  pitch-preserving articulator lacks). **BPM-DET-1** is also now closed: the
+  full-song tempo roll is seeded (`ResolveTempoSeed`/`RollTempoBpm`) and
+  `PartConfig.ExplicitBpm` is a live reader — completing the SEED-1 story the
+  SMOKE-MT arc surfaced (finding C1; VL-DET-1 had fixed only the voicer half).
+  Recently closed on other arcs: **SMOKE-MT Stages 1–2** (multi-track
+  composition smoke, editor + runtime twin, byte-identical parity), the runtime
+  fixes **MEL-NULL-1** and **VL-DET-1**, the **Melody Authoring MVP** (phases
+  1–5, 2026-06-22), **MGP-ALWTTT-SEED-1** and **CQ-A1-OBJ2** (2026-07-05).
+  Still in flight cross-project: **melody card-pattern integration
+  (D-MEL-INT1)** — package half implemented; ALWTTT half (fold the pattern GUID
+  into `trackInputsHash`; set the card field) + a joint card-path smoke pending,
+  tracked on the ALWTTT side. Other open threads: D-L4.3 generic unification,
+  and palette/seed-library expansion.
 
 ## Just completed
+
+- Closed **MGP-ALWTTT-DBG-4+2** (2026-07-17): the remaining package half of the
+  composition-debug arc. **Ask D / DBG-4 (D-DBG4=A, E-4/E-5=A):** new runtime
+  `ChordProgressionRuntimeImporter` (`MidiGenPlay.Composition`, Runtime asmdef) —
+  the setup-card + fenced-Roman grammar RELOCATED verbatim from the editor
+  importer (pure regex), plus the builder `TryParsePayload` / `TryParseRoman`
+  (RomanProgressionParser → RhythmGridQuantizer → ChordQualityResolver;
+  never-persisted `HideFlags.DontSave` instance; `name` stamped
+  `"Runtime: <roman>"` for by-name readback; measures mismatch = warn,
+  durations win; quantization failure = hard fail). The D-L4.5 zero-warning
+  guard (suffix allowlist + `TryFindForbiddenToken`) also relocated
+  runtime-side; `ChordProgressionEditorImporter` is now a thin forwarder and
+  `ChordProgressionLLMResponseHandler`'s guard delegates — one grammar, one
+  alphabet, no drift (test-pinned parity). Grammar note now pinned: bare `7`
+  is literal `Dominant7` regardless of Roman case. 11 new EditMode tests
+  (`ChordProgressionRuntimeImporterTests`). **Ask B gaps / DBG-2 (E-1=A
+  tree-confirmed, E-1b=A, E-2=A, E-2b=A, E-3=A):** closed as a DOCUMENTED
+  contract, zero new code — palettes (Drums/Chords) and phrase vocabulary
+  enumerate via `TrackPatternConfigStoreResources<T>` over canonical
+  `Patterns/Drums/Palettes`, `Patterns/Chords/Palettes`, `Patterns/Phrases`
+  folders; two manual asset migrations recorded (legacy chord `Test Palette`,
+  legacy `Phrases/` folder); `IPatternRepository` untouched (patterns read
+  path only). No composer/RNG/asset touched; runtime gains no editor
+  dependency. Doc homes: authoring chord SSoT §4.2, backing SSoT §2.2, rhythm
+  SSoT §3D addendum, melody SSoT §4 addendum.
+
+- Closed **MGP-ALWTTT-DBG-1+3 (package half)** (2026-07-17): the composition-debug
+  return contract for ALWTTT. **D-DBG1=A** re-keys every per-track `PartRender`
+  surface + `instrumentOverrides` to `MusicianTrackKey (musicianId, TrackRole)`
+  (fixes the BASS-1 collision where one musician in two roles dropped a stem);
+  the track tag becomes `mus:{id}:{role}` (**ID-1=A**). **Ask A / D-DBG2=A,
+  D-DBG3=A**: `GenContext.ReportResolved` per-track sink (swap/restored like
+  `ctx.rng`), source identity by pre-clone asset name (no runtime GUIDs),
+  populating `PartRender.resolvedByTrack` per role (rhythm style id; backing
+  roman + Random figures; melody archetype-per-span list; bass shared-progression
+  flag). Harmony out of v1 (**ID-2=A**). **Ask C / D-DBG4=A**: trailing
+  `patternOverrides` on `GenerateSinglePart` → `GenContext.patternOverride`,
+  **precedence step 0** in rhythm/backing/melody (clone-on-apply; type mismatch
+  warn+ignore); Bassline warn+ignore (override Backing instead). **`chd:`
+  promoted** to a governed marker contract with grid-site vs `RenderFromProgression`
+  parity (accidental handling aligned, guarded so accidental-free output is
+  bit-identical). BC gate: no override + no seed ⇒ bit-identical (FNV goldens);
+  `ctx.rng` draw order intact. New `CompositionReadback.cs`
+  (`MusicianTrackKey` / `ResolvedTrackChoice` / `ResolvedSource` /
+  `PatternPickInfo`). Governed by `SSoT_Runtime_Generation_Orchestration.md` §5.3
+  + `SSoT_Composer_Backing_Track.md` §2.1/§8.5 + rhythm/melody/bass precedence;
+  new manifest invariant. Consumer half (`MidiMusicManager` boundary flatten,
+  `TODO(BASS-1)`) landed ALWTTT-side. Tests green
+  (`SongOrchestratorKeyingTests`, `PatternOverrideAndReadbackTests`,
+  `ChordMarkerParityTests`). **Open:** Rhythm render-level override test (needs a
+  `MIDIPercussionInstrumentSO` mapping fixture); the step-0 logic is covered by
+  the twin backing/melody tests.
+
+- Closed **CA-T2 (Tier-2 voicing-reshaping figures)** (2026-07-16): Tier-2 figures
+  mutate pitch, so they cannot live in the pitch-preserving CA-T1 articulator — a
+  new pre-articulation seam `IChordReshaper`/`ChordReshaper`
+  (`Composition/Interfaces/` + `Composition/Articulation/`) reshapes the voiced
+  list between `VoiceChord` and `Emit` at BOTH emission sites (D-T2-SEAM=B; voicer
+  owns register/inversions, articulator owns rhythm, reshaper owns the pitch
+  reduction). `ChordExpressionType` gains `PowerChord = 7` (drop the third → root
+  + fifth + octave; `Block` rhythm) and `Chugging = 8` (same reshape re-struck at
+  `arpeggioRate` via the articulator's new pitch-preserving `ChordPulsePlan` —
+  D-T2-RHYTHM=A overloads `arpeggioRate`, no new field). **D-T2-SCOPE=A** ships
+  power chord + chugging; the **bossa bass/upper split is deferred** (needs
+  register-selective emission). Tier-1/`Block`/`Random` paths are byte-identical
+  (reshaper is identity); the articulator degrades a leaked `PowerChord`/`Random`
+  to `Block` and renders `Chugging`. Single unconditional `Emit` preserved at both
+  sites; `lastVoicing`/first-chord stash keep the full voicing. **D-T2-PIN=A**
+  (reshape runs after the §7 pin — §7.5) and **D-T2-POOL=A′** (Tier-2 stays out of
+  the §8.5 Random pool and is not weight-admissible; `BuildWeightTable` ignores
+  value ≥ `ConcretePoolSize`) locked. Governed by
+  `runtime/SSoT_Composer_Backing_Track.md` §8.6 + §7.5 + Update triggers; new
+  manifest invariant + two `governs:` additions (and the `IChordVoicer.cs` governs
+  path corrected to `Composition/Interfaces/`); tests green
+  (`ChordTrackComposer_ArticulationTests.cs` extended).
+
+- Closed **BPM-DET-1 (seeded `GenerateSong` tempo roll + live `ExplicitBpm`)**
+  (2026-07-16): the full-song tempo was rolled by an unseeded `new System.Random()`
+  inside `MusicTheory.GetBPMFromRange`, so the same seed produced a different tempo
+  each render — the last SEED-1 gap from the SMOKE-MT arc (finding C1; VL-DET-1 had
+  fixed only the voicer half). Tempo now resolves `bpmOverride ?? PartConfig.ExplicitBpm
+  ?? seeded-roll` (**D-BPM1=A** — `ExplicitBpm` flipped written-never-read → live
+  reader on both `GenerateSong` and `GenerateSinglePart`); the seeded roll picks from
+  `MusicTheory.GetValidBpms(range, rule)` via
+  `System.Random(SongOrchestrator.ResolveTempoSeed(baseSeed, partIndex))` in
+  `SongOrchestrator.RollTempoBpm` (**D-BPM2=A** dedicated FNV-1a substream,
+  **D-BPM2-KEY=A** keyed on part-occurrence — no `rep`, so repeated part indices
+  share a tempo; **D-BPM3=B** seed policy in the orchestrator, `GetBPMFromRange`
+  left byte-identical and off the render path — its `ChordTrackComposer`
+  `BeatsPerMeasure` callers unaffected). `bpmOverride`/`ExplicitBpm`-hit paths stay
+  MIDI-byte bit-identical (golden); the tempo roll moves unseeded → seeded (no
+  pre-seed baseline; determinism asserted instead). Governed by
+  `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.1 + new §5.2 + Update
+  triggers; SEED-1 manifest invariant extended; `SongOrchestratorSeedTests.cs`
+  extended; all green.
+
+- Closed **VL-DET-1 (seeded voicer start-register)** (2026-07-15): the chord voicer's
+  first-chord starting-register draw, under a random
+  `VoiceLeadingConfig.StartRegisterMode`, used the global unseeded
+  `UnityEngine.Random`, so renders with the same seed diverged (the editor smoke
+  window vs the runtime runner) and no two runs were reproducible — a hidden breach
+  of the SEED-1 "no self-generated per-render entropy" invariant. `TargetOctave`
+  now draws from the part's deterministic `ctx.rng`, threaded in via a new optional
+  trailing `System.Random rng` on `IChordVoicer.VoiceChord` (both
+  `ChordTrackComposer` call sites pass `ctx?.rng`). Non-random start modes and a
+  null `rng` stay **bit-identical**; only the two random modes change
+  (non-deterministic → seeded). Governed by `runtime/SSoT_Composer_Backing_Track.md`
+  §7.4 + Update triggers; new manifest invariant; no `governs:` change. Surfaced by
+  the SMOKE-MT parity work; **BPM-DET-1 remains open** (a separate unseeded roll).
+
+- Closed **MEL-NULL-1 (phrase-planner null contract + missing-palette early-out)**
+  (2026-07-15): a melody track with no authored pattern, no card, and no phrase palette
+  on `MidiGenPlayConfig.melodicLeading` used to abort the **entire song render**
+  with an NRE. **MEL-NULL-1 = A + C**: the planner now returns an **empty slot
+  list** (never null), the usable-palette test lives once in
+  `PhrasePlanner.HasUsablePalette` (leading + palette + ≥1 archetype), and the
+  composer gates on it, returning an **empty melody track** so the rest of the song
+  renders. Determinism untouched. Governed by `runtime/SSoT_Composer_Melody_Track.md`
+  §4 + §8; new manifest invariant; no `governs:` change. Surfaced by the SMOKE-MT
+  harness's first four-role render.
+
+- Closed **SMOKE-MT (multi-track composition smoke, Stages 1–2)** (2026-07-15): the
+  package smoke harness grew from one track to a whole song, and gained a runtime
+  twin. `CompositionSmokeWindow` (Editor) assembles any distinct-role subset of
+  Rhythm / Backing / Melody / Bassline — each with its own instrument, pattern and
+  card-config asset — and renders the combined `.mid` without the consuming
+  project; `CompositionSmokeRunner`
+  (`Runtime/CoreScripts/Composition/Smoke/CompositionSmokeRunner.cs`, a
+  `MonoBehaviour`) renders the **same** song in Play mode / on device via the same
+  `GenerateSinglePart` entry and the same editor-free assembler
+  (`SmokeSongConfigAssembler.cs` + `SmokeTrackSpec.cs`), exporting to
+  `Application.persistentDataPath` (**D-SMOKE-RT-1 = A** — the package has no
+  runtime playback seam). Both surfaces read one shared `SmokeSetupSO`
+  (**D-SMOKE-RT-5 = A**; a promoted `SmokeEntry` row type) so their inputs cannot
+  drift, and share the no-asset articulation fallback + metronome strip via
+  `SmokeRenderUtil` (**D-SMOKE-RT-2 = B**, **-3 = A**); the runner adds seeded,
+  runner-only Root/BPM range randomization (**D-SMOKE-RT-4 = A**). Render entry is
+  `GenerateSinglePart(…, bpmOverride, …, seedOverride)` because `GenerateSong`
+  ignores `PartConfig.ExplicitBpm` and rolls a random BPM from `TempoRange` (see
+  BPM-DET-1, open). **Parity verified byte-identical** window-vs-runner under a
+  fixed seed; the run surfaced (and this arc fixed) MEL-NULL-1 and VL-DET-1
+  (separate entries). Editor + dev/test infrastructure; no governed runtime
+  semantics changed by the smoke tooling itself, no SSoT/manifest `governs:` change
+  (D-SMOKE-DOC-1 = A, six files).
+
+- Closed **MGP-ALWTTT-ARTIC-1 (randomized chord articulation)** (2026-07-15):
+  `ChordExpressionType.Random = 6` (append-only sentinel) resolved
+  composer-side per chord event by new
+  `Composition/Articulation/RandomArticulationRoller.cs` from a dedicated
+  stream `ResolveArticulationSeed(ctx.trackSeed)` (new SEED-1 seam +
+  `GenContext.trackSeed`, swap/restored in `GenerateOne`); `ctx.rng`
+  untouched (voicings never shift on Fixed<->Random). Card knobs:
+  `randomRerollChance` (1 = per chord, 0 = per render/loop via host
+  seedOverride) and `randomFigureWeights` (entries define the pool;
+  degenerate => uniform fallback + warning). Articulator stays RNG-free;
+  leaked `Random` degrades to `Block` (bassline cards, D6). 15 EditMode
+  tests in `Tests/Editor/ChordTrackComposer_RandomArticulationTests.cs`.
+  Consumer surface communicated to ALWTTT for its adoption rider
+  (boundary §8.x). Decisions D1..D6, SD-1..3 locked. Smoke PASS via
+  `CompositionSmokeWindow` (BC, determinism/held-loop replay, seed variance,
+  per-chord roll, `ctx.rng` isolation). Still pending in the CA arc: Tier-2
+  figures, randomized arpeggio-rate.
+
+- Closed **CA-F2 (monophonic bass articulation consumer)** (2026-07-15): the bass
+  is now a consumer of the shared CA-T1 engine — its SINGLE emission site
+  replaces the legacy `MoveToTime`+`Note` pair with one unconditional
+  `IChordArticulator.Emit(...)` call carrying a 1-note voicing (SD-F2-1=A;
+  1-note `pb.Chord` ≡ legacy `pb.Note`, byte-pinned; EmitMono contingency on
+  record). New `BasslineCardConfigSO.chordExpression`/`.arpeggioRate`
+  (SD-F2-4=A, D-EXP1=A persistent; SD-F2-5=A fully independent of the backing
+  card — non-bass bundles in the Style slot are ignored). Figures apply over
+  the per-event selected note (SD-F2-2=A): arpeggios = repeated-note pulse
+  (Up≡Down on 1 note). Note-selection loop and its per-event ctx.rng draw
+  order untouched (determinism surface). Meter authority adopted (SD-F2-3=B):
+  bass now emits on the Part beatSpan/beatsPerBar — bit-identical in all
+  beat-unit==4 meters; in others a deliberate, test-pinned sync FIX of the
+  legacy unconditional-Quarter desync (deviation on record in the bass SSoT).
+  New `runtime/SSoT_Composer_Bass_Track.md` (bass had no SSoT; SD-F2-6=A).
+  9 EditMode tests in `Tests/Editor/BassTrackComposer_ArticulationTests.cs`.
+  Factory and `ITrackComposer` unchanged. Still on record: single-pass
+  (no repeat-to-fill), normalization-order hazard, `degreeAccidental` ignored.
+  Next in arc: CA-T2 (Tier-2 voicing-reshaping), then CA-V1 (seeded variation,
+  incl. chord-tone-walk candidate).
+
+- Closed **CA-T1 (Tier-1 chord articulation engine)** (2026-07-15): new
+  post-voicing articulation seam `IChordArticulator`/`ChordArticulator`
+  (`Composition/Interfaces/` + new `Composition/Articulation/`) invoked by the
+  SAME unconditional call at BOTH chord emission sites (grid path +
+  `RenderFromProgression`); `ChordExpressionType { Block, PerBeat, Offbeat,
+  Staccato, ArpeggioUp, ArpeggioDown }` + `ArpeggioRate { PerBeat, Eighth,
+  Sixteenth }` (`Composition/Data/ChordExpressionType.cs`); persistent
+  card-level selection `BackingCardConfigSO.chordExpression` /
+  `.arpeggioRate` (D-EXP1=A — not a transient hint). Block default is
+  MIDI-byte bit-identical (test-pinned). RNG-free pure accent curve
+  (×1.00/×0.85/×0.80, clamp 1..127; Block keeps legacy 0..127) — `ctx.rng`
+  deliberately untouched (shared-stream hazard). Never-silent Block-degrade
+  for unfittable figures; meter-anchored figure math (Part
+  beatSpan/beatsPerBar). Internal pure `PlanHits` test seam; 16 EditMode
+  tests in `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`.
+  Decisions D-PRIO=A, D-EXP1=A, D-EXP2=Tier1, SD-1..5 locked. Next in arc:
+  Feature 2 (monophonic bass consumer), Tier 2 (voicing-reshaping), seeded
+  variation (incl. randomized arpeggio-rate variety).
 
 - Closed **CQ-A1-OBJ2 (per-chord inversion voicing hint — pin)** (2026-07-05):
   lifted the "Chord inversions — DEFERRED" item by building the CQ-A1 Objective 2
@@ -427,11 +644,19 @@
 
 ## Next
 
-1. **D-L4.3 unification** (optional) — extract a shared generic over the drum and
+1. **CA-V1 part 2 (seeded variation)** — the remaining CA-arc articulation work:
+   seeded velocity jitter + randomized per-pattern/per-chord arpeggio-rate variety
+   (fork a child rng off the seed; do NOT tap `ctx.rng`). Part 1 shipped via
+   MGP-ALWTTT-ARTIC-1; the bass roll wiring (D6 degrade-only) is a one-line rider.
+2. **Tier-2 bossa bass/upper split** — spun out of CA-T2: a register-selective
+   figure (bass on 1, upper voices off the beat) that the pitch-preserving Tier-1
+   articulator cannot express; needs either a register-aware articulator figure or
+   a reshaper-owned emit path.
+3. **D-L4.3 unification** (optional) — extract a shared generic over the drum and
    chord prompt builders / generators now that two working instances exist.
-2. Resume phrasing / feel runtime completion (Phase 9) — now unblocked; Phase 8
+4. Resume phrasing / feel runtime completion (Phase 9) — now unblocked; Phase 8
    (authoring-tool persistence unification) closed 2026-07-05 by PATTERN-PERSIST-1.
-3. Continue demoting the old `MIDISong` / `MIDIGeneratorManager` branch to
+5. Continue demoting the old `MIDISong` / `MIDIGeneratorManager` branch to
    legacy/reference status.
 
 Future (recorded, not scheduled): fill tag system (R3 — runtime/Composer
