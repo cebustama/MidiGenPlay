@@ -105,6 +105,23 @@ This means UI panels should talk to the manager, not mutate `SongConfig` directl
 This must not be misread as replacing a caller project's own game-side editable/session truth.
 In ALWTTT, for example, the editable/session truth before handoff lives on the game side (`SongCompositionUI` + `CompositionSession`), while MidiGenPlay becomes authoritative only for the package-side runtime song representation after the handoff.
 
+## 3.2 Instrument nominal level (`MIDIInstrumentSO.volume01`) and consumer gain
+
+`volume01` (`[Range(0,1)] float`, default 1.0) is the **package-side nominal
+level** of an instrument — a loudness-normalization authoring field across
+soundfont patches. It is NOT read by composers and does NOT affect velocities.
+Its only runtime consumer is the MGP-MIX-1 seam: when a render supplies a
+`mixGains` entry for a track, the emitted CC7 is
+`clamp(round(volume01 × gain × 100), 0, 127)` (multiplicative law, D-MIX-3).
+Without an entry, `volume01` currently has no effect on the render; whether
+authored values should emit unconditionally is deferred to the volume01
+authoring batch (post D-CSV-18). All 70 melodic instruments remain unauthored
+at 1.0 as of 1.2.0.
+
+Consumer mix gain is per-render data on the orchestrator surface — it is NOT
+part of `SongConfig` and is never serialized into the song model. Consumers do
+not edit `volume01` (assets under `Packages/`).
+
 ## 4. Part/track state invariants
 
 - `SongConfig` is the current **package-side** runtime source of truth for composition inputs after handoff/build.
@@ -141,3 +158,4 @@ Update this SSoT when any of the following change:
 - `SongConfigManager` responsibilities or event model
 - runtime ownership of part/track state
 - transient one-shot composer hints on `PartConfig` (add, remove, or change semantics)
+- the meaning of `MIDIInstrumentSO.volume01` or its relationship to consumer mix gain (§3.2)

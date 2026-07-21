@@ -29,6 +29,7 @@
 |   |   +---active
 |   |   |   +---ALWTTT_MidiGenPlay_Soundfont_Emulation_Report_2026-03-24.md
 |   |   |   +---README.md
+|   |   |   +---Roadmap_ALWTTT_Debug_Seams.md
 |   |   |   +---Roadmap_Chord_Articulation.md
 |   |   |   +---Roadmap_Chord_Expressivity.md
 |   |   |   +---Roadmap_Composition_Expressivity.md
@@ -57,6 +58,10 @@
 |   +---research
 |   |   +---Deep_Research_Prompt_MidiMusicManager.md
 |   |   +---MIDI_Jamplay_Runtime_Composition_Design-1.md
+|   |   +---PinkTrombone_Performance_Backbone_Proposal.md
+|   |   +---PinkTrombone_Proposal_Agent_Review.md
+|   |   +---PinkTrombone_Rendering_POC_Verdict.md
+|   |   +---PinkTrombone_Voice_Levers.md
 |   |   \---README.md
 |   +---runtime
 |   |   +---README.md
@@ -177,6 +182,7 @@
 |   |   |   |   +---BackingStyles.cs
 |   |   |   |   +---RhythmStyleRegistry.cs
 |   |   |   |   \---RhythmStyles.cs
+|   |   |   +---ChordProgressionRuntimeImporter.cs
 |   |   |   +---ChordQualityResolver.cs
 |   |   |   +---CompositionReadback.cs
 |   |   |   +---MidiGenerator.cs
@@ -280,15 +286,6 @@
 |   +---Resources
 |   |   \---ScriptableObjects
 |   |       +---Chord Progressions
-|   |       |   +---Palettes
-|   |       |   |   \---Test Palette.asset
-|   |       |   +---_ChordProgressionLibrary.asset
-|   |       |   +---I – IV – V – I.asset
-|   |       |   +---I – vi – IV – V.asset
-|   |       |   +---I (0.25) – II (0.25) – III (0.25) – IV (0.25) – V (0.25) – VI (0.25) – VII° (0.25) – I (0.25).asset
-|   |       |   +---I (2) – vi (1) – IV (1).asset
-|   |       |   +---iv (2) – V - I.asset
-|   |       |   \---Test Progression.asset
 |   |       +---LLM
 |   |       |   +---AnthropicClientData.asset
 |   |       |   \---OpenAIClientData.asset
@@ -385,27 +382,11 @@
 |   |       |   \---_SoundFont Cache.asset
 |   |       +---Patterns
 |   |       |   +---Chords
-|   |       |   |   +---_Chord Progressions List.asset
-|   |       |   |   +---ChordProgression-DefaultFiveFour.asset
-|   |       |   |   +---ChordProgression-DefaultFourFour.asset
-|   |       |   |   +---ChordProgression-DefaultNineEight.asset
-|   |       |   |   +---ChordProgression-DefaultSevenEight.asset
-|   |       |   |   +---ChordProgression-DefaultSixEight.asset
-|   |       |   |   +---ChordProgression-DefaultThreeFour.asset
-|   |       |   |   +---ChordProgression-DefaultTwelveEight.asset
-|   |       |   |   \---ChordProgression-DefaultTwoFour.asset
+|   |       |   |   +---Palettes
+|   |       |   |   \---_Chord Progressions List.asset
 |   |       |   +---Drums
 |   |       |   |   +---Palettes
-|   |       |   |   |   \---DrumPatternPalette.asset
-|   |       |   |   +---_Drum Patterns List.asset
-|   |       |   |   +---DrumPattern-DefaultFiveFour.asset
-|   |       |   |   +---DrumPattern-DefaultFourFour.asset
-|   |       |   |   +---DrumPattern-DefaultNineEight.asset
-|   |       |   |   +---DrumPattern-DefaultSevenEight.asset
-|   |       |   |   +---DrumPattern-DefaultSixEight.asset
-|   |       |   |   +---DrumPattern-DefaultThreeFour.asset
-|   |       |   |   +---DrumPattern-DefaultTwelveEight.asset
-|   |       |   |   \---DrumPattern-DefaultTwoFour.asset
+|   |       |   |   \---_Drum Patterns List.asset
 |   |       |   +---Emotions
 |   |       |   |   +---Bravery.asset
 |   |       |   |   +---Calm.asset
@@ -417,37 +398,33 @@
 |   |       |   |   +---Joy.asset
 |   |       |   |   +---Sadness.asset
 |   |       |   |   \---Wrath.asset
-|   |       |   \---Melodies
-|   |       |       +---_Melody Patterns List.asset
-|   |       |       +---BasicMelodyPattern 2.asset
-|   |       |       +---BasicMelodyPattern 3.asset
-|   |       |       +---BasicMelodyPattern 4.asset
-|   |       |       +---BasicMelodyPattern 5.asset
-|   |       |       +---BasicMelodyPattern 6.asset
-|   |       |       +---BasicMelodyPattern 7.asset
-|   |       |       +---FourFourMelody1.asset
-|   |       |       +---FourFourMelody2.asset
-|   |       |       +---FourFourMelody3.asset
-|   |       |       +---OrangePeelBass.asset
-|   |       |       +---ThreeFourMelody1.asset
-|   |       |       \---ThreeFourMelody2.asset
-|   |       +---Phrases
-|   |       |   +---DefaultPhrasePalette.asset
-|   |       |   +---Phrase - Burst Then Hold  - Default.asset
-|   |       |   +---Phrase - Even Flow - Default.asset
-|   |       |   \---Phrase - Sustain Lead In - Default.asset
+|   |       |   +---Melodies
+|   |       |   |   \---_Melody Patterns List.asset
+|   |       |   \---Phrases
+|   |       |       +---DefaultPhrasePalette.asset
+|   |       |       +---Phrase - Burst Then Hold  - Default.asset
+|   |       |       +---Phrase - Even Flow - Default.asset
+|   |       |       \---Phrase - Sustain Lead In - Default.asset
 |   |       +---Song Configs
-|   |       +---Tonality Profiles
-|   |       |   +---Aeolian.asset
-|   |       |   +---Dorian.asset
-|   |       |   +---Ionian.asset
-|   |       |   +---Locrian.asset
-|   |       |   +---Lydian.asset
-|   |       |   +---Mixolydian.asset
-|   |       |   \---Phrygian.asset
-|   |       \---Melodic Style - Test 1.asset
+|   |       \---Tonality Profiles
+|   |           +---Aeolian.asset
+|   |           +---Dorian.asset
+|   |           +---Ionian.asset
+|   |           +---Locrian.asset
+|   |           +---Lydian.asset
+|   |           +---Mixolydian.asset
+|   |           \---Phrygian.asset
 |   \---AssemblyInfo.cs
 +---Samples
+|   +---ExampleCatalogue
+|   |   \---ChordProgressions
+|   |       +---Palettes
+|   |       +---_ChordProgressionLibrary.asset
+|   |       +---I – IV – V – I.asset
+|   |       +---I – vi – IV – V.asset
+|   |       +---I (0.25) – II (0.25) – III (0.25) – IV (0.25) – V (0.25) – VI (0.25) – VII° (0.25) – I (0.25).asset
+|   |       +---I (2) – vi (1) – IV (1).asset
+|   |       \---iv (2) – V - I.asset
 |   +---UI
 |   |   +---PartListController.cs
 |   |   +---PartSettingsPanelController.cs
@@ -474,6 +451,7 @@
 |       +---ChordProgressionLLMPromptBuilderTests.cs
 |       +---ChordProgressionLLMResponseHandler_V2Tests.cs
 |       +---ChordProgressionLLMResponseHandlerTests.cs
+|       +---ChordProgressionRuntimeImporterTests.cs
 |       +---ChordQualityResolver_V2Tests.cs
 |       +---ChordTrackComposer_ArticulationTests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
@@ -494,6 +472,7 @@
 |       +---PaletteSelectorTests.cs
 |       +---PatternOverrideAndReadbackTests.cs
 |       +---RomanProgressionParserTests.cs
+|       +---SongOrchestrator_MixGainTests.cs
 |       +---SongOrchestratorKeyingTests.cs
 |       \---SongOrchestratorSeedTests.cs
 +---make-tree-unity.bat

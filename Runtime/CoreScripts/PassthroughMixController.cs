@@ -31,7 +31,7 @@ namespace MidiGenPlay
             _player.SetChannelVolume(channel, v127);
 
 #if UNITY_EDITOR
-            Debug.Log($"[Mix] SetChannelVolume ch={channel} vol01={volume01:0.00} v127={v127}");
+            //Debug.Log($"[Mix] SetChannelVolume ch={channel} vol01={volume01:0.00} v127={v127}");
 #endif
         }
 

@@ -94,6 +94,24 @@
 #                  - NEW Runtime/CoreScripts/Composition/ChordProgressionRuntimeImporter.cs: the setup-card + fenced-Roman grammar RELOCATED from the editor importer (pure regex) + D-L4.5 allowlist relocated from the response handler + the Ask D builder (TryParsePayload/TryParseRoman -> never-persisted ChordProgressionData, HideFlags.DontSave, name "Runtime: <roman>"). Editor ChordProgressionEditorImporter = thin forwarder (E-5=A); handler guard delegates. DUAL-LISTED under SSoT_Authoring_Chord_Progressions governs (grammar authority) AND SSoT_Composer_Backing_Track governs (consumption; §2.2) — intentional, mirrors the PaletteSelection.cs precedent.
 #                  - Ask B enumeration contract (DBG-2, documented, zero code): patterns via IPatternRepository; palettes/phrase via TrackPatternConfigStoreResources<T> over canonical Patterns/Drums/Palettes, Patterns/Chords/Palettes (migrate legacy Test Palette), Patterns/Phrases (migrate legacy Phrases/ folder). Contracts in Backing §2.2 / Rhythm §3D / Melody §4; new invariants below. IPatternRepository NOT extended (E-2=A/E-3=A).
 #                  - New Tests/Editor/ChordProgressionRuntimeImporterTests.cs (11 tests incl. editor-parity + guard-parity pins). Grammar pin: bare "7" = literal Dominant7 regardless of Roman case.
+#                  2026-07-20 — Pink Trombone rendering POC close-out (research registration only)
+#                  - Registered the three PinkTrombone research docs (proposal, agent review, rendering-POC verdict) under research:
+#                    They existed on disk but were unregistered; this closes that gap. No governs, no invariants — research class carries neither.
+#                  - NO runtime or SSoT change: the POC ran four sessions as a dev-time host-project folder consuming MidiGenPlay.Runtime.
+#                  2026-07-20 — MGP-BAGGAGE-1 (shipped-catalogue cleanup) close-out
+#                  - 32 dead .asset retired from Runtime/Resources (8 ChordProgression-Default*, 8 DrumPattern-Default*, 12 empty melody patterns, 2 test palettes) + Melodic Style - Test 1 + Test Progression. All 16 *-Default* serialized TimeSignature=FourFour = enum zero value (never authored). No governs: change — **/*.asset is globally excluded and no code changed.
+#                  - Chord Progressions/ (the authored progressions + _ChordProgressionLibrary + Palettes/) MOVED out of Resources to Samples/ExampleCatalogue/ChordProgressions/, and the emptied source root deleted. It was a second catalogue root scanned by neither PatternRepositoryResources (Patterns/Chords) nor ChordProgressionCatalogueWizard (Assets/Resources/...). Package paths in MidiGenPlayConfig unchanged; only the returned contents shrink.
+#                  - Patterns/{Chords,Drums}/Palettes kept as EMPTY canonical enumeration roots (MGP-ALWTTT-DBG-2 contract). Do not delete. The three _*List.asset containers kept and emptied (D-BAG-4=A; contents verified 2026-07-21).
+#                  - volume01 confirmed a package-side authoring field (nominal per-instrument level, all 70 unauthored at 1.0); consumer-side mix gain deferred to MGP-MIX-1 (D-BAG-3=A). ALWTTT's Poly Synth / Warm Pad duplicate-patch flag was a false positive (89 vs 90, 0-based GM).
+#                  - New reference doc: reference/cross-project/ALWTTT/Handoff_MGP_BAGGAGE_1.md (disposition record; no governs).
+#                  - VERSION: planned as 1.1.0; that bump was never materialized in package.json. Ships in 1.2.0 with MGP-MIX-1. 1.1.0 does not exist.
+#                  2026-07-20 — MGP-MIX-1 (consumer-side mix gain, package 1.2.0) close-out
+#                  - GenerateSinglePart gains a trailing optional mixGains : IReadOnlyDictionary<MusicianTrackKey, float> (D-MIX-2=A). Per-entry emission gate: one CC7 per entried melodic track, clamp(round(volume01 × gain × 100), 0, 127) (D-MIX-1=A, D-MIX-3); no entry ⇒ zero new events ⇒ bit-identical to the pre-MIX-1 render. Rhythm warn+ignore (shared ch9, D-MIX-4=A). Readback PartRender.appliedCc7ByTrack (D-MIX-5=A). GenerateSong untouched in v1.
+#                  - New §5.4 in SSoT_Runtime_Generation_Orchestration (+ §8 trigger); new §3.2 in SSoT_Runtime_Song_Model_and_Config (volume01 meaning, + §7 trigger); new SSoT_CONTRACTS §8 (prior Update completion contract renumbered to §9).
+#                  - MidiGenerator.ApplyChannelVolume gains its first package-side call site (unchanged utility). New Tests/Editor/SongOrchestrator_MixGainTests.cs (8). No governs change (SongOrchestrator + MidiGenerator already governed).
+#                  - Deterministic by construction: no ctx.rng, no seed-chain involvement, no draw displacement (stripped-CC7 note-identity test-pinned).
+#                  - New reference doc: reference/cross-project/ALWTTT/Handoff_MGP_MIX_1.md. volume01 authoring of the 70 instruments deferred to a later version, post ALWTTT D-CSV-18 (D-MIX-6).
+#                  - package.json 1.0.0 -> 1.2.0 (single jump; see the BAGGAGE-1 version note above).
 #
 # PATH CONVENTION
 # All paths are relative to the package root (MidiGenPlay/).
@@ -174,6 +192,7 @@ ssots:
       - "Runtime/CoreScripts/Composition/Interfaces/ITrackComposer.cs"
     invariants:
       - "MidiGenerator registers composer factories by TrackRole; it is the package-facing entry point, not the per-track implementation surface."
+      - "MGP-MIX-1: mixGains per-entry emission gate — no entry ⇒ bit-identical render (contract in SSoT_CONTRACTS.md §8, mechanism in §5.4). Rhythm excluded in v1 (shared ch9). Consumer gain is per-render data, never a SongConfig field."
       - "SongOrchestrator walks song structure and executes per-track ITrackComposer instances."
       - "Same inputs + same seed => same outputs. Composers must be deterministic."
       - "Caller-supplied seedOverride (GenerateSong / GenerateSinglePart) is the sole per-render entropy input; baseSeed = seedOverride ?? defaultSeed is resolved once per render and all part/rep/track seeds derive from it (incl. the PaletteSelector RNG stream). No seed supplied => bit-identical to defaultSeed behavior. Seed policy is host-side; the package never self-generates per-render entropy. MGP-ALWTTT-SEED-1. GenContext.trackSeed exposes the per-track seed (swap/restored by GenerateOne like ctx.rng); ResolveArticulationSeed(trackSeed) is a named derivation seam; both derive from baseSeed — no new entropy site. MGP-ALWTTT-ARTIC-1. Per-part tempo resolves bpmOverride ?? PartConfig.ExplicitBpm ?? seeded-roll (ExplicitBpm live on both entries); the roll picks from MusicTheory.GetValidBpms via System.Random(ResolveTempoSeed(baseSeed, partIndex)) — a dedicated per-part-occurrence substream (StableHash32 over baseSeed|p=partIndex|tempo, no rep) that never perturbs ctx.rng. GetBPMFromRange stays unseeded/off-render-path; bpmOverride/ExplicitBpm-hit paths bit-identical. BPM-DET-1."
@@ -235,7 +254,7 @@ ssots:
       - "DrumPatternPaletteSO.PickRandomPattern is deterministic under a seeded System.Random and clones on pick. RhythmTrackComposer consumes the palette (PCE; TS-aware as of CE-F1) via the TS-aware RhythmCardConfigSO.PickPatternOverride(rng, timeSignature, settings, verbose), which delegates to PatternFinder/PaletteSelector. Pick precedence is patternOverride > patternPalette > TrackParameters.Pattern."
       - "preferExactTimeSignatureMatches is LIVE on both the drum and chord palettes: both select through the shared PaletteSelector, which consumes the toggle in one place (CE-F1 — the PCE-era chord-LIVE / drum-INERT asymmetry is resolved)."
       - "Drum-palette Tier-B density is the capped foundational-onset density: kick onsets/bar (GM 35/36; else lowest-note lane) capped at the meter's grouping count, so busy patterns are not penalized — only under-articulation (D-F1.5). One rng.NextDouble() per pick preserves determinism."
-      - "Runtime catalog enumeration (Ask B): pattern domains via IPatternRepository/PatternRepositoryResources only; drum palettes via TrackPatternConfigStoreResources<DrumPatternPaletteSO>(Drums) over canonical Patterns/Drums/Palettes. The repository is never a palette surface. MGP-ALWTTT-DBG-2."
+      - "Runtime catalog enumeration (Ask B): pattern domains via IPatternRepository/PatternRepositoryResources only; drum palettes via TrackPatternConfigStoreResources<DrumPatternPaletteSO>(Drums) over canonical Patterns/Drums/Palettes. The repository is never a palette surface. MGP-ALWTTT-DBG-2. The shipped package catalogue under Patterns/{Chords,Drums,Melodies} carries NO placeholder assets: because Resources.LoadAll merges every Resources root in the project, anything the package ships there is unconditionally visible to consumer-side selectors via Get*(TimeSignature) and cannot be shadowed or excluded consumer-side. Empty / lane-less / all-silent assets are therefore a selection defect, not inert baggage, and must not be reintroduced. Patterns/{Chords,Drums}/Palettes are kept as empty canonical enumeration roots. MGP-BAGGAGE-1."
 
   - path: Documentation~/runtime/SSoT_Composer_Melody_Track.md
     authority_class: subsystem_ssot
@@ -374,12 +393,17 @@ reference:
   - path: Documentation~/reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md
   - path: Documentation~/reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md
   - path: Documentation~/reference/cross-project/ALWTTT/SSoT_CompositionSystem_INDEX.md
+  - path: Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_BAGGAGE_1.md   # MGP-BAGGAGE-1 close-out (2026-07-20): disposition record returned to ALWTTT. Consumer-facing; defines no package truth.
+  - path: Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_MIX_1.md   # MGP-MIX-1 close-out (2026-07-20): consumer-side mix-gain seam handoff. Consumer-facing; the contract itself lives in SSoT_CONTRACTS.md §8.
   - path: Documentation~/reference/package/Documentation_Update_Protocol_Addendum.md
   - path: Documentation~/reference/package/Palette_Card_Identity_Design.md   # PCE close-out (2026-06-04): flipped PROPOSAL → GOVERNED (realized); moved here from planning/active. Mechanism → runtime/SSoT_Composer_Rhythm_Track.md §3D; card→palette assignment → ALWTTT reference.
 
 research:
   - path: Documentation~/research/Deep_Research_Prompt_MidiMusicManager.md
   - path: Documentation~/research/MIDI_Jamplay_Runtime_Composition_Design-1.md
+  - path: Documentation~/research/PinkTrombone_Performance_Backbone_Proposal.md
+  - path: Documentation~/research/PinkTrombone_Proposal_Agent_Review.md
+  - path: Documentation~/research/PinkTrombone_Rendering_POC_Verdict.md
 
 archived:
   - path: "Documentation~/archive/**"

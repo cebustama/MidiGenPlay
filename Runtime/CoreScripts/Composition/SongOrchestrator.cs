@@ -27,6 +27,11 @@ namespace MidiGenPlay.Composition
         // composer does not report (Harmony in v1, ID-2=A) simply have no
         // entry.
         public Dictionary<MusicianTrackKey, ResolvedTrackChoice> resolvedByTrack = new();
+        // MGP-MIX-1 (D-MIX-5=A): the CC7 value actually emitted per track —
+        // entries exist ONLY for melodic tracks that had a mixGains entry.
+        // Orchestrator-stamped (this is applied by GenerateOne, not resolved
+        // by a composer, so it does NOT belong on ResolvedTrackChoice).
+        public Dictionary<MusicianTrackKey, int> appliedCc7ByTrack = new();
         public long partTicks;
         public int bpm;
     }
@@ -48,7 +53,18 @@ namespace MidiGenPlay.Composition
             // PatternDataSO base (DrumPatternData / ChordProgressionData /
             // MelodyPatternData); composers clone-on-apply and warn+ignore on
             // type mismatch. Bassline entries are warn+ignore in v1.
-            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null);
+            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null,
+            // MGP-MIX-1 (D-MIX-2=A): per-render consumer mix gain, keyed
+            // (musicianId, role). Entry present => one CC7 on THAT track's
+            // channel: clamp(round(Instrument.volume01 * gain * 100), 0, 127)
+            // — identity (1.0 * 1.0) lands on 100, the GM channel-volume
+            // default, so a gain of 1.0 is level-neutral next to tracks with
+            // no entry (D-MIX-3). Null map, empty map, or no entry => ZERO new
+            // events => bit-identical to 1.1.0. Rhythm entries: warn + ignore
+            // in v1 (all Rhythm tracks share MIDI channel 9, so per-musician
+            // CC7 cannot target one drummer; D-MIX-4=A). Pure data: touches no
+            // ctx.rng, no seed chain — same map + same seed => same bytes.
+            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null);
     }
 
     /// Coordinates parts/repetitions, meta events, metronome, composer calls, trimming, shifting, and merging.
@@ -288,7 +304,8 @@ namespace MidiGenPlay.Composition
             int? bpmOverride = null,
             Dictionary<MusicianTrackKey, MIDIInstrumentSO> instrumentOverrides = null,
             int? seedOverride = null,
-            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null)
+            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null,
+            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null)
         {
             if (part == null || part.Tracks == null || part.Tracks.Count == 0)
                 return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
@@ -453,6 +470,28 @@ namespace MidiGenPlay.Composition
                         patternOverride = po;
                     }
 
+                    // MGP-MIX-1 (D-MIX-2=A / D-MIX-4=A): per-render mix gain
+                    // for THIS track only. Stateless per call, same discipline
+                    // as patternOverride. Rhythm entries are ignored in v1:
+                    // every Rhythm track lives on shared channel 9, so a
+                    // per-musician CC7 there would leak across drummers.
+                    float? mixGain = null;
+                    if (mixGains != null &&
+                        mixGains.TryGetValue(trackKey, out var mg))
+                    {
+                        if (cfg.Role == TrackRole.Rhythm)
+                        {
+                            Debug.LogWarning(
+                                $"{LogTag} [MixGain] Rhythm entries are " +
+                                $"ignored in v1 (shared channel 9) — " +
+                                $"mus='{cfg.MusicianId}'. No CC7 emitted.");
+                        }
+                        else
+                        {
+                            mixGain = mg;
+                        }
+                    }
+
                     // MGP-ALWTTT-DBG-1 (Ask A): collection sink. The composer
                     // fills the content fields; identity (musicianId, role) is
                     // stamped HERE, authoritatively, from the track config.
@@ -471,7 +510,11 @@ namespace MidiGenPlay.Composition
 
                     GenerateOne(full, part, cfg, channelMap[i], bpm,
                         partTicks, cursorTicks: 0, ctx, producedByRole, trackRng,
-                        trackSeed, patternOverride, CollectResolved);
+                        trackSeed, patternOverride, CollectResolved,
+                        mixGain,
+                        // MGP-MIX-1 (D-MIX-5=A): record what was actually
+                        // emitted; keyed identically to every other surface.
+                        cc7 => render.appliedCc7ByTrack[trackKey] = cc7);
 
                     // Report back the actually-used instrument so caller can pin it
                     if (!string.IsNullOrEmpty(cfg.MusicianId) && cfg.Instrument != null)
@@ -530,7 +573,12 @@ namespace MidiGenPlay.Composition
             // stateless per call and default to null — GenerateSong passes
             // nothing (no override channel, no PartRender to collect into).
             PatternDataSO patternOverride = null,
-            Action<ResolvedTrackChoice> reportResolved = null)
+            Action<ResolvedTrackChoice> reportResolved = null,
+            // MGP-MIX-1: stateless per call, defaults preserve the exact
+            // 1.1.0 behavior. mixGain is pre-filtered by the caller (Rhythm
+            // never reaches here with a value; D-MIX-4=A).
+            float? mixGain = null,
+            Action<int> reportAppliedCc7 = null)
         {
             if (!_factories.TryGetValue(cfg.Role, out var factory))
             {
@@ -578,6 +626,32 @@ namespace MidiGenPlay.Composition
 
             TrimFileToLength(trackFile, partTicks);
             TagTrackWithMusician(trackFile, cfg.MusicianId, cfg.Role);
+
+            // MGP-MIX-1 (D-MIX-1=A / D-MIX-3): consumer mix gain, applied as
+            // one CC7 on this track's channel, in the generated bytes (never a
+            // playback-layer state — IMixController is a separate, live-mix
+            // concern). Multiplicative law: effective = volume01 * gain,
+            // identity mapped to the GM channel-volume default (100), so
+            // gain 1.0 is level-neutral and gains up to 1.27 have headroom.
+            // volume01=0 or gain=0 => CC7=0: the track is muted but its note
+            // events remain in the file. Applied BEFORE ShiftFile so the CC7
+            // travels with the bank/patch preamble to the part start. No RNG,
+            // no seed involvement — determinism is by construction.
+            if (mixGain.HasValue)
+            {
+                float vol01 = cfg.Instrument != null ? cfg.Instrument.volume01 : 1f;
+                int cc7 = Mathf.Clamp(
+                    Mathf.RoundToInt(vol01 * mixGain.Value * 100f), 0, 127);
+                MidiGenerator.ApplyChannelVolume(trackFile, channel, cc7);
+                reportAppliedCc7?.Invoke(cc7);
+
+                if (_settings?.logGenerator == true)
+                {
+                    Debug.Log($"{LogTag} [MixGain] mus='{cfg.MusicianId}' " +
+                              $"role={cfg.Role} ch={channel} vol01={vol01:0.###} " +
+                              $"gain={mixGain.Value:0.###} => CC7={cc7}");
+                }
+            }
 
             if (_settings?.logGenerator == true)
             {

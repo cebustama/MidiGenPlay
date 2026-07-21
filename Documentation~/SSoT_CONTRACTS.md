@@ -89,7 +89,20 @@ Migration prefers:
 
 over deletion.
 
-## 8. Update completion contract
+## 8. Consumer mix gain contract (MGP-MIX-1)
+
+- No entry ⇒ no event: a render with a null/empty `mixGains` map, or a track
+  without an entry, is byte-identical to the pre-MIX-1 render.
+- Same seed + same map ⇒ same bytes. The gain path consumes no randomness and
+  displaces no draw (stripped-CC7 note-identity is test-pinned).
+- Law: `cc7 = clamp(round(volume01 × gain × 100), 0, 127)`; gain 0 or
+  volume01 0 mutes without removing note events.
+- Keying: `MusicianTrackKey (musicianId, TrackRole)`; Rhythm entries
+  warn+ignore in v1.
+- `volume01` stays package-side; consumer gain is per-render data, never a
+  `SongConfig` field, never an asset override.
+
+## 9. Update completion contract
 
 A technical change is not complete until:
 

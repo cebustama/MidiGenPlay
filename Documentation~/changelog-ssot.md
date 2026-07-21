@@ -1,5 +1,109 @@
 # changelog-ssot
 
+## 2026-07-20 — MGP-MIX-1: consumer-side mix gain (package 1.2.0)
+
+Closes the seam D-BAG-3=A opened. `GenerateSinglePart` gains an optional
+`mixGains : IReadOnlyDictionary<MusicianTrackKey, float>` (D-MIX-2=A). Entry ⇒
+one CC7 on that track's channel, `clamp(round(volume01 × gain × 100), 0, 127)`
+(D-MIX-1=A, D-MIX-3: multiplicative, per-entry emission gate, identity = GM
+default 100). No entry ⇒ zero new events ⇒ bit-identical to the pre-MIX-1
+render. Rhythm warn+ignore in v1 (shared ch9, D-MIX-4=A). Readback:
+`PartRender.appliedCc7ByTrack` (D-MIX-5=A). Deterministic by construction (no
+RNG/seed involvement). `MidiGenerator.ApplyChannelVolume` gains its first
+package-side call site (was call-site-dead since 1.0.0; kept public,
+unchanged). New tests: `SongOrchestrator_MixGainTests` (8). Handoff to ALWTTT
+filed under `reference/cross-project/ALWTTT/Handoff_MGP_MIX_1.md`.
+volume01 authoring of the 70 instruments: deliberately deferred to a later
+version, post ALWTTT D-CSV-18 verdicts (D-MIX-6). GenerateSong: unchanged.
+Interface note: trailing optional param is source-compatible for callers,
+breaking for `ISongOrchestrator` test doubles.
+
+### Version note
+`package.json` goes **1.0.0 -> 1.2.0** in a single jump. The 1.1.0 bump that
+MGP-BAGGAGE-1 planned was never materialized in `package.json`; 1.1.0 was never
+published. Both batches therefore ship in **1.2.0**, and 1.1.0 is a version that
+does not exist. Consumers pin 1.2.0. Any earlier statement pointing ALWTTT at
+1.1.0 is superseded by this entry.
+
+## 2026-07-20 — MGP-BAGGAGE-1: shipped-catalogue cleanup (ships in package 1.2.0)
+
+Documentation/maintenance batch opened by an ALWTTT request (measured inventory
+export, 218 assets with derived health flags). Disposition-only: no runtime
+semantics, no code changes, no new contracts. Planned as 1.1.0; that bump was
+never materialized, so this batch ships in 1.2.0 alongside MGP-MIX-1 (see the
+version note above).
+
+### Removed
+- `Runtime/Resources/ScriptableObjects/Patterns/Chords/ChordProgression-Default{TwoFour,
+  ThreeFour,FourFour,FiveFour,SixEight,SevenEight,NineEight,TwelveEight}.asset` (8) —
+  six empty, two with `Measures=0` (unrenderable). Never authored: all eight
+  serialized `TimeSignature=FourFour`, which is the enum's zero value, not an
+  authored choice.
+- `Runtime/Resources/ScriptableObjects/Patterns/Drums/DrumPattern-Default{…same 8…}.asset`
+  (8) — seven with no lanes, one all-silent. Same TS=0 signature.
+- `Runtime/Resources/ScriptableObjects/Patterns/Melodies/{BasicMelodyPattern 2..7,
+  FourFourMelody1..3,ThreeFourMelody1..2,OrangePeelBass}.asset` (12) — all empty,
+  single duplicate group.
+- `Patterns/Chords/Palettes/Test Palette.asset` and
+  `Patterns/Drums/Palettes/DrumPatternPalette.asset` (displayName "TestPalette") —
+  test fixtures carrying production-looking type names.
+- `ScriptableObjects/Melodic Style - Test 1.asset`, `Chord Progressions/Test
+  Progression.asset` — same category, found package-side during the audit.
+
+Thirty-two assets in total (8 + 8 + 12 + 2 + 2).
+
+Rationale (D-BAG-1=A): none of the thirty-two is a runtime fallback, an editor
+template or a test fixture. No governed SSoT declares them; no composer resolves a
+"default per time signature" by name. Composers take patterns from explicit
+references (`renderOverride ?? cardPattern ?? TrackParameters.Pattern`), never from
+the repository. But `PatternRepositoryResources` publishes everything under
+`Patterns/{Chords,Drums,Melodies}` through `GetAll*()` / `Get*(TimeSignature)`, so
+`GetChordProgressions(FourFour)` could return an unplayable asset to any
+consumer-side selector. Selection risk, not just baggage.
+
+### Moved
+- `Runtime/Resources/ScriptableObjects/Chord Progressions/` (the authored
+  progressions + `_ChordProgressionLibrary.asset` + `Palettes/`) →
+  `Samples/ExampleCatalogue/ChordProgressions/` (D-BAG-2=A). The now-empty
+  `Runtime/Resources/ScriptableObjects/Chord Progressions/` root is deleted
+  outright (D-BAG-2 follow-through): it is not a canonical enumeration root and
+  an empty folder inside `Resources/` only invites refilling.
+
+  This folder was a **second, older catalogue root**: not scanned by
+  `PatternRepositoryResources` (which reads `Patterns/Chords`), and not scanned by
+  `ChordProgressionCatalogueWizard` (which reads `Assets/Resources/...` — consumer
+  side). Orphaned from both runtime and tooling. Moving it out of `Resources/`
+  removes it from `Resources.LoadAll` while keeping the only authored example
+  progressions the package ships. `package.json` declares no `samples` key, so the
+  folder ships as ordinary package content. `MidiGenPlayConfig.progressionLibrary`
+  is a by-reference field and is unaffected by the path change.
+
+### Unchanged (deliberate)
+- `Patterns/Chords/Palettes/` and `Patterns/Drums/Palettes/` are kept as EMPTY
+  folders: they are the canonical enumeration roots pinned by MGP-ALWTTT-DBG-2.
+- `_Chord Progressions List.asset`, `_Drum Patterns List.asset`,
+  `_Melody Patterns List.asset` kept and emptied (D-BAG-4=A); the container types
+  stay. Emptied contents verified 2026-07-21: no entries left pointing at retired
+  assets.
+- `volume01` stays a package-side authoring field (nominal per-instrument level).
+  Currently 1.0 on all 70 melodic instruments — unauthored, not deliberately flat.
+  Consumer-side mix balance is a separate seam, opened and closed as MGP-MIX-1
+  (D-BAG-3=A).
+
+### Corrected measurement
+- The ALWTTT export flagged `Poly Synth` and `Warm Pad` as sharing soundfont/bank/
+  patch. False positive: `Warm Pad` is patch 89, `Poly Synth` is patch 90, with
+  `PatchName` and `PatchIndex` agreeing on both assets. `MIDIInstrumentSO.PatchIndex`
+  is 0-based GM (89 = Pad 2 warm, 90 = Pad 3 polysynth). Both correctly authored; no
+  package-side action.
+
+### Version
+- Planned as `package.json` 1.0.0 → 1.1.0. Minor bump, not a patch: removing content
+  from `Resources/` breaks GUID references in downstream projects. Verified that no
+  live ALWTTT content referenced any of the retired assets before removal. That bump
+  was never materialized; the content ships in 1.2.0 (see the MGP-MIX-1 version
+  note above).
+
 ## 2026-07-17 — MGP-ALWTTT-DBG-4+2: composition-debug package half, completion
 
 ### Added

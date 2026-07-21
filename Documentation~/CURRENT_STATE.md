@@ -2,10 +2,20 @@
 
 ## Active now
 
-- **No batch currently active** (MGP-ALWTTT-DBG-4+2 closed 2026-07-17, completing
-  the **composition-debug arc package half** — DBG-1+3 + DBG-4+2 both done; the
-  only remaining arc work is the single ALWTTT consumer session, driven by the
-  DBG-4+2 handoff. BPM-DET-1 + CA-T2 closed 2026-07-16; tests green, docs applied). The **Chord Articulation (CA) arc**
+- **No batch currently active** (MGP-MIX-1 closed 2026-07-20 — consumer-side
+  mix gain seam; MGP-BAGGAGE-1 closed the same day — catalogue cleanup. Both
+  ship in package **1.2.0**: the 1.1.0 bump BAGGAGE-1 planned was never
+  materialized in `package.json`, so the version goes 1.0.0 → 1.2.0 in a single
+  jump and 1.1.0 does not exist). Next candidates, in no committed order:
+  **volume01 authoring** of the 70 instruments (blocked on ALWTTT D-CSV-18
+  listening verdicts), **MGP-ALWTTT-BASSFILL-1** (recalibrated to a robustness
+  gap: warn-on-short-progression preferred over auto-fill; D-CSV-23 moves
+  ALWTTT's progression standard to 8 bars), and the **PatchName/PatchIndex
+  hygiene check** on the instrument catalogue. Earlier: MGP-ALWTTT-DBG-4+2
+  closed 2026-07-17, completing the **composition-debug arc package half** —
+  DBG-1+3 + DBG-4+2 both done; the only remaining arc work is the single ALWTTT
+  consumer session, driven by the DBG-4+2 handoff. BPM-DET-1 + CA-T2 closed
+  2026-07-16; tests green, docs applied. The **Chord Articulation (CA) arc**
   (`planning/active/Roadmap_Chord_Articulation.md`) has **CA-T1** (Tier-1 engine),
   **CA-F2** (monophonic bass consumer), **MGP-ALWTTT-ARTIC-1** (Random selection
   policy — seeded variation part 1), and now **CA-T2** (Tier-2 voicing-reshaping:
@@ -27,6 +37,45 @@
   and palette/seed-library expansion.
 
 ## Just completed
+
+- Closed **MGP-MIX-1** (2026-07-20, package **1.2.0**): consumer-side mix gain.
+  Per-render `mixGains` map on `GenerateSinglePart`, keyed `MusicianTrackKey`;
+  one CC7 per entried melodic track,
+  `clamp(round(volume01 × gain × 100), 0, 127)`; per-entry emission gate ⇒ no
+  entry = bit-identical to the pre-MIX-1 render; Rhythm warn+ignore in v1
+  (shared ch9); readback `PartRender.appliedCc7ByTrack`; 8 new tests
+  (`SongOrchestrator_MixGainTests`); handoff to ALWTTT filed under
+  `reference/cross-project/ALWTTT/Handoff_MGP_MIX_1.md`. Deterministic by
+  construction (no RNG, no seed-chain involvement).
+  `MidiGenerator.ApplyChannelVolume` gains its first package-side call site.
+  `GenerateSong` unchanged in v1. volume01 authoring deferred (D-MIX-6).
+
+- Closed **MGP-BAGGAGE-1** (2026-07-20, ships in package **1.2.0**):
+  documentation/maintenance
+  batch answering an ALWTTT inventory request. **32 dead assets retired** from the
+  shipped catalogue — 8 `ChordProgression-Default*` (6 empty, 2 with `Measures=0`),
+  8 `DrumPattern-Default*` (7 lane-less, 1 all-silent), 12 empty melody patterns, and
+  2 test palettes carrying production-looking names — plus `Melodic Style - Test 1`
+  and `Test Progression`. All sixteen `*-Default*` assets serialized
+  `TimeSignature=FourFour`, the enum's zero value: never authored, not
+  mis-authored. The stakes were higher than "unreferenced": composers resolve
+  patterns by explicit reference, but `PatternRepositoryResources` publishes
+  everything under `Patterns/{Chords,Drums,Melodies}` via `Get*(TimeSignature)`, so a
+  consumer-side selector could draw an unplayable asset. **`Chord Progressions/`
+  moved out of `Resources/`** to `Samples/ExampleCatalogue/ChordProgressions/`
+  (D-BAG-2=A) and the emptied source root deleted: it was a second, older catalogue
+  root, orphaned from both the runtime
+  repository (`Patterns/Chords`) and the catalogue wizard (`Assets/Resources/...`) —
+  the package-side half of ALWTTT's D-CSV-14 scan-root mismatch. `Patterns/{Chords,
+  Drums}/Palettes` stay as empty canonical enumeration roots (DBG-2 contract). The
+  three `_*List.asset` containers are kept and emptied (D-BAG-4=A; contents verified
+  2026-07-21). No
+  code, no runtime semantics, no contract changes. Two follow-ups spun out:
+  **MGP-MIX-1** (consumer-side mix gain composing with the package-side `volume01`,
+  D-BAG-3=A — now closed) and authoring the 70 `volume01` values, which are all still
+  at the 1.0
+  default. Handoff back to ALWTTT under
+  `reference/cross-project/ALWTTT/Handoff_MGP_BAGGAGE_1.md`.
 
 - Closed **MGP-ALWTTT-DBG-4+2** (2026-07-17): the remaining package half of the
   composition-debug arc. **Ask D / DBG-4 (D-DBG4=A, E-4/E-5=A):** new runtime

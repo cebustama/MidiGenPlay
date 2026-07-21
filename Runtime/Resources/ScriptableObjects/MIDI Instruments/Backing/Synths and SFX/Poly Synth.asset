@@ -16,7 +16,8 @@ MonoBehaviour:
   InstrumentType: 8
   SelectedSoundFont: ALWTTT
   BankName: 000
-  PatchName: 89 - Warm Pad
-  PatchIndex: 89
+  PatchName: 90 - Poly Synth
+  PatchIndex: 90
   octaveMin: 3
   octaveMax: 7
+  volume01: 1

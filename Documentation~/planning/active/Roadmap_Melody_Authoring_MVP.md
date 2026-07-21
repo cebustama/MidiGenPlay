@@ -33,6 +33,7 @@ Goals:
 - MIDI file import → absolute note → scale-degree conversion (Phase D1).
 - Probabilistic / weighted note events in `MelodyPatternData` (Phase D2).
 - Full `MelodyTrackComposer` pipeline capture as wizard generation source (Phase D3).
+- Performance metadata sink for articulatory rendering — Pink Trombone integration (Phase D4).
 
 ## Current code-backed baseline
 
@@ -582,6 +583,110 @@ This requires:
 Once available, this lets a designer use the full expressive power of the procedural
 system as a starting point, then hand-edit the captured pattern. This bridges the
 gap between procedural and authored melody workflows.
+
+---
+
+## Phase D4 — Performance metadata sink for articulatory rendering
+
+### Status
+Deferred. Post-MVP. **Gated** solely on a rendering POC returning a positive musical
+verdict (see "Sequencing" below). This is the package-side half of the Pink Trombone
+integration; it adds a per-slot metadata fan-out so a consumer (or a Sample-tier player)
+can articulate melody-family tracks with information MIDI cannot carry losslessly.
+
+### Origin
+From the evaluation in `research/PinkTrombone_Performance_Backbone_Proposal.md` and the
+accepted decision bundle in `research/PinkTrombone_Proposal_Agent_Review.md` (2026-05-24).
+That proposal's "Phase A" (a listening test consuming the existing `MidiFile`) and its
+"Phase B" (this sink) are distinct; **only Phase B touches package runtime**, and only it
+is tracked here.
+
+### Sequencing (updated 2026-07-07)
+The rendering POC — prove *composition → MidiFile → Pink Trombone audio* sounds worthwhile
+— is planned to run **first inside the MidiGenPlay repo as a Samples-tier scene** (its own
+asmdef consuming `MidiGenPlay.Runtime`; **not** runtime code), because that POC consumes the
+**already-existing** `MidiFile` output and therefore needs **zero runtime change**. ALWTTT
+integration (mixing, cards, live regeneration) follows the POC. **This D4 sink is the last
+step**, opened only if the POC and integration show the articulatory layer is worth the
+richer metadata. The earlier "after Phase 8 closes" gate is already met (Phase 8 closed
+2026-07-05); the only remaining gate is the POC's verdict.
+
+### Two-path emission requirement
+The completed MVP ships **two** melody rendering paths: the procedural pipeline and the
+authored-pattern path (`ComposeFromPattern`, §7 of the runtime SSoT). The sink must emit
+from **both**:
+- **Procedural path** — rich per-slot metadata (`PhrasePlanner` ran): accent, phrase
+  start/end, contour hint, phrase grouping.
+- **`ComposeFromPattern` path** — `PhrasePlanner` did not run, so phrase-structure flags
+  are largely absent; the sink still emits pitch, velocity, duration, timing, and the
+  derivable modal-degree flags (degree is explicit in `MelodyPatternData`). Consumers must
+  tolerate a reduced `PerformanceSlotInfo` from authored notes; the schema marks per-path
+  validity.
+This constraint did not exist when the proposal was written (the authored path was not yet
+built then).
+
+### Target deliverables
+- **`IPerformanceMetadataSink` + `PerformanceSlotInfo`** (new package-side interface +
+  readonly struct in `Runtime/CoreScripts/Composition/Performance/`). **Field list deferred**
+  until the POC reports (D-PT-1). Provisional candidates: routing context (`PartIndex`,
+  `Repetition`, `Role`, `MusicianId`, `Channel`); timing/pitch (`WhenBeat`, `DurBeats`,
+  `Pitch`, `Velocity`, `PlayNote`); phrase structure (`IsAccent`, `IsPhraseStart`,
+  `IsPhraseEnd`, `ContourHint`, `PhraseId`, `SlotIndexInPhrase`, `SlotCountInPhrase`);
+  composer-derived modal flags (`IsTonicDegree`, `IsCharacteristicDegree`, `IsChordTone`);
+  plus a per-path validity marker.
+- **`MelodyTrackComposer` fan-out from both paths** — emit `OnSlotRendered` immediately
+  after each note is written to the `PatternBuilder`. No sink registered ⇒ bit-identical to
+  today.
+- **Sink registration surface** — via `GenContext` (preferred; already the
+  orchestration-scoped carrier) or `MidiGenerator`. Finalized at implementation start.
+- **Modal-degree classification** — derived post-hoc in `MelodyTrackComposer` via existing
+  `MelodyStrategyCommon` helpers; `IMelodyStrategy` is **not** changed (D-PT-3).
+
+### Accepted decisions (2026-05-24; see the review doc)
+- **D-PT-1** — Surface approved in concept; struct field list deferred until the POC reports.
+- **D-PT-2** — Determinism invariant extends to the **sink stream only**, not to audio.
+- **D-PT-3** — Composer re-derives modal-degree classification; no `IMelodyStrategy` change.
+- **D-PT-4** — POC unblocked at any time; this phase revisited on a positive POC verdict
+  (the Phase-8 half of the original gate is already met).
+
+### Determinism contract extension
+Given identical inputs and seed, the sequence of `OnSlotRendered` calls and the contents of
+each `PerformanceSlotInfo` are bit-identical. Per-render seed threading already exists
+(`SongOrchestrator.GenerateSong(SongConfig, int? seedOverride)`, MGP-ALWTTT-SEED-1). Audio
+determinism is explicitly **not** part of the package contract.
+
+### Scope
+In: the interface + struct; fan-out in `MelodyTrackComposer` only (both paths); modal-degree
+derivation; SSoT updates for the new surface + extended determinism wording.
+Out: consumer/Sample-side synth integration; roles beyond `Melody`/`Lead`; any voice-profile
+or mapping asset; any audio-determinism wording.
+
+### Definition of done
+- `IPerformanceMetadataSink` + `PerformanceSlotInfo` exist under `Runtime/.../Composition/Performance/`.
+- Fan-out fires from both melody paths when a sink is registered; no-sink behavior is bit-identical.
+- Determinism: same inputs + seed ⇒ same `OnSlotRendered` sequence and contents.
+- No regression in either existing melody path.
+- ≥1 consumer/Sample/test-harness validation that the stream is consumable and correct.
+- Governed docs updated per triggers below.
+
+### SSoT update triggers at phase boundary
+- `runtime/SSoT_Composer_Melody_Track.md` — new section: sink contract; note fan-out in both
+  the procedural flow and `ComposeFromPattern` (§7).
+- `runtime/SSoT_Runtime_Generation_Orchestration.md` — determinism invariant clarified to
+  include the sink stream (and explicitly exclude audio).
+- `coverage-matrix.md` — new concept row: "melody performance metadata sink" → primary
+  `SSoT_Composer_Melody_Track.md`.
+- `changelog-ssot.md` — new package authority added.
+- `CURRENT_STATE.md` — active focus and completion summary.
+
+### Risks tracked
+- **Authority drift on `PerformanceSlotInfo`** — schema provisional until the phase opens;
+  additive-only thereafter.
+- **Two-path metadata asymmetry** — authored notes carry less phrase-structure metadata; the
+  schema marks per-path validity.
+- **Interaction with Phase 9 (phrasing/feel)** — Phase 9 (a live "Next" candidate) may change
+  what phrase metadata exists. If Phase 9 lands first, freeze the phrase-structure fields
+  after it so the sink reflects the final phrase model.
 
 ---
 

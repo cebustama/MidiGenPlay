@@ -204,6 +204,44 @@ observability, and the re-key does not alter draw order. Guarded by
 `Tests/Editor/PatternOverrideAndReadbackTests.cs` (null-map == empty-map ==
 re-run FNV equality) and `SongOrchestratorKeyingTests.cs`.
 
+### 5.4 Consumer mix gain (MGP-MIX-1)
+
+`GenerateSinglePart` accepts an optional per-render map
+`IReadOnlyDictionary<MusicianTrackKey, float> mixGains`. Contract:
+
+- **Per-entry emission gate.** A track emits exactly one CC7 (channel volume)
+  on its own channel **iff** it has an entry in the map. Null map, empty map,
+  or no entry ⇒ zero new events ⇒ bit-identical to the pre-seam render.
+- **Value.** `clamp(round(Instrument.volume01 × gain × 100), 0, 127)`
+  (`Mathf.RoundToInt`). Identity (1.0 × 1.0) = 100, the GM channel-volume
+  default, so gain 1.0 is level-neutral next to un-entried tracks.
+  `volume01` is authoring-clamped 0..1; boost headroom comes only from
+  gain > 1 (saturation at gain ~1.27 for an unauthored instrument).
+- **Insertion point.** `GenerateOne`, after `TrimFileToLength` /
+  `TagTrackWithMusician`, before `ShiftFile` / `MergeInto`, via
+  `MidiGenerator.ApplyChannelVolume` on the per-track file (lands after the
+  bank/patch preamble). This gives `ApplyChannelVolume` its first package-side
+  call site; the utility itself is unchanged.
+- **Rhythm excluded in v1 (D-MIX-4=A).** All Rhythm tracks share channel 9
+  (`BuildChannelMap`), so a per-musician CC7 there cannot target one drummer.
+  A `TrackRole.Rhythm` entry is warn + ignore (same contract shape as
+  Bassline in `patternOverrides` v1). Metronome: out by construction (not a
+  musician track, never keyed).
+- **Readback (D-MIX-5=A).** `PartRender.appliedCc7ByTrack
+  : Dictionary<MusicianTrackKey, int>` — the CC7 actually emitted, entries
+  only for gained melodic tracks. Orchestrator-stamped; deliberately NOT on
+  `ResolvedTrackChoice` (that surface reports composer resolutions; this is
+  an orchestrator application).
+- **Determinism.** Pure data: no `ctx.rng`, no seed-chain involvement. Same
+  seed + same map ⇒ same bytes. Test-pinned in
+  `SongOrchestrator_MixGainTests` (identity gates, application, law, clamps,
+  Rhythm exclusion, note-identity of the stripped render).
+- `GenerateSong` does not take the map in v1 (no consumer of that path needs
+  it; extend on demand).
+- Playback-layer separation: `IMixController` / `PassthroughMixController`
+  (live channel control via `IPlayMidi`, ducking/highlight) are a distinct
+  plane. MIX-1 lives in the bytes; both compose at the synth.
+
 ## 6. Meter and timing rule
 
 For package runtime rendering, the **Part time signature is authoritative**.
@@ -241,4 +279,7 @@ Update this SSoT when:
   unseeded helper,
 - the `PartRender` keying, the `mus:` tag format, the `ReportResolved` /
   `patternOverride` `GenContext` surface, or the per-render override precedence
-  change (MGP-ALWTTT-DBG-1+3, §5.3).
+  change (MGP-ALWTTT-DBG-1+3, §5.3),
+- the consumer mix-gain contract (§5.4) changes: the per-entry emission gate,
+  the composition law, the identity scale, the keying, the Rhythm exclusion,
+  or the `appliedCc7ByTrack` readback shape (MGP-MIX-1).
