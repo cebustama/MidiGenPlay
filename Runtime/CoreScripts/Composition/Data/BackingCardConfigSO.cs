@@ -45,6 +45,15 @@ namespace MidiGenPlay.Composition
         public List<ChordExpressionWeight> randomFigureWeights =
             new List<ChordExpressionWeight>();
 
+        [Tooltip("CA-V1 (D-V1-JIT-SCOPE=A). Seeded per-hit velocity jitter, in " +
+                 "MIDI velocity units: every articulation hit is offset by a " +
+                 "deterministic amount uniform in [-n, +n] and clamped 1..127. " +
+                 "0 (default) = exact legacy velocities. Applies to ALL figures, " +
+                 "Block included (humanizing a block render is the point). " +
+                 "Deterministic: same seed => same jitter => same bytes.")]
+        [Range(0, 32)]
+        public int velocityJitter = 0;
+
         [Header("Chord Progression (optional card override)")]
         [Tooltip("If set, this progression will be used for the backing track " +
                  "instead of library/procedural generation.")]

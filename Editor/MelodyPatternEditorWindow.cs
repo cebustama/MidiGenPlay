@@ -8,6 +8,8 @@ using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 using ScaleDegree = MidiGenPlay.MusicTheory.MusicTheory.ScaleDegree;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
+using MidiFile = Melanchall.DryWetMidi.Core.MidiFile;
+using NoteName = Melanchall.DryWetMidi.MusicTheory.NoteName;
 using MidiGenPlay.Composition;
 using MidiGenPlay.Authoring;
 using MidiGenPlay.Services;
@@ -109,6 +111,14 @@ public class MelodyPatternEditorWindow : EditorWindow
     [SerializeField] private bool _genFoldout = true;
     private UnityEditor.Editor _genParamsEditor;
 
+    // M2 (Roadmap_MIDI_Import) — MIDI file import panel state. Root + tonality are
+    // user-specified (D-MIDI1=A); channel is 1-based for display, 0 = all channels.
+    [SerializeField] private bool _midiPanelExpanded = true;
+    [SerializeField] private NoteName _midiImportRoot = NoteName.C;
+    [SerializeField] private Tonality _midiImportTonality = Tonality.Ionian;
+    [SerializeField] private int _midiImportChannel1Based = 0;
+    private readonly List<string> _midiImportWarnings = new List<string>();
+
     [SerializeField] private TimeSignature editTimeSignature = TimeSignature.FourFour;
     [SerializeField] private int editMeasures = 2;
     [SerializeField] private int editSubdivisions = 4;   // steps per beat (16th grid default)
@@ -198,6 +208,8 @@ public class MelodyPatternEditorWindow : EditorWindow
         DrawGenerationParams();
         EditorGUILayout.Space(4f);
         DrawTimingControls();
+        EditorGUILayout.Space(4f);
+        DrawMidiImportPanel();
         EditorGUILayout.Space(4f);
         DrawGridSection();
         EditorGUILayout.Space(6f);
@@ -475,6 +487,153 @@ public class MelodyPatternEditorWindow : EditorWindow
         editMinOctave = min;
         editMaxOctave = max;
         Repaint();
+    }
+
+    // -------------------------------------------------------------------------
+    // M2 (Roadmap_MIDI_Import) — MIDI file import panel
+    // -------------------------------------------------------------------------
+
+    private void DrawMidiImportPanel()
+    {
+        _midiPanelExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(
+            _midiPanelExpanded, "MIDI File Import");
+
+        if (_midiPanelExpanded)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(
+                    "Imports a .mid file into the working copy using the Timing controls " +
+                    "above (time signature + subdivisions). Measures are derived from the " +
+                    "file content. Pitches map to scale degrees against the key below; " +
+                    "chromatic notes snap to the nearest degree and chords are reduced to " +
+                    "the highest note, with warnings. Nothing is written to the asset " +
+                    "until Apply / Save As.",
+                    EditorStyles.wordWrappedMiniLabel);
+
+                _midiImportRoot = (NoteName)EditorGUILayout.EnumPopup(
+                    new GUIContent("Key Root",
+                        "Root of the key the file should be read in (D-MIDI1: " +
+                        "user-specified, no auto-detection)."),
+                    _midiImportRoot);
+
+                _midiImportTonality = (Tonality)EditorGUILayout.EnumPopup(
+                    new GUIContent("Tonality",
+                        "Mode used to map absolute pitches to scale degrees I–VII."),
+                    _midiImportTonality);
+
+                _midiImportChannel1Based = Mathf.Clamp(
+                    EditorGUILayout.IntField(
+                        new GUIContent("MIDI Channel (0 = all)",
+                            "Only read notes on this 1–16 channel. 0 reads every channel; " +
+                            "merging multiple channels emits a warning listing per-channel " +
+                            "note counts."),
+                        _midiImportChannel1Based),
+                    0, 16);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUI.enabled = _working != null;
+                    if (GUILayout.Button(
+                        new GUIContent("Import MIDI File…",
+                            "Choose a .mid file to quantize into the melody grid."),
+                        GUILayout.Width(170f)))
+                        OnImportMidiFile();
+                    GUI.enabled = true;
+                }
+
+                if (_midiImportWarnings.Count > 0)
+                {
+                    EditorGUILayout.Space(2f);
+                    EditorGUILayout.LabelField(
+                        $"MIDI import notes ({_midiImportWarnings.Count})",
+                        EditorStyles.boldLabel);
+                    for (int i = 0; i < _midiImportWarnings.Count; i++)
+                        EditorGUILayout.LabelField(_midiImportWarnings[i], EditorStyles.miniLabel);
+                }
+            }
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+    }
+
+    private void OnImportMidiFile()
+    {
+        if (_working == null) return;
+
+        string path = EditorUtility.OpenFilePanel("Import MIDI File", "", "mid");
+        if (string.IsNullOrEmpty(path)) return; // user cancelled — not a warning
+
+        _midiImportWarnings.Clear();
+
+        MidiFile file;
+        try
+        {
+            file = MidiFile.Read(path);
+        }
+        catch (Exception ex)
+        {
+            _midiImportWarnings.Add(
+                $"Could not read '{Path.GetFileName(path)}': {ex.GetType().Name}: {ex.Message}");
+            Repaint();
+            return;
+        }
+
+        var options = new MelodyMidiImporter.Options
+        {
+            rootNote = _midiImportRoot,
+            tonality = _midiImportTonality,
+            timeSignature = editTimeSignature,
+            subdivisions = Mathf.Clamp(editSubdivisions, 1, 8),
+            measures = 0, // derive from content (covers the last note end)
+            channel = _midiImportChannel1Based - 1, // 0 (all) → -1
+        };
+
+        var result = MelodyMidiImporter.Import(file, options);
+
+        foreach (var w in result.warnings)
+            _midiImportWarnings.Add(w.ToString());
+
+        if (result.mode != MelodyMidiImporter.ImportMode.Full)
+        {
+            Repaint(); // Failed: nothing applied; existing notes preserved.
+            return;
+        }
+
+        ApplyMidiImport(result);
+
+        // M2-D2=A traceability: echo the auto-centered reference octave.
+        _midiImportWarnings.Add(
+            $"Imported {result.notes.Count} note(s) in {_midiImportRoot} {_midiImportTonality} · " +
+            $"reference octave {result.referenceOctave} → offset 0 " +
+            $"(offsets {result.minOctaveOffset:+0;-0;0}..{result.maxOctaveOffset:+0;-0;0}).");
+        Repaint();
+    }
+
+    /// <summary>
+    /// Apply an M2 import result to the working copy: signature + the full note
+    /// list (the importer's output is already monophonic, quantized, and ordered).
+    /// Mirrors <c>DrumPatternEditorWindow.ApplyMidiImport</c> structurally; melody
+    /// has no lanes and no Text mode, so this is a straight note-list replacement.
+    /// The asset itself is untouched until Apply / Save As.
+    /// </summary>
+    private void ApplyMidiImport(MelodyMidiImporter.Result result)
+    {
+        if (_working == null) return;
+
+        // Sync the editor's timing controls so the readout matches.
+        editTimeSignature = result.timeSignature;
+        editMeasures = Mathf.Max(1, result.measures);
+        editSubdivisions = Mathf.Clamp(result.subdivisions, 1, 8);
+
+        int beats = TimeSignatureProperties[editTimeSignature].BeatsPerMeasure;
+        _working.SetSignature(beats, editMeasures, editSubdivisions);
+        _working.TimeSignature = editTimeSignature;
+
+        _working.notes = new List<MelodyPatternData.MelodyNoteEvent>(result.notes);
+
+        ClearSelection();
+        FitOctaveWindowToNotes();
     }
 
     // -------------------------------------------------------------------------

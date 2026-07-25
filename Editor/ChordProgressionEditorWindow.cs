@@ -97,7 +97,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
     private RomanProgressionParser romanParser = new RomanProgressionParser();
     private RhythmGridQuantizer rhythmQuantizer = new RhythmGridQuantizer();
 
-    private bool showAllowedTonalities = true; // foldout state
+    // IMPORT-QOL-1 item 4 (D-QOL1-6=B): collapsed by default AND serialized so
+    // the state persists across domain reloads like the other foldouts.
+    [SerializeField] private bool showAllowedTonalities = false;
     private GUIStyle gridPreviewStyle;
     private GUIStyle chordBlockLabelStyle;
     private ChordProgressionData lastLoadedAsset;
@@ -369,6 +371,11 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
         EditorGUILayout.Space();
         DrawLLMPanel();
+
+        // M3 (Roadmap_MIDI_Import.md) — MIDI file → chord events panel
+        // (implemented in ChordProgressionEditorWindow_MidiImport.cs).
+        EditorGUILayout.Space();
+        DrawMidiImportPanel();
 
         EditorGUILayout.EndScrollView();
     }
@@ -1031,7 +1038,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         targetAsset.Measures = totalMeasures;
         targetAsset.subdivisions = subdivisions;
 
-        // Store original string for debugging / display
+        // Store original string for debugging / display. IMPORT-QOL-1 item 6:
+        // a Roman-path apply supersedes any imported-grid lineage.
+        midiImportProvenanceFile = "";
         targetAsset.originalInput = progressionInput;
 
         // Allowed tonalities from the toggles
@@ -1153,10 +1162,14 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
         targetAsset.events.AddRange(cleaned);
 
-        // Build Roman string from the grid for metadata (originalInput + DisplayName)
+        // Build Roman string from the grid for metadata (originalInput + DisplayName).
+        // IMPORT-QOL-1 item 6 (D-QOL1-5=B): originalInput carries the MIDI
+        // provenance suffix (accepted DisplayName cost); progressionInput stays
+        // clean so the Roman pipeline below keeps parsing. Rebuilt each apply,
+        // so the suffix never accumulates.
         string romanFromGrid = BuildRomanStringFromGrid(cleaned);
-        progressionInput = romanFromGrid;   // keep UI in sync
-        targetAsset.originalInput = romanFromGrid;
+        progressionInput = romanFromGrid;   // keep UI in sync (parseable)
+        targetAsset.originalInput = WithMidiProvenance(romanFromGrid);
         targetAsset.UpdateDisplayNameAuto();
 
         // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + Refresh + cache refresh.
@@ -1391,9 +1404,14 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             return;
         }
 
-        // Use originalInput if present
+        // Use originalInput if present. IMPORT-QOL-1 item 6: strip any MIDI
+        // provenance suffix — it is asset metadata, not Roman grammar, and
+        // would fail the parser if loaded into the input field.
         if (!string.IsNullOrWhiteSpace(targetAsset.originalInput))
-            progressionInput = targetAsset.originalInput;
+            progressionInput = StripMidiProvenance(targetAsset.originalInput);
+
+        // A rebind severs the import lineage: the next apply is this asset's.
+        midiImportProvenanceFile = "";
 
         // Sync meter
         timeSignature = targetAsset.TimeSignature;
@@ -1619,10 +1637,12 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         assetFromGrid.events.Clear();
         assetFromGrid.events.AddRange(cleanedEvents);
 
-        // Derive Roman string for metadata
+        // Derive Roman string for metadata. IMPORT-QOL-1 item 6: same
+        // provenance rule as ApplyGridToTarget (one behavior, not two). The
+        // OnTargetAssetChanged() below then clears the lineage flag.
         string romanFromGrid2 = BuildRomanStringFromGrid(cleanedEvents);
         progressionInput = romanFromGrid2;
-        assetFromGrid.originalInput = romanFromGrid2;
+        assetFromGrid.originalInput = WithMidiProvenance(romanFromGrid2);
         assetFromGrid.UpdateDisplayNameAuto();
 
         // Make the window edit this new asset
@@ -1842,6 +1862,25 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         return prefix + roman + suffix;
     }
 
+    /// <summary>
+    /// IMPORT-QOL-1 (D-QOL1-8) — duration format for grid-derived Roman
+    /// strings. Durations are k / (beatsPerMeasure × subdivisions) measures, so
+    /// two decimals ("0.##", the previous format) TRUNCATES anything finer than
+    /// a quarter of a measure: 25/32 became "0.78" instead of 0.78125. The
+    /// derived string then failed to round-trip —
+    /// <see cref="RhythmGridQuantizer"/> requires each duration to land within
+    /// 0.001 steps of an integer for some subdivisions in 1..8, and 0.78 lands
+    /// 0.04 steps off at every candidate, so the Roman preview reported
+    /// "Could not find a valid 'subdivisions' value for these durations" and
+    /// the string written to originalInput was not re-parseable. Six decimals
+    /// are exact for every power-of-two grid (up to 4×8 = 32 steps/measure) and,
+    /// for non-terminating cases such as 6/8 × 8 (1/48 measure), leave a
+    /// residual of ~2e-5 steps — three orders of magnitude inside the tolerance.
+    /// Grid-authored assets with coarse durations are unaffected: trailing
+    /// zeros are still omitted, so "I (1)" stays "I (1)".
+    /// </summary>
+    private const string DurationFormat = "0.######";
+
     private string BuildRomanStringFromGrid(
         IReadOnlyList<ChordProgressionData.ChordEvent> sortedEvents)
     {
@@ -1862,7 +1901,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             {
                 int restSteps = e.startStep - cursor;
                 float restMeasures = restSteps / (float)stepsPerMeasure;
-                string restDurStr = restMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+                string restDurStr = restMeasures.ToString(
+                    DurationFormat, CultureInfo.InvariantCulture);
                 // Use "S" as the explicit rest marker
                 tokens.Add($"S ({restDurStr})");
                 cursor += restSteps;
@@ -1870,7 +1910,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
             // 2) Chord event itself
             float durMeasures = e.lengthSteps / (float)stepsPerMeasure;
-            string durStr = durMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+            string durStr = durMeasures.ToString(
+                DurationFormat, CultureInfo.InvariantCulture);
 
             string roman = BuildRomanTokenFromEvent(e);
             tokens.Add($"{roman} ({durStr})");
@@ -1883,7 +1924,8 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         {
             int restSteps = totalSteps - cursor;
             float restMeasures = restSteps / (float)stepsPerMeasure;
-            string restDurStr = restMeasures.ToString("0.##", CultureInfo.InvariantCulture);
+            string restDurStr = restMeasures.ToString(
+                DurationFormat, CultureInfo.InvariantCulture);
             tokens.Add($"S ({restDurStr})");
         }
 

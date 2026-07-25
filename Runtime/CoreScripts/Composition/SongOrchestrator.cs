@@ -914,6 +914,20 @@ namespace MidiGenPlay.Composition
         public static int ResolveArticulationSeed(int trackSeed)
             => StableHash32($"{trackSeed}|artic");
 
+        // CA-V1 (D-V1-RATE-STREAM=A): dedicated arpeggio-rate substream. Kept
+        // separate from "|artic" so that toggling the rate sentinel on a card
+        // cannot shift the figure roll sequence — the same orthogonality the
+        // articulation stream has against ctx.rng.
+        public static int ResolveArticulationRateSeed(int trackSeed)
+            => StableHash32($"{trackSeed}|articrate");
+
+        // CA-V1 (D-V1-JIT-SRC=A): dedicated velocity-jitter substream. Consumed
+        // as a SEED for a pure mix, not as a stream — see VelocityJitter. Since
+        // trackSeed already folds in role + musicianId, backing and bass on the
+        // same part jitter independently by construction.
+        public static int ResolveVelocityJitterSeed(int trackSeed)
+            => StableHash32($"{trackSeed}|articvel");
+
         // BPM-DET-1 (D-BPM2=A): dedicated tempo substream seed. FNV-1a over a
         // documented string keyed on (baseSeed, partIndex) — the tempo is chosen
         // per part-occurrence, not per rep, so rep is intentionally NOT in the

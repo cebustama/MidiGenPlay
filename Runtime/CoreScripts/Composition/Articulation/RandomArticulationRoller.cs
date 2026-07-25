@@ -41,6 +41,10 @@ namespace MidiGenPlay.Composition
         /// <summary>Concrete Tier-1 pool size: exactly the members with value
         /// below the Random sentinel.</summary>
         public const int ConcretePoolSize = (int)ChordExpressionType.Random; // 6
+        /// <summary>Concrete rate pool size: exactly the members with value below
+        /// the ArpeggioRate.Random sentinel (CA-V1, D-V1-RATE-POOL=A — uniform,
+        /// no weight list in v1).</summary>
+        public const int ConcreteRatePoolSize = (int)ArpeggioRate.Random; // 3
 
         private readonly System.Random _rng;
         private readonly float _rerollChance;
@@ -58,13 +62,27 @@ namespace MidiGenPlay.Composition
         private bool _hasCurrent;
         private ChordExpressionType _current;
 
+        // CA-V1 (D-V1-RATE-STREAM=A): the arpeggio-rate roll runs on its OWN
+        // System.Random, so enabling/disabling it cannot shift a single figure
+        // draw. Null when the card's rate is fixed.
+        private readonly System.Random _rateRng;
+        private readonly List<ArpeggioRate> _rateHistory = new List<ArpeggioRate>();
+        private bool _hasCurrentRate;
+        private ArpeggioRate _currentRate;
+
         public RandomArticulationRoller(
             System.Random rng,
             float rerollChance,
-            IReadOnlyList<ChordExpressionWeight> weights)
+            IReadOnlyList<ChordExpressionWeight> weights,
+            System.Random rateRng = null)
         {
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _rerollChance = Mathf.Clamp01(rerollChance);
+
+            // CA-V1: optional second stream. Supplied by the composer whenever the
+            // card's arpeggioRate is the Random sentinel; null keeps ARTIC-1
+            // behavior and call sites compiling unchanged.
+            _rateRng = rateRng;
 
             var (figures, cumulative, total, usedFallback, hadEntries) =
                 BuildWeightTable(weights);
@@ -110,6 +128,48 @@ namespace MidiGenPlay.Composition
             return _current;
         }
 
+        /// <summary>
+        /// CA-V1: resolves the effective arpeggio rate for the next chord event.
+        /// Never returns <see cref="ArpeggioRate.Random"/>.
+        ///
+        /// Draw discipline mirrors <see cref="NextFigure"/> exactly, on the rate
+        /// stream: first event = 1 pick; every later event = 1 gate draw plus a
+        /// conditional pick. D-V1-RATE-GRAN=A: the SAME rerollChance value drives
+        /// both axes (0 = one rate for the whole render, per-pattern variety via
+        /// the host's seedOverride; 1 = a fresh rate per chord event), but the
+        /// draws come from separate streams, so the two knobs stay orthogonal.
+        ///
+        /// Defensive: with no rate stream (fixed-rate card) this returns Eighth
+        /// rather than throwing — the composer never calls it in that case.
+        /// </summary>
+        public ArpeggioRate NextRate()
+        {
+            if (_rateRng == null) return ArpeggioRate.Eighth;
+
+            if (!_hasCurrentRate)
+            {
+                _currentRate = RollRate();
+                _hasCurrentRate = true;
+                _rateHistory.Add(_currentRate);
+                return _currentRate;
+            }
+
+            double gate = _rateRng.NextDouble();
+            if (gate < _rerollChance)
+                _currentRate = RollRate();
+
+            _rateHistory.Add(_currentRate);
+            return _currentRate;
+        }
+
+        // One draw per pick over the uniform concrete pool (the RollTempoBpm
+        // idiom); no weight table in v1.
+        private ArpeggioRate RollRate()
+            => (ArpeggioRate)_rateRng.Next(ConcreteRatePoolSize);
+
+        /// <summary>Resolved rates so far, in emission order (observability).</summary>
+        internal IReadOnlyList<ArpeggioRate> RateHistory => _rateHistory;
+
         /// <summary>Resolved figures so far, in emission order (observability).</summary>
         internal IReadOnlyList<ChordExpressionType> History => _history;
 
@@ -119,7 +179,10 @@ namespace MidiGenPlay.Composition
             => $"chance={_rerollChance:0.##} " +
                $"pool=[{string.Join(",", _figures)}]" +
                (_usedFallback ? " (uniform fallback)" : "") +
-               $" rolls=[{string.Join(", ", _history)}]";
+               $" rolls=[{string.Join(", ", _history)}]" +
+               (_rateRng != null
+                   ? $" rates=[{string.Join(", ", _rateHistory)}]"
+                   : "");
 
         private ChordExpressionType RollFigure()
         {

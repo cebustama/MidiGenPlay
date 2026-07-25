@@ -286,6 +286,13 @@ no-op on that chord. Where the pin moved the root or fifth, the reshaped power
 chord inherits that placement via the already-inverted bass. The pin path itself
 stays RNG-free and voicer-owned (§7.2/§7.3); reshaping owns no pin semantics.
 
+The register-selective figures (`BassUpperSplit`, `Bossa` — §8.6) sit at the
+END of this chain and add no rule of their own: "the bass" they anchor on is
+simply the lowest note as it stands after the voicer, after the pin, and after
+any reshape (D-BOSSA-BASSNOTE=A). A `Down` pin therefore makes them anchor on
+the INVERTED bass — that is the defined behaviour, not a conflict. Selection
+owns no pin semantics either.
+
 ## 8. Chord expression / articulation (Tier 1)
 
 CA-T1 adds a post-voicing articulation layer so the same voiced progression
@@ -347,9 +354,21 @@ meter — the articulator is RNG-free and never consumes `ctx.rng` (consuming
 the shared stream would perturb every downstream rng consumer in the same
 render). Per hit: `Clamp(round(e.velocity × factor, away-from-zero), 1, 127)`
 with factor ×1.00 on bar downbeats, ×0.85 on other integer beats, ×0.80 off
-the beat. Block keeps the legacy `Clamp(e.velocity, 0, 127)` untouched.
-Seeded jitter is a deferred opt-in extension (would fork a child rng, not
-tap `ctx.rng`).
+the beat. Block keeps the legacy `Clamp(e.velocity, 0, 127)` — but only while
+the CA-V1 jitter is off, which is the default; see §8.7 for the jittered
+clamp. Seeded jitter is DELIVERED (CA-V1) and, per D-V1-JIT-SRC=A, it did NOT
+fork a child rng: it is a pure mix over (seed, event index, hit index), so
+this section's "RNG-free" claim holds verbatim after CA-V1 rather than being
+weakened by it.
+
+**Per-figure exception (CA-T2-BOSSA-V2, D-FEEL-ACCENT=A).** The authentic
+`Bossa` template (§8.6) supplies its OWN accent tier per template row, reusing
+the three factor VALUES above (strong ×1.00 / medium ×0.85 / weak ×0.80) but
+assigning them by row rather than by beat position — the surdo weight sits on
+beat 2, not the downbeat, which the position curve cannot express and which
+the genre requires. Still a pure function of (figure, template row, base
+velocity); still RNG-free; the CA-V1 jitter post-pass composes unchanged.
+Every other figure keeps the position-derived curve.
 
 ### 8.4 Seam and structural both-sites guarantee
 
@@ -364,7 +383,34 @@ byte-level identity is pinned by
 `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`.
 
 `ChordArticulator.PlanHits` is the internal pure planning seam (the test
-surface); `Emit` is a thin PatternBuilder translator. All figure math builds
+surface); `Emit` is a thin PatternBuilder translator. `ArpeggioFits(durBeats,
+rate)` exposes the arpeggio degrade predicate as a pure static (BASS-WALK-1,
+D-WALK-FIT=A) so consumers that must stay monophonic can avoid handing a
+multi-note voicing to a plan that will degrade to `Block`; it is a read-only
+view of the existing rule, not a new one.
+
+**Selection vocabulary (`Hit.NoteIndex`).** A planned hit names WHICH of the
+notes handed to `Emit` sound; it never names a pitch. The vocabulary is closed
+and translated by EXACT match:
+
+- `-1` — the full chord, in the voicer's order verbatim.
+- `-2` — the UPPER VOICES: every note strictly above the lowest pitch of the
+  voicing (CA-T2-BOSSA, D-BOSSA-SEL=A). A degenerate voicing in which no note
+  is strictly higher falls back to the full chord (never silent).
+- `>= 0` — one note of the direction-sorted voicing (ascending for
+  `ArpeggioUp` and for the register-selective figures `BassUpperSplit` and
+  `Bossa`, descending for `ArpeggioDown`).
+
+Any other negative value is undefined and emits the full chord. The exact-match
+translation is deliberate: a blanket `NoteIndex < 0` test would silently render
+a subset sentinel as a full chord — green plan tests, wrong MIDI. This is the
+BASS-WALK-1 verification lesson applied at the seam, and every probe for a
+selection figure asserts on the EMITTED notes, not on pre-emission variables.
+
+Extending this vocabulary does not weaken §8's pitch-preserving contract:
+"pitch-preserving" means the articulator never alters a pitch VALUE, not that it
+never chooses among the values it is given — it has selected single notes since
+CA-T1. All figure math builds
 on the Part-derived `beatSpan`/`beatsPerBar` (meter authority, §5 of
 `SSoT_CONTRACTS.md`), never on asset values. The selection is threaded as
 parameters through `ComposeProcedural` → `RenderFromProgression` (MOD-DIR-1
@@ -425,17 +471,53 @@ uniform pool with a one-time construction warning (never silent). Figure
 picks use one `NextDouble` over the cumulative table (one-draw-per-pick
 idiom).
 
-Rolled arpeggio figures consume the card's fixed `arpeggioRate` (D5); the
-randomized-rate wish remains deferred on the CA roadmap. Per-event `chd:`
-markers are unaffected. Test surface:
+**Rate axis (CA-V1, supersedes D5).** `ArpeggioRate.Random` (member value `3`,
+appended; values 0..2 are serialized and unchanged) is the exact mirror of the
+figure sentinel: a selection policy, not a rate, resolved composer-side by
+`RandomArticulationRoller.NextRate()`. It is INDEPENDENT of the figure axis —
+a fixed figure with a random rate consumes zero figure draws, and vice versa.
+
+- **Stream (D-V1-RATE-STREAM=A).** Its own substream,
+  `SongOrchestrator.ResolveArticulationRateSeed(ctx.trackSeed)` (FNV-1a over
+  `"{trackSeed}|articrate"`). Toggling the rate sentinel therefore cannot shift
+  a single figure roll — the same orthogonality the articulation stream has
+  against `ctx.rng`, applied one level down. Test-pinned
+  (`RateRoll_DoesNotPerturbTheFigureSequence`).
+- **Granularity (D-V1-RATE-GRAN=A).** The SAME `randomRerollChance` value drives
+  both axes; the draws come from separate streams. `0` = one rate for the whole
+  render (per-pattern variety via the host's per-render `seedOverride`), `1` =
+  a fresh rate per chord event, intermediates = per-chord change probability.
+  Draw discipline mirrors the figure roll exactly: first event 1 pick, each
+  later event 1 gate draw plus a conditional pick.
+- **Pool (D-V1-RATE-POOL=A).** Uniform over exactly the concrete members with
+  value < `Random` (`PerBeat`, `Eighth`, `Sixteenth`), one draw per pick. There
+  is deliberately NO weight list for rates in v1; the figure-weight machinery is
+  not duplicated.
+- **Degrade.** A leaked `ArpeggioRate.Random` resolves to `Eighth` in
+  `ChordArticulator.ArpeggioIntervalBeats` (never silent), the same defensive
+  posture as the figure sentinel's Block-degrade.
+
+The rate sentinel is consumed by the arpeggio figures AND by Tier-2 `Chugging`
+(which overloads `arpeggioRate` as its pulse rate, §8.6) — no extra rule was
+added for that overload.
+
+Per-event `chd:` markers are unaffected by either axis (they are stamped
+outside the `Emit` call, one per event). Test surface:
 `Tests/Editor/ChordTrackComposer_RandomArticulationTests.cs` (seed-seam
 goldens, roller determinism/variance in the SEED-1 idiom, knob semantics,
-weight-table rules, `PlanHits(Random)==PlanHits(Block)`).
+weight-table rules, rate-roll semantics + stream orthogonality,
+`PlanHits(Random)==PlanHits(Block)`).
 
 The roller's resolved figure history (`RandomArticulationRoller.History`,
 observability-only, no extra draws) is snapshotted into the backing track's
 `ResolvedTrackChoice.resolvedFigures` for the Ask A readback (MGP-ALWTTT-DBG-1);
-fixed articulation reports null figures.
+fixed articulation reports null figures. **CA-V1 clarification (R4):** a
+rate-only random render builds a roller whose FIGURE history stays empty; an
+empty history reports `null` too, so "fixed articulation reports null figures"
+remains literally true. The readback was deliberately NOT extended to rates or
+to jitter — the rate history (`RateHistory`) is observability-only and feeds the
+`logGenerator` trace, and the jitter is not a discrete choice (its seed is
+derivable from `trackSeed`).
 
 ### 8.6 Tier-2 voicing-reshaping figures (CA-T2)
 
@@ -451,9 +533,27 @@ byte-identical (D-T2-SEAM=B: voicer owns register/inversions/Drop-2, articulator
 owns rhythm/velocity, reshaper owns the pitch reduction, each doing exactly one
 job).
 
-**Members (D-T2-SCOPE=A: power chord + chugging ship in v1).**
-`ChordExpressionType` gains `PowerChord = 7` and `Chugging = 8` (appended after
-`Random`; values 0..6 serialized and unchanged; never renumbered).
+**Members.** `ChordExpressionType` gains `PowerChord = 7` and `Chugging = 8`
+(D-T2-SCOPE=A: the two voicing-RESHAPING figures shipped in the CA-T2 batch),
+`BassUpperSplit = 9` (CA-T2-BOSSA, the register-SELECTIVE figure that batch
+deferred — shipped there as `Bossa` and RENAMED by CA-T2-BOSSA-V2,
+OD-BOSSA-7=A/-7a=A, value intact) and `Bossa = 10` (CA-T2-BOSSA-V2, the
+AUTHENTIC bossa comping template). All are appended after `Random`; values
+0..9 are serialized and unchanged; none is ever renumbered. The rename is
+name-only: enums serialize by VALUE, the member is never parsed or persisted
+by NAME anywhere in the package (verified before renaming), so no authored
+asset changed meaning.
+
+Tier 2 therefore contains two different KINDS of figure, and the distinction is
+what decides where each one lives:
+
+- **Voicing-reshaping** (`PowerChord`, `Chugging`) — mutate pitch values, so
+  they need the reshaper seam.
+- **Register-selective** (`BassUpperSplit`, `Bossa`) — mutate nothing; they
+  choose WHICH of the voiced notes sound WHEN, so they live entirely in the
+  articulator's selection vocabulary (§8.4) and the reshaper is IDENTITY for
+  them (by exclusion: any non-reshaping member is returned unchanged, so the
+  CA-T2-BOSSA-V2 append required no reshaper edit).
 
 - **PowerChord** — drops the chord's third to leave root + perfect fifth
   (+ octave), anchored at the root pitch at or below the voicing's bass (so the
@@ -464,28 +564,202 @@ job).
   rate — no new field). The pulse is emitted by the articulator's
   pitch-preserving `ChordPulsePlan` (full-chord hits at the arpeggio interval,
   anchored at the event onset; events shorter than one hit degrade to `Block`).
+- **BassUpperSplit** — register-selective split (CA-T2-BOSSA, D-BOSSA-HOME=A;
+  renamed from `Bossa` by CA-T2-BOSSA-V2 — the regular alternation below is a
+  register split, not the bossa comping rhythm, F-BOSSA-FEEL). The
+  voicing's LOWEST note anchors the event onset and each bar downbeat strictly
+  inside the event, legato to the next low hit or the event end; the UPPER
+  VOICES are struck short (≤0.5 beat) on every beat+0.5 inside the event —
+  `Offbeat`'s grid and hit length exactly. `arpeggioRate` is IGNORED
+  (D-BOSSA-RHYTHM=A: a fixed v1 template, not a rate-driven figure). The v1
+  template is a REGULAR alternation — low on every bar downbeat, uppers on
+  every offbeat — a register split, useful in its own right (a calm upstroke
+  feel); the authentic bossa rhythm is the `Bossa` bullet below
+  (F-BOSSA-FEEL → CA-T2-BOSSA-V2). The reshaper is identity: the split is pure
+  selection via `Hit.NoteIndex` (`0` = lowest of the ascending sort, `-2` =
+  uppers, §8.4), so no pitch is created or altered.
+  **Which note is "the bass" (D-BOSSA-BASSNOTE=A):** the lowest note as it
+  stands when the articulator receives it — i.e. AFTER the voicer, AFTER the §7
+  inversion pin, AFTER any Tier-2 reshape. No new precedence rule; see §7.5.
+  **Degrades to `Block`** for the whole event when the voicing has ≤1 note
+  (nothing to split — this is what a bassline card selecting `Bossa` always
+  hits) or when no offbeat fits the event: a bass-note-only sustain would be a
+  drastic and unintended register change, so the event falls back to the full
+  chord (never-silent invariant, and the register-safety rule below).
+- **Bossa** — the AUTHENTIC bossa nova comping figure (CA-T2-BOSSA-V2,
+  D-FEEL-HOME=A / D-FEEL-SCOPE=A): the lab spec's `basico_solo` 1-bar pattern
+  as a fixed 5-row template over a bar-length cycle anchored at absolute
+  beat 0 (cycle position = position mod `beatsPerBar`, the same absolute-beat
+  convention as §8.3's downbeat test; a chord change mid-cycle INHERITS the
+  phase and never resets it). Rows (cycle-relative `pos × dur`, role, tier):
+  LOW `0.0×2.0` medium · UPPERS `0.0×1.0` medium · UPPERS `1.0×1.5` weak ·
+  LOW `2.0×2.0` **strong** (the surdo weight — on beat 2, NOT the downbeat) ·
+  UPPERS `2.5×1.5` **strong** (the syncopation, sustained to the cycle end;
+  deliberately NO attack on beat 3). LOW = index 0 of the ascending sort,
+  UPPERS = the `-2` sentinel — the same closed §8.4 vocabulary as
+  `BassUpperSplit`; no `FULL` row in this template (where both roles attack at
+  `0.0` they are two hits, low-first, with different durations).
+  **Accent model (D-FEEL-ACCENT=A):** velocities are TEMPLATE-supplied tiers
+  reusing the SD-5 factor values (strong ×1.00 / medium ×0.85 / weak ×0.80),
+  a documented per-figure exception to §8.3's position-derived curve — see
+  §8.3. `arpeggioRate` is IGNORED. **Meter (shorter than 4/4):** rows at or
+  after the bar length are dropped and every duration clips at the cycle end
+  (3/4 keeps all five rows with the `2.0`/`2.5` rows truncated; 2/4 keeps the
+  first three). **Windowing (D-FEEL-TIE=A):** no hit ever overshoots the
+  event window; the next cycle re-attacks at `0.0`, so truncating at the
+  boundary is perceptually legato-to-the-next-attack. An onset that lands
+  between template rows gets a LOW hit (medium tier) legato to the first
+  template attack — a chord change must always be heard at its onset.
+  **Degrades to `Block`** for the whole event when the voicing has ≤1 note,
+  when `beatsPerBar ≤ 0` (no bar to cycle on), or when the window contains no
+  UPPERS attack (a bass-only fragment would be a silent register shift —
+  F-WALK-REG; mirror of `BassUpperSplit`'s OD-BOSSA-4 rule).
+  D-BOSSA-BASSNOTE=A applies unchanged: "the lowest note" is the voicing as
+  received, post-voicer, post-§7 pin, post-reshape (§7.5).
 
 **Composition contract.** The reshaper mutates pitch; the articulator still owns
-rhythm. The selected expression is passed straight to `Emit`: the articulator
-degrades a leaked `PowerChord` (and `Random`) to `Block` and renders `Chugging`
-as the chord pulse, so the articulator never emits a Tier-2 *pitch* while still
-carrying the Tier-2 *rhythm* where one exists. Both emission sites keep the
-SINGLE unconditional `Emit` (the reshape is a transform on the emitted voicing,
-not a per-site branch); `lastVoicing` and the first-chord pitch stash keep the
-full harmonic voicing, so voice-leading continuity is unaffected. Reshapes are
-deterministic and RNG-free (same discipline as Tier-1). Tier-2 members are
+rhythm AND selection. The selected expression is passed straight to `Emit`: the
+articulator degrades a leaked `PowerChord` (and `Random`) to `Block`, renders
+`Chugging` as the chord pulse, and renders `BassUpperSplit` and `Bossa` as
+their register-selective plans — so it never emits a Tier-2 *pitch* while
+still carrying the Tier-2
+*rhythm* or *selection* where one exists. Both emission sites keep the SINGLE
+unconditional `Emit` (a reshape is a transform on the emitted voicing, a
+selection is a value in the plan — neither is a per-site branch);
+`lastVoicing` and the first-chord pitch stash keep the full harmonic voicing, so
+voice-leading continuity is unaffected. Reshapes and selections are
+deterministic and RNG-free (same discipline as Tier-1). All Tier-2 members are
 excluded from the §8.5 Random pool (D-T2-POOL=A′).
+
+**Why a register-selective figure did NOT get its own emit path.** The rejected
+alternative was a reshaper-owned emission route. It would have broken two
+invariants at once: the reshaper would stop being a pure list transform and
+become an emitter, and the single unconditional `Emit` would gain a per-site
+branch. Extending the articulator's selection vocabulary (§8.4) instead costs
+one sentinel and leaves every composer file untouched (D-BOSSA-HOME=A).
+
+**Register safety (F-WALK-REG).** A figure that changes WHICH notes sound
+changes the effective register of the output even when it invents no pitch.
+Both register-selective figures are subject to this by definition, so their
+degrade rules are written to
+avoid silent register shifts (an event that can only place the low note falls
+back to the full chord rather than rendering bass-only), and its emitted pitch
+set is by construction a SUBSET of the voicing handed to `Emit` — verifiable on
+the rendered MIDI, which is where such changes must be checked.
 
 **Precedence vs §7.** See §7.5 — the reshape runs after the inversion pin.
 
-**Deferred.** The bossa bass/upper split figure is spun out of this batch: it
-needs register-selective emission (bass on 1, upper voices off the beat) that
-the pitch-preserving Tier-1 articulator does not express; it is tracked on the
-CA roadmap.
+**Delivered (CA-T2-BOSSA → CA-T2-BOSSA-V2).** The bossa bass/upper split spun
+out of CA-T2 shipped in CA-T2-BOSSA; on listening it turned out to be a
+register split rather than the bossa comping rhythm (F-BOSSA-FEEL), so
+CA-T2-BOSSA-V2 renamed it `BassUpperSplit` (value 9 intact) and delivered the
+AUTHENTIC figure as `Bossa = 10` from a sourced rhythmic specification (the
+lab spec's `basico_solo` pattern — reference material, not implementation
+authority). Both earlier deferral premises are now settled by code:
+register-selective emission needed only a wider selection vocabulary (§8.4),
+and bar-cycle math needed only the absolute beat position `PlanHits` already
+receives — no new input, no new seam.
+
+**Deferred — refinements of the authentic figure**, each blocked on a decision
+or an input, none on the seam (§8.4 already expresses LOW/UPPERS/FULL):
+
+- **The 2-bar patterns** of the spec (`sincopado_2c_anticipacion`,
+  `baja_densidad`, `clave_bossa_pedagogica`) and the alternating pattern 5.
+  Bar PARITY is derivable from absolute position; the open question is the
+  cycle's phase ANCHOR (the Part start is the lab-blessed v1 approximation;
+  phrase detection is explicitly rejected for v1 — spec §6.1).
+- **Harmony-carrying anticipation** (spec §6.3(b), `carries_next_harmony`):
+  the cycle-final attack sounding the NEXT chord across the barline. Needs
+  the planner to know the next chord — a contract change. The rhythmic attack
+  itself is already in the template; the lab rates the harmonic carry
+  "degradable with dignity" for v1.
+- **LOW_ALT — root/fifth bass alternation** (spec §7.1, the one real
+  vocabulary limitation): a second low role ("the second-lowest note" or an
+  explicit fifth). The lab blesses root-only as documented real practice.
+- **Muted ghost strokes** (spec §7.2): a pitchless percussive role.
+  Dispensable without identity loss per the lab.
+
+Recorded, not scheduled. Nothing here reopens a shipped contract.
 
 Test surface: `Tests/Editor/ChordTrackComposer_ArticulationTests.cs` (reshape
 drops the third / identity on non-Tier-2 expressions; `ChordPulsePlan`
-full-chord pulse count; `PlanHits(PowerChord) == PlanHits(Block)`).
+full-chord pulse count; `PlanHits(PowerChord) == PlanHits(Block)`; for `BassUpperSplit`:
+the low/upper grids in 4/4 and 3/4, the multi-bar re-strike, the off-grid onset,
+all three degrades, no-overshoot, rate-independence at MIDI-byte level, jitter
+composition, and — the load-bearing one — an EMITTED-MIDI probe asserting that
+the downbeat carries exactly the lowest voiced pitch and each offbeat exactly
+the non-lowest pitches). The `ChordExpressionType` member count and Tier-2 tail
+are pinned in `Tests/Editor/BassTrackComposer_ArticulationTests.cs` as an
+append tripwire: any future append must update it deliberately. For the
+authentic `Bossa` template (CA-T2-BOSSA-V2), 15 further tests: the exact
+5-row plan (positions, durations, roles AND tiers), the surdo inversion
+(beat 2 louder than the downbeat — the test that fails if D-FEEL-ACCENT
+regresses), no-attack-on-beat-3 with the syncopation sustained to the cycle
+end, two identical cycles over a 2-bar event, mid-cycle onset phase
+INHERITANCE (no reset), the low onset-fallback hit, meter clipping in 3/4 and
+2/4, all four degrades, no-overshoot, byte-level rate independence, jitter
+composition, and the emitted-MIDI probe (attack-time groups: full set at 0.0,
+uppers at 1.0, lowest pitch alone at 2.0, uppers at 2.5 — and nothing on
+beat 3). The tripwire now pins `BassUpperSplit = 9`, `Bossa = 10`, member
+count 11, and pool exclusion for BOTH.
+
+### 8.7 Seeded velocity jitter (CA-V1)
+
+Opt-in per-hit velocity humanization, layered over the §8.3 accent curve.
+Surface: `BackingCardConfigSO.velocityJitter : int` (`[Range(0,32)]`, default
+`0`) and the same field on `BasslineCardConfigSO`; persistent card-level, whole
+render, no snapshot-and-clear (D-EXP1=A, as everywhere in §8).
+
+**Source (D-V1-JIT-SRC=A) — the load-bearing decision.** The jitter is a PURE
+FUNCTION of `(seed, event index, hit index)`, not a draw from a stateful
+stream, carried by the value type
+`Runtime/CoreScripts/Composition/Data/VelocityJitter.cs`. Consequences, all
+contract-level:
+
+- The articulator stays pure and RNG-free. **SD-3=A is unchanged, not
+  relaxed**: there is no draw order inside the articulator that could be
+  perturbed, so the §8.4 both-sites guarantee and the bass's §2 draw contract
+  are structurally safe rather than carefully avoided.
+- Immune to draw-order coupling: changing an earlier event's figure, rate or
+  hit count does not shift any later event's jitter.
+- Integer-only mixing, so goldens are exactly pinnable across .NET versions —
+  unlike `System.Random`, which is only runtime-stable (which is why the §8.5
+  roller tests use the variance idiom and these do not).
+
+**Seed.** `SongOrchestrator.ResolveVelocityJitterSeed(ctx.trackSeed)` (FNV-1a
+over `"{trackSeed}|articvel"`), a third articulation substream alongside
+`|artic` and `|articrate`. Because `trackSeed` already folds in role and
+musicianId, backing and bass on the same part jitter independently by
+construction.
+
+**Application (D-V1-JIT-SCOPE=A, D-V1-JIT-SHAPE=A).** The composer builds one
+render-level `VelocityJitter`, scopes it per chord event via `ForEvent`, and
+passes it as `Emit`'s optional trailing parameter — the extension route the
+CA-T1 seam contract recorded (the `IChordVoicer.VoiceChord` `forcedInversion`
+precedent), so the signature was extended, not changed. `PlanHits` applies it
+as a POST-PASS over the planned hits (`ApplyJitter`), indexed by hit position;
+no figure branch knows about it. The offset is an integer uniform over
+`[-n, +n]`.
+
+- Applies to ALL figures **including `Block`** — humanizing a block render is
+  the primary use case.
+- Clamp: `1..127` on every jittered hit (a jittered velocity 0 would be
+  note-off semantics). `Block`'s legacy `0..127` clamp therefore applies only
+  with jitter off.
+- Timing, hit count and note indices are never touched.
+- `velocityJitter == 0` (default, and any absent card) returns the planned list
+  BY REFERENCE: pre-CA-V1 bit-identity is **structural**, not an empirical
+  property to re-verify.
+
+**Orthogonality.** The jitter axis is independent of the §8.5 sentinels: it
+works with a fixed figure and a fixed rate, and it is not part of the roll.
+Same seed => same jitter => byte-identical render.
+
+Test surface: `Tests/Editor/ChordTrackComposer_VelocityJitterTests.cs`
+(substream goldens and mutual distinctness, exact jitter goldens, bound and
+range coverage, event/hit fold asymmetry, default-jitter identity across every
+enum member, golden velocities for `Block` and `PerBeat`, both clamps,
+timing/note-index invariance, determinism, rate-sentinel degrade).
 
 ## 9. Update triggers
 
@@ -504,6 +778,13 @@ Update this SSoT when:
 - the Random selection policy changes (§8.5): pool rule, draw discipline,
   knob semantics, the articulation-substream derivation, or Tier-2 pool
   admissibility (D-T2-POOL),
+- the arpeggio-rate roll changes (§8.5, CA-V1): the `ArpeggioRate.Random`
+  sentinel, its dedicated `|articrate` substream, the shared-rerollChance
+  granularity rule, the uniform rate pool, or the Eighth degrade,
+- the seeded velocity jitter changes (§8.7): the pure-mix source (any move to a
+  stateful stream would break SD-3=A and must be argued explicitly), the
+  substream derivation, the jitter scope (`Block` included), the 1..127 clamp,
+  the uniform distribution, or the zero-amount identity guarantee,
 - the voicer's start-register RNG source or determinism changes (VL-DET-1: random
   `StartRegisterMode` draws from the part's seeded `ctx.rng` via
   `IChordVoicer.VoiceChord`'s trailing `rng`, not global `UnityEngine.Random`;

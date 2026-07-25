@@ -225,6 +225,9 @@ namespace MidiGenPlay.Composition
             // === Global timing info for the part ===
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+            // MEL-BEATUNIT-1: one Part beat as a musical span (4/4 -> Quarter,
+            // 6/8 -> Eighth). Meter authority per SSoT_CONTRACTS.md section 5.
+            var beatSpan = GetBeatSpan(part.TimeSignature);
 
             // Progression timing resolution:
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
@@ -469,8 +472,8 @@ namespace MidiGenPlay.Composition
                     }
                     // --- end DEBUG ---
 
-                    var startTs = MusicalTimeSpan.Quarter.Multiply(slot.whenBeat);
-                    var durTs = MusicalTimeSpan.Quarter.Multiply(slot.durBeats);
+                    var startTs = BeatsToSpan(slot.whenBeat, beatSpan);
+                    var durTs = BeatsToSpan(slot.durBeats, beatSpan);
 
                     pb.MoveToTime(startTs);
                     pb.Note(picked, durTs, velocity7);
@@ -529,14 +532,32 @@ namespace MidiGenPlay.Composition
         // Renders a MelodyPatternData directly instead of the procedural pipeline
         // (analogous to RhythmTrackComposer's DrumPatternData -> ComposeFromGrid).
         // Each note's (degree, octaveOffset) resolves to an absolute pitch against the
-        // active Part tonality/root; timing stays in beats (one beat = a quarter, matching
-        // ComposeMelodyFromProgression); the authored loop is tiled to fill the Part.
+        // active Part tonality/root; timing stays in beats, and one beat is the PART's beat
+        // unit (MEL-BEATUNIT-1, via BeatsToSpan -- 4/4 quarter, 6/8 eighth), matching
+        // ComposeMelodyFromProgression; the authored loop is tiled to fill the Part.
         // No RNG is consumed, so the same pattern + same tonality/root + same meter yields
         // byte-identical MIDI, and ctx.rng draw order for other tracks is unaffected.
         // Runtime-only; no editor dependency.
         /// <summary>Floor so a zero or negative authored duration still sounds. Shared by
         /// the render path (<see cref="ComposeFromPattern"/>) and the resolution seam.</summary>
         public const double MinNoteBeats = 0.05;
+
+        /// <summary>
+        /// MEL-BEATUNIT-1: the SINGLE beats-to-span conversion used by every melody
+        /// emission site (both live paths and the currently unreachable per-beat
+        /// fallback). <paramref name="beatSpan"/> is
+        /// <c>MusicTheory.GetBeatSpan(part.TimeSignature)</c>.
+        ///
+        /// Deviation on record (mirrors BassTrackComposer / CA-F2, SD-F2-3=B): the
+        /// legacy melody paths multiplied MusicalTimeSpan.Quarter unconditionally, so
+        /// in every beat-unit != 4 meter (6/8, 9/8, 12/8, 7/8) melody rendered at half
+        /// speed against the beat-unit-aware rhythm grid, bass and Part window. Output
+        /// is byte-identical in every beat-unit == 4 meter -- GetBeatSpan returns
+        /// MusicalTimeSpan.Quarter there, so the substitution is a structural identity,
+        /// not an empirical one (test-pinned). Pure and RNG-free.
+        /// </summary>
+        public static ITimeSpan BeatsToSpan(double beats, MusicalTimeSpan beatSpan)
+            => beatSpan.Multiply(beats);
 
         /// <summary>A single resolved authored-melody note — the deterministic output of
         /// <see cref="ResolvePatternNotesCore"/>, ready to render via PatternBuilder.</summary>
@@ -571,6 +592,9 @@ namespace MidiGenPlay.Composition
             // Part meter (same source the procedural path uses).
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+            // MEL-BEATUNIT-1: one Part beat as a musical span (4/4 -> Quarter,
+            // 6/8 -> Eighth). Meter authority per SSoT_CONTRACTS.md section 5.
+            var beatSpan = GetBeatSpan(part.TimeSignature);
 
             // Meter-mismatch handling (D-MEL5.1 = A): the loop tiles by raw beats and warns;
             // note-to-barline alignment is only guaranteed when the authored bar length
@@ -597,8 +621,8 @@ namespace MidiGenPlay.Composition
             var capturedMelody = new List<MidiGenerator.GuideNote>(resolved.Count);
             foreach (var rn in resolved)
             {
-                var startTs = MusicalTimeSpan.Quarter.Multiply(rn.WhenBeats);
-                var durTs = MusicalTimeSpan.Quarter.Multiply(rn.DurBeats);
+                var startTs = BeatsToSpan(rn.WhenBeats, beatSpan);
+                var durTs = BeatsToSpan(rn.DurBeats, beatSpan);
 
                 pb.MoveToTime(startTs);
                 pb.Note(rn.Note, durTs, (SevenBitNumber)rn.Velocity);
@@ -705,6 +729,10 @@ namespace MidiGenPlay.Composition
 
         /// <summary>
         /// Generates one note per beat using the active chord's tones.
+        /// UNREACHABLE as of MEL-BEATUNIT-1: the only call site is commented out in
+        /// Compose. Kept and corrected in lockstep with the live paths so it cannot
+        /// reintroduce the beat-unit desync if it is ever re-enabled; whether to delete
+        /// it is a separate, undecided question.
         /// - Repeats the progression to fill the part.
         /// - Picks a chord tone per beat (root, third, fifth cycling).
         /// </summary>
@@ -721,6 +749,9 @@ namespace MidiGenPlay.Composition
 
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+            // MEL-BEATUNIT-1: one Part beat as a musical span (4/4 -> Quarter,
+            // 6/8 -> Eighth). Meter authority per SSoT_CONTRACTS.md section 5.
+            var beatSpan = GetBeatSpan(part.TimeSignature);
 
             int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
             int stepsPerMeasure = beatsPerBar * stepsPerBeat;
@@ -765,8 +796,8 @@ namespace MidiGenPlay.Composition
                 var note = ChooseMelodicRegister(chordPcs[pickIdx], instrument, rng);
 
                 double whenBeats = b; // one note exactly on each beat
-                var when = MusicalTimeSpan.Quarter.Multiply(whenBeats);
-                var dur = MusicalTimeSpan.Quarter; // 1 beat
+                var when = BeatsToSpan(whenBeats, beatSpan);
+                var dur = beatSpan; // 1 beat (Part beat unit, MEL-BEATUNIT-1)
 
                 pb.MoveToTime(when);
                 // TODO: Randomize velocity within range

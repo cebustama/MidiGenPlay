@@ -12,10 +12,15 @@ namespace MidiGenPlay.Composition
     /// monophonic bass consumer (Feature 2).
     ///
     /// Contract:
-    /// - Deterministic and RNG-free: velocity/timing are pure functions of beat
-    ///   position within the meter. A seeded-variation extension would add an
-    ///   optional trailing parameter (mirroring IChordVoicer.VoiceChord's
-    ///   forcedInversion) rather than change this signature.
+    /// - Deterministic and RNG-free: timing is a pure function of beat position
+    ///   within the meter, and velocity of that position plus the CA-V1 jitter,
+    ///   which is itself a PURE MIX over (seed, event index, hit index) — no
+    ///   stateful RNG is ever consumed here. SD-3=A therefore stands verbatim
+    ///   after CA-V1; ctx.rng remains untouched by construction, which is what
+    ///   protects the bass composer's per-event draw order.
+    /// - CA-V1 took the recorded extension route: an optional trailing parameter
+    ///   (mirroring IChordVoicer.VoiceChord's forcedInversion), not a signature
+    ///   change. Omitting it is exact legacy behavior.
     /// - Meter authority: all figure math builds on the Part-derived beatSpan /
     ///   beatsPerBar passed in, never on asset-side values.
     /// - Block emits the exact legacy pair, bit-identically.
@@ -41,6 +46,10 @@ namespace MidiGenPlay.Composition
         /// <param name="expression">Selected Tier-1 figure; Block = legacy.</param>
         /// <param name="arpeggioRate">Note rate for the arpeggio figures; ignored
         /// by all other expressions.</param>
+        /// <param name="jitter">CA-V1 seeded velocity jitter, already scoped to
+        /// this chord event by the caller (VelocityJitter.ForEvent). Default /
+        /// Amount == 0 is exact identity. Never a rate/figure source — the
+        /// selection sentinels are resolved composer-side.</param>
         void Emit(
             PatternBuilder pb,
             IReadOnlyList<Note> playable,
@@ -51,6 +60,7 @@ namespace MidiGenPlay.Composition
             int baseVelocity,
             int stepsPerBeat,
             ChordExpressionType expression,
-            ArpeggioRate arpeggioRate);
+            ArpeggioRate arpeggioRate,
+            VelocityJitter jitter = default);
     }
 }

@@ -10,6 +10,11 @@
 //
 //     [assembly: InternalsVisibleTo("MidiGenPlay.Tests.Editor")]
 //
+// MEL-BEATUNIT-1 (2026-07-24) additionally pins the emission-site timing seam
+// MelodyTrackComposer.BeatsToSpan: 4/4 stays byte-identical to the legacy
+// MusicalTimeSpan.Quarter mapping, X/8 renders on the Part beat unit. Mirrors the
+// bass pin Block_MonoEmit_BitIdentityHoldsPerBeatSpan_EighthDiffersFromLegacyQuarter.
+//
 // Covers: SnapshotOrdered ordering (startBeat -> degree -> octaveOffset) + idempotence;
 // ResolvePatternNotesCore determinism (repeat-call sequence equality), tiling
 // (shorter-than-Part), onset truncation (longer-than-Part), octave clamp at the band
@@ -19,11 +24,13 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay;
 using MidiGenPlay.Composition;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 using ScaleDegree = MidiGenPlay.MusicTheory.MusicTheory.ScaleDegree;
+using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 namespace MidiGenPlay.Tests.Editor
 {
@@ -110,7 +117,7 @@ namespace MidiGenPlay.Tests.Editor
                 Ev(ScaleDegree.Dominant, 2f, 2f,   velocity: 70),
             };
 
-            var first  = Resolve(ordered, patternTotalBeats: 4.0, partMeasures: 2, beatsPerBar: 4);
+            var first = Resolve(ordered, patternTotalBeats: 4.0, partMeasures: 2, beatsPerBar: 4);
             var second = Resolve(ordered, patternTotalBeats: 4.0, partMeasures: 2, beatsPerBar: 4);
 
             Assert.That(ProjectResolved(first), Is.EqualTo(ProjectResolved(second)),
@@ -217,6 +224,87 @@ namespace MidiGenPlay.Tests.Editor
             Assert.That(r.Count, Is.EqualTo(1));
             Assert.That(r[0].Note.NoteName, Is.EqualTo(Root));
             Assert.That(r[0].Note.Octave, Is.EqualTo(ExpectedRefOct));
+        }
+
+        // ---- MEL-BEATUNIT-1: the emission-site beats -> span seam ----
+
+        // Clean multiples only: at the DryWetMidi default 96 ticks/quarter an eighth is
+        // 48 ticks, so every value below lands on an exact tick in BOTH mappings and the
+        // 2x relation is asserted without rounding slack.
+        private static readonly double[] BeatMultipliers = { 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 8.0 };
+
+        private static TempoMap PinTempoMap() => TempoMap.Create(Tempo.FromBeatsPerMinute(100));
+
+        private static long Ticks(ITimeSpan span) => TimeConverter.ConvertFrom(span, PinTempoMap());
+
+        /// <summary>Non-regression control: in every beat-unit == 4 meter the batch is a
+        /// structural identity, because GetBeatSpan returns MusicalTimeSpan.Quarter there.</summary>
+        [Test]
+        public void BeatsToSpan_FourFour_IsBitIdenticalToLegacyQuarter()
+        {
+            var beatSpan = GetBeatSpan(TimeSignature.FourFour);
+
+            Assert.That(beatSpan, Is.EqualTo(MusicalTimeSpan.Quarter),
+                "4/4 beat span must BE the legacy quarter, not merely measure the same.");
+
+            foreach (var m in BeatMultipliers)
+            {
+                Assert.That(
+                    Ticks(MelodyTrackComposer.BeatsToSpan(m, beatSpan)),
+                    Is.EqualTo(Ticks(MusicalTimeSpan.Quarter.Multiply(m))),
+                    $"4/4 must stay byte-identical to the legacy mapping at {m} beats.");
+            }
+        }
+
+        /// <summary>The fix itself: in 6/8 a beat is an eighth, so the rendered span is
+        /// exactly half the legacy quarter mapping -- the desync F-1 described.</summary>
+        [Test]
+        public void BeatsToSpan_SixEight_IsHalfTheLegacyQuarterTicks()
+        {
+            var beatSpan = GetBeatSpan(TimeSignature.SixEight);
+
+            Assert.That(beatSpan, Is.EqualTo(MusicalTimeSpan.Eighth));
+
+            foreach (var m in BeatMultipliers)
+            {
+                long fixedTicks = Ticks(MelodyTrackComposer.BeatsToSpan(m, beatSpan));
+                long legacyTicks = Ticks(MusicalTimeSpan.Quarter.Multiply(m));
+
+                Assert.That(fixedTicks * 2, Is.EqualTo(legacyTicks),
+                    $"6/8 must render on the eighth-note beat unit at {m} beats.");
+            }
+        }
+
+        /// <summary>Every supported meter maps its beat to its own beat unit.</summary>
+        [Test]
+        public void BeatSpan_AllTimeSignatures_MatchTheirBeatUnit()
+        {
+            long quarterTicks = Ticks(MusicalTimeSpan.Quarter);
+
+            foreach (var kv in TimeSignatureProperties)
+            {
+                long beatTicks = Ticks(GetBeatSpan(kv.Key));
+                long expected = quarterTicks * 4 / kv.Value.BeatUnit;
+
+                Assert.That(beatTicks, Is.EqualTo(expected), $"{kv.Key}");
+            }
+        }
+
+        /// <summary>Guard on the batch's boundary: the RESOLUTION seam counts beats and is
+        /// meter-unit agnostic, so MEL-BEATUNIT-1 changed nothing above the emission line.</summary>
+        [Test]
+        public void Resolve_SixEightPart_ResolutionSeamIsUnchanged()
+        {
+            // 6/8 Part, 2 bars => 12 beats of window; a 6-beat loop tiles twice.
+            var ordered = new List<MelodyPatternData.MelodyNoteEvent>
+            {
+                Ev(ScaleDegree.Tonic,   0f, 1f),
+                Ev(ScaleDegree.Mediant, 5f, 1f),
+            };
+
+            var r = Resolve(ordered, patternTotalBeats: 6.0, partMeasures: 2, beatsPerBar: 6);
+
+            Assert.That(r.Select(n => n.WhenBeats), Is.EqualTo(new[] { 0.0, 5.0, 6.0, 11.0 }));
         }
 
         // ---- Helpers ----

@@ -35,6 +35,10 @@ namespace MidiGenPlay.Composition
         public List<ChordExpressionWeight> randomFigureWeights =
             new List<ChordExpressionWeight>();
 
+        // CA-V1: seeded velocity jitter for the no-asset fallback (Backing and
+        // Bassline). 0 = legacy velocities.
+        public int velocityJitter = 0;
+
         /// <summary>Field-wise copy (rows are shared refs otherwise; used when
         /// round-tripping window state into a SmokeSetupSO).</summary>
         public SmokeEntry Clone() => new SmokeEntry
@@ -53,6 +57,7 @@ namespace MidiGenPlay.Composition
             randomFigureWeights = randomFigureWeights != null
                 ? new List<ChordExpressionWeight>(randomFigureWeights)
                 : new List<ChordExpressionWeight>(),
+            velocityJitter = velocityJitter,
         };
     }
 }

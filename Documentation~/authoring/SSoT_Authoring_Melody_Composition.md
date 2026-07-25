@@ -47,7 +47,7 @@
 > All Melody Authoring MVP phases (1–5) are now closed and the **Melody Authoring MVP is
 > complete** (Phase 5 — polish, validation, documentation closure — closed 2026-06-22).
 >
-> See `planning/active/Roadmap_Melody_Authoring_MVP.md` for accepted design decisions.
+> See `planning/archive/Roadmap_Melody_Authoring_MVP.md` for accepted design decisions.
 
 ## Scope
 
@@ -239,6 +239,86 @@ those feed the deferred procedural pipeline.
   generator is intentionally simple: a starting point for authoring, not a replacement for
   the procedural pipeline.
 
+### MIDI file import (Batch M2)
+
+`MelodyPatternEditorWindow` can import a standard MIDI file (`.mid`) into the
+working copy. The parse is owned by `MelodyMidiImporter` (`Editor/`, namespace
+`MidiGenPlay.Authoring`) — a pure function with no Unity-API calls, in the same
+mold as `DrumMidiImporter` (Batch M1). The window owns the apply step; the target
+asset is untouched until Apply / Save As. This implements what
+`Roadmap_Melody_Authoring_MVP.md` called Phase D1.
+
+**Grid semantics.** The caller supplies the target `TimeSignature` and
+subdivisions — the editor's Timing controls, not the file's own meta events.
+Grid-beat conversion is beat-unit aware, matching the runtime `GetBeatSpan`
+convention: in X/8 meters one grid beat is an eighth note, so
+`gridBeats = quarterNotes × beatUnit / 4`. Only ticks-per-quarter-note files are
+supported; SMPTE time division is a hard failure. Unlike the drum grid, melody
+timing is **beat-absolute** (`startBeat` / `durationBeats`), so the import writes
+beats, not step indices — subdivisions act purely as the quantization ladder.
+Measures are derived from content unless explicitly supplied, and derivation
+covers the **last note's end**, not its onset, because melody notes have duration
+(cap 64).
+
+**Pitch → degree.** The key is **user-specified** (D-MIDI1=A): root as a
+`NoteName` plus a `Tonality`, the same pair the runtime resolution seam takes.
+Absolute pitch resolves to a degree + absolute scale octave against the package
+interval tables, via `GetScaleFromTonality` — the single authority seam.
+Chromatic notes snap to the nearest diatonic degree with a per-note warning
+(D-MIDI2=A); on an equidistant tie the note snaps **down** in pitch. In all seven
+v1 modes every chromatic pitch class is exactly one semitone from a scale tone on
+each side, so the tie rule is the operative rule — chromatic notes always snap one
+semitone down. No accidental metadata is added: the per-note model (§5) stays a
+single diatonic degree.
+
+**Reference octave.** `octaveOffset` is relative to a reference the *runtime*
+supplies (the instrument's mid register, D-MEL4.2) and which does not exist at
+authoring time. The importer therefore **auto-centers**: the modal absolute scale
+octave across the imported notes becomes offset 0, ties resolving to the lower
+octave — the same modal-with-lower-tie idiom M1 uses for lane default velocity.
+The chosen reference and the resulting offset span are echoed in the import panel
+for traceability. Consequence, and the melody analogue of M1's kit-agnostic note:
+a file spanning a very wide register (or mixing two parts on one channel) yields
+large offsets that runtime **clamps** to the instrument band at render time, which
+can flatten the contour. That clamp is a render-time concern owned by
+`runtime/SSoT_Composer_Melody_Track.md`, not by the importer.
+
+**Monophonization.** `MelodyPatternData` is a monophonic line. After
+quantization, notes sharing a start position are reduced to the **highest pitch**
+(warning), and a note still sounding when the next note starts is **truncated** at
+that start (warning) — preserving both onsets, so the rhythmic contour survives.
+Ordering is fully determined (start ascending, then pitch, velocity, duration
+descending), so the reduction is deterministic.
+
+**Duration.** Preserved (unlike the trigger-based drum grid) and quantized to the
+subdivision ladder, with a one-step floor; a duration rounding to zero is raised
+to one step **with a warning**, since that is a real loss even when the rounding
+error is below the snap threshold.
+
+**No silent fallback.** Every lossy step emits a warning surfaced in the MIDI
+panel, using the same `[Kind] loc: detail` shape as the M1 importer (melody has no
+lanes, so `loc` is always `file`):
+
+| Warning kind | Raised when |
+|---|---|
+| `UnsupportedTimeDivision` | file is null or uses SMPTE time division (hard fail) |
+| `NoNotesFound` | channel filter or measure range left zero notes (hard fail) |
+| `ChannelsMerged` | notes from more than one channel were merged; per-channel counts listed |
+| `ChromaticSnapped` | a note is outside the specified key; snapped to the nearest degree |
+| `OffGridSnap` | onset snap error exceeds 0.25 step; first 8 detailed, remainder aggregated |
+| `DurationSnapped` | duration snap error exceeds 0.25 step, or was raised to the one-step floor |
+| `PolyphonyReduced` | simultaneous notes reduced to the highest pitch |
+| `OverlapTruncated` | an overlapping note was truncated at the next note's start |
+| `NotesBeyondRange` | a note starts past the resolved measure count; dropped |
+| `DurationClipped` | a note extends past the resolved measure count; clipped to the end |
+| `MeasuresCapped` | content implies more than 64 measures |
+
+The importer assumes reasonably quantized input: it snaps and warns, and does not
+attempt to interpret swing or humanized feel.
+
+Decisions and phase scope: `planning/archive/Roadmap_MIDI_Import.md`
+(D-MIDI1..5 and M2-D1..D6).
+
 ## 6. Explicit boundary with ALWTTT
 
 ALWTTT may use a concrete bundle such as `MelodyCardConfigSO` to inject:
@@ -281,6 +361,15 @@ Update this SSoT when:
 - phrase palette/archetype meaning changes,
 - leading/style asset meaning changes,
 - melody override model changes,
+- the MIDI import contract changes (key specification, chromatic-snap rule,
+  reference-octave auto-centering, monophonization rule, duration quantization,
+  or the warning taxonomy),
 - authoring-side melody concepts change independently of ALWTTT.
 
 Phases 1–4 of `Roadmap_Melody_Authoring_MVP.md` are now covered: Phase 1 (closed 2026-06-16 — the `MelodyPatternData` canonical format and `MelodyGenerationParamsSO`, §5), Phase 2 (closed 2026-06-16 — the ladder note-grid authoring semantics, §5 "Grid authoring semantics (Phase 2)"), Phase 3 (closed 2026-06-17 — the wizard's generation-parameters section + the editor-only `SimplifiedMelodyGenerator`, §5 "Generation parameters & simplified generator (Phase 3)"), and Phase 4 (closed 2026-06-17 — the runtime handoff via `MelodyTrackComposer.ComposeFromPattern`, §7; runtime contract in `runtime/SSoT_Composer_Melody_Track.md` §7). Phase 5 (polish, validation, documentation closure) closed 2026-06-22 — edge cases validated and deterministic, meter-mismatch resolved as D-MEL5.1 = A (tiles-by-beats retained as the documented MVP limitation; bar-time renormalization is post-MVP), and the governed docs swept; the **Melody Authoring MVP is complete**.
+
+Beyond the MVP, Batch M2 of `planning/archive/Roadmap_MIDI_Import.md` (closed
+2026-07-23) added the MIDI file import path (§5 "MIDI file import (Batch M2)"),
+implementing and superseding what the melody MVP roadmap listed as deferred
+Phase D1. It is an authoring-side content source only: no runtime code and no
+change to the per-note model.

@@ -9,7 +9,7 @@
 | Runtime manager semantics (`SongConfigManager`) | `runtime/SSoT_Runtime_Song_Model_and_Config.md` | `archive/absorbed/251012 MidiGenPlay-Architecture.md` |
 | Orchestration and render flow (`MidiGenerator`, `SongOrchestrator`, composer selection) | `runtime/SSoT_Runtime_Generation_Orchestration.md` | `archive/absorbed/MidiGenPlay_MIDI_Generation_Pipeline.md` |
 | Backing / chord composer behavior | `runtime/SSoT_Composer_Backing_Track.md` | `authoring/SSoT_Authoring_Chord_Progressions.md`, `archive/absorbed/SSoT_Composer_BackingChordTrack.md` |
-| Chord expression / articulation (Tier-1 figures, `ChordExpressionType`, `IChordArticulator`/`ChordArticulator`; Tier-2 voicing-reshaping via `IChordReshaper`/`ChordReshaper`) | `runtime/SSoT_Composer_Backing_Track.md` §8 (Tier-1 §8.1–§8.5, Tier-2 §8.6) | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.3, `planning/active/Roadmap_Chord_Articulation.md` |
+| Chord expression / articulation (Tier-1 figures, `ChordExpressionType`, `IChordArticulator`/`ChordArticulator`; Tier-2 voicing-reshaping via `IChordReshaper`/`ChordReshaper`) | `runtime/SSoT_Composer_Backing_Track.md` §8 (Tier-1 §8.1–§8.5, selection vocabulary §8.4, Tier-2 reshaping + register-selective §8.6, seeded variation §8.5 rate + §8.7 jitter); bass consumer semantics incl. the chord-tone walk in `runtime/SSoT_Composer_Bass_Track.md` §3.3/§3.6 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.3, `planning/active/Roadmap_Chord_Articulation.md` |
 | Bass composer (progression consumption, note-selection rng contract, monophonic Tier-1 articulation via the shared engine, `BasslineCardConfigSO`) | `runtime/SSoT_Composer_Bass_Track.md` | `runtime/SSoT_Composer_Backing_Track.md` §8 (engine), `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.5, `planning/active/Roadmap_Chord_Articulation.md` |
 | Rhythm / drum composer behavior | `runtime/SSoT_Composer_Rhythm_Track.md` | `authoring/SSoT_Authoring_Rhythm_Patterns.md`, `planning/active/Roadmap_Rhythm_Authoring_MVP.md`, `archive/absorbed/SSoT_Composer_RhythmTrack.md` |
 | Melody composer behavior | `runtime/SSoT_Composer_Melody_Track.md` | `authoring/SSoT_Authoring_Melody_Composition.md`, `archive/absorbed/melody_pipeline.md` |
@@ -23,6 +23,7 @@
 | Melody phrase planning / palette / leading / style authoring | `authoring/SSoT_Authoring_Melody_Composition.md` | `runtime/SSoT_Composer_Melody_Track.md`, `archive/absorbed/melody_pipeline.md` |
 | Package-owned authoring tool conventions | `authoring/SSoT_Authoring_Tools.md` | `archive/absorbed/SSoT_CompositionAuthoringTools.md` |
 | LLM-assisted authoring (cross-cutting pattern) | `authoring/SSoT_Authoring_LLM_Generation.md` | `authoring/SSoT_Authoring_Tools.md`, `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A (drum DSL), `authoring/SSoT_Authoring_Chord_Progressions.md` (chord Roman DSL), `planning/active/Roadmap_LLM_Authoring_MVP.md` (L1–L4 history); LLM Core package's `SSoT_Editor_Tooling_and_Wizard.md` (external, integration shape only) |
+| MIDI file import (cross-cutting authoring pattern) | `authoring/SSoT_Authoring_MIDI_Import.md` | `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A (drums, M1), `authoring/SSoT_Authoring_Melody_Composition.md` §5 (melody, M2), `authoring/SSoT_Authoring_Chord_Progressions.md` §3 (chords, M3), `authoring/SSoT_Authoring_Tools.md` (panels), `planning/archive/Roadmap_MIDI_Import.md` (M1–M3 history, archived) |
 | ALWTTT melody integration boundary | `reference/cross-project/ALWTTT/ALWTTT_Melody_Authoring_Pipeline.md` | `runtime/SSoT_Composer_Melody_Track.md` |
 | ALWTTT composition cards / track style bundle usage | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` | package SSoTs in `runtime/` and `authoring/` |
 | ALWTTT runtime composition session bridge | `reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md` | `runtime/SSoT_Runtime_Generation_Orchestration.md` |
@@ -65,3 +66,64 @@
 - **Batch CA-T2 closed (2026-07-16):** Tier-2 voicing-reshaping figures (power chord, chugging) built as a separate pre-articulation seam. **No primary-home flip** — backing/chord composer behavior stays primary under `runtime/SSoT_Composer_Backing_Track.md`, which gained **§8.6** (Tier-2 reshaping) and **§7.5** (reshape-vs-pin precedence); the articulation row above is extended to name the reshaper. Governance note: `IChordReshaper.cs` + `ChordReshaper.cs` are listed under the backing-track SSoT `governs:` (§8.6 documents them), and the `IChordVoicer.cs` governs path was corrected to `Composition/Interfaces/` (a stale inferred path from CQ-A1-OBJ2, now confirmed against the package tree). The bossa bass/upper split figure is deferred to the CA roadmap.
 
 - **Batch MGP-ALWTTT-DBG-4+2 closed (2026-07-17):** runtime Roman parser/builder + catalog-enumeration contract. **No primary-home flip** — the setup-card + Roman grammar stays primary under `authoring/SSoT_Authoring_Chord_Progressions.md`, which gained **§4.2** (runtime consumption; `ChordProgressionRuntimeImporter` is the relocated single code path, editor importer = forwarder); runtime consumption/enumeration contracts land in `runtime/SSoT_Composer_Backing_Track.md` **§2.2** (Ask D builder + chord-palette enumeration), `runtime/SSoT_Composer_Rhythm_Track.md` §3D addendum (drum-palette enumeration; repository = patterns, store = palettes), and `runtime/SSoT_Composer_Melody_Track.md` §4 addendum (phrase-vocabulary enumeration, E-2=A). Governance note: `ChordProgressionRuntimeImporter.cs` is dual-listed — under the authoring chord SSoT `governs:` (grammar authority) and the backing SSoT `governs:` (consumption contract) — intentional, mirroring the PaletteSelection.cs dual-listing precedent. New test row: `ChordProgressionRuntimeImporterTests.cs` (11 tests: payload/bare-Roman/guard×2/quantization/never-persisted/parity×2).
+
+- **Batch M1 closed (2026-07-19):** MIDI file import for drums. **No primary-home
+  flip at the time** — `Editor/DrumMidiImporter.cs` was homed under
+  `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A, with the explicit note that
+  import would be revisited as a cross-domain concept if M2/M3 landed. New test
+  file: `Tests/Editor/DrumMidiImporterTests.cs` (11 tests).
+
+- **Batch PERC-FALLBACK-1 closed (2026-07-22):** render-time percussion fallback.
+  **No primary-home flip** — `PercussionFallbackTable` + `PercussionNoteResolver`
+  are homed under `runtime/SSoT_Composer_Rhythm_Track.md` §3E (exact → fixed-order
+  family substitute → mute+warn; GM-standard emission behind an opt-in wired off).
+  New test file: `Tests/Editor/PercussionNoteResolverTests.cs`.
+
+- **Batch M2 closed (2026-07-23):** MIDI file import for melody. **No primary-home
+  flip at the time** — homed under `authoring/SSoT_Authoring_Melody_Composition.md`
+  §5. Implements and supersedes `Roadmap_Melody_Authoring_MVP.md` Phase D1. New
+  test file: `Tests/Editor/MelodyMidiImporterTests.cs` (20 tests).
+
+- **Batch M3 closed (2026-07-23):** MIDI file import for chord progressions
+  (restricted deterministic detection). Homed under
+  `authoring/SSoT_Authoring_Chord_Progressions.md` §3. New test file:
+  `Tests/Editor/ChordMidiImporterTests.cs` (25 tests, later 33). Closing M3
+  completed the arc and made import a three-adopter cross-domain concept — the
+  trigger M1 wrote down.
+
+- **Batch IMPORT-QOL-1 closed (2026-07-24):** chord-import and smoke QoL. **No
+  primary-home flip** — the sub-features live at the §3 level of the chord SSoT.
+  `CompositionSmokeWindow` remains intentionally ungoverned (D-SMOKE-DOC-1=A).
+
+- **Batch MEL-DOCDRIFT-1 closed (2026-07-24):** documentation-only correction of
+  melody-phase staleness in `authoring/SSoT_Authoring_Tools.md` §3.A/§3.D. **No
+  primary-home flip**; no governed surface moved.
+
+- **Batch MIDIIMP-SSOT-1 closed (2026-07-24): PRIMARY-HOME FLIP.** MIDI file
+  import became SSoT-primary: the new `authoring/SSoT_Authoring_MIDI_Import.md` is
+  now primary for the **cross-cutting** contract (pure-function importer in
+  `Editor/`, working-copy-only apply, window Timing controls as meter authority,
+  beat-unit-aware conversion, the `[Kind] loc: detail` warning shape with no silent
+  fallback, ticks-per-quarter-only, ties-toward-lower, measure derivation and cap).
+  The three domain SSoTs keep their per-domain musical semantics and warning
+  taxonomies unchanged — nothing was moved out of them, so this is an addition of a
+  shared home, not a relocation. The three importer files are **dual-listed** in
+  `ssot_manifest.yaml` (domain SSoT + import SSoT), mirroring the
+  `ChordProgressionRuntimeImporter.cs` and `PaletteSelection.cs` dual-listing
+  precedent. Same rationale as the L3 LLM flip: a replicable authoring pattern with
+  more than one adopter needs one home or its copies drift.
+
+- **Batch MIDIIMP-SSOT-1, second item:** `MIDIPercussionInstrumentSO` resolved as
+  **package-owned** (open question left by PERC-FALLBACK-1 §7.5). No new SSoT — it
+  is homed under `runtime/SSoT_Composer_Rhythm_Track.md`, which already owns the
+  read-only consumption contract in §3E.
+
+- **Batch MEL-BEATUNIT-1 closed (2026-07-24):** runtime fix, **no primary-home flip** and
+  no governed surface moved. Melody timing became beat-unit aware through the new single
+  seam `MelodyTrackComposer.BeatsToSpan`; the deviation is recorded in
+  `runtime/SSoT_Composer_Melody_Track.md` §7.1, which is the primary authority for it,
+  worded to match the bass precedent in `runtime/SSoT_Composer_Bass_Track.md` §3.4.
+  `SSoT_CONTRACTS.md` §5 (meter authority) picked up `BassTrackComposer` and
+  `MelodyTrackComposer`, which had been applying the rule without appearing in its list.
+  With this, every composer and every importer resolves a beat through
+  `MusicTheory.GetBeatSpan` — there is no remaining consumer that assumes a quarter.

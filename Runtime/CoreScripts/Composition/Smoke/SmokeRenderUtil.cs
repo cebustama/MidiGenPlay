@@ -34,7 +34,8 @@ namespace MidiGenPlay.Composition
             ChordExpressionType chordExpression,
             ArpeggioRate arpeggioRate,
             float randomRerollChance = 1f,
-            List<ChordExpressionWeight> randomFigureWeights = null)
+            List<ChordExpressionWeight> randomFigureWeights = null,
+            int velocityJitter = 0)
         {
             if (s == null)
                 return null;
@@ -49,6 +50,12 @@ namespace MidiGenPlay.Composition
                 var b = ScriptableObject.CreateInstance<BasslineCardConfigSO>();
                 b.chordExpression = chordExpression;
                 b.arpeggioRate = arpeggioRate;
+                // CA-V1: the bass now carries the same Random knobs as Backing.
+                b.randomRerollChance = randomRerollChance;
+                b.randomFigureWeights = randomFigureWeights != null
+                    ? new List<ChordExpressionWeight>(randomFigureWeights)
+                    : new List<ChordExpressionWeight>();
+                b.velocityJitter = velocityJitter;
                 inMem = b;
             }
             else
@@ -63,6 +70,7 @@ namespace MidiGenPlay.Composition
                 b.randomFigureWeights = randomFigureWeights != null
                     ? new List<ChordExpressionWeight>(randomFigureWeights)
                     : new List<ChordExpressionWeight>();
+                b.velocityJitter = velocityJitter;
                 inMem = b;
             }
             inMem.hideFlags = HideFlags.HideAndDontSave;

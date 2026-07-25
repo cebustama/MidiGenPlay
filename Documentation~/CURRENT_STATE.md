@@ -2,8 +2,12 @@
 
 ## Active now
 
-- **No batch currently active** (MGP-MIX-1 closed 2026-07-20 — consumer-side
-  mix gain seam; MGP-BAGGAGE-1 closed the same day — catalogue cleanup. Both
+- **No batch currently active** (M3 — MIDI file import for chord progressions —
+  closed 2026-07-23, **completing the MIDI Import arc**; M2 — the melody half —
+  closed the same day; M1 — the drum half — closed 2026-07-19 and verified
+  against a real `.mid`;
+  MGP-MIX-1 closed 2026-07-20 — consumer-side mix gain seam; MGP-BAGGAGE-1
+  closed the same day — catalogue cleanup. Both
   ship in package **1.2.0**: the 1.1.0 bump BAGGAGE-1 planned was never
   materialized in `package.json`, so the version goes 1.0.0 → 1.2.0 in a single
   jump and 1.1.0 does not exist). Next candidates, in no committed order:
@@ -18,11 +22,14 @@
   2026-07-16; tests green, docs applied. The **Chord Articulation (CA) arc**
   (`planning/active/Roadmap_Chord_Articulation.md`) has **CA-T1** (Tier-1 engine),
   **CA-F2** (monophonic bass consumer), **MGP-ALWTTT-ARTIC-1** (Random selection
-  policy — seeded variation part 1), and now **CA-T2** (Tier-2 voicing-reshaping:
-  power chord + chugging) DONE. Remaining in the arc: **CA-V1 part 2** (seeded
-  velocity jitter + randomized arpeggio-rate variety) and the **Tier-2 bossa
-  bass/upper split**, spun out of CA-T2 (needs register-selective emission the
-  pitch-preserving articulator lacks). **BPM-DET-1** is also now closed: the
+  policy — seeded variation part 1), **CA-T2** (Tier-2 voicing-reshaping: power
+  chord + chugging) and now **CA-V1 part 2** (seeded velocity jitter +
+  arpeggio-rate variety + bass roll rider), **BASS-WALK-1** (opt-in chord-tone
+  walk for the bass), **CA-T2-BOSSA** (the register split, now
+  `BassUpperSplit`) and **CA-T2-BOSSA-V2** (the AUTHENTIC bossa template as
+  `Bossa = 10` + the rename) DONE. **The CA arc is complete** — reopened once
+  on finding F-BOSSA-FEEL and re-closed; what is left are recorded candidates
+  on the roadmap, none of them scheduled. **BPM-DET-1** is also now closed: the
   full-song tempo roll is seeded (`ResolveTempoSeed`/`RollTempoBpm`) and
   `PartConfig.ExplicitBpm` is a live reader — completing the SEED-1 story the
   SMOKE-MT arc surfaced (finding C1; VL-DET-1 had fixed only the voicer half).
@@ -37,6 +44,279 @@
   and palette/seed-library expansion.
 
 ## Just completed
+
+- Closed **CA-T2-BOSSA-V2 (authentic bossa template + rename)** (2026-07-24),
+  reopening and re-closing the CA arc on finding F-BOSSA-FEEL. Two
+  deliverables on a 4-file surface (`ChordExpressionType.cs`,
+  `ChordArticulator.cs`, both articulation test files; verified by grep that
+  nothing else names the member):
+  **(1) OD-BOSSA-7=A/-7a=A** — `Bossa = 9` renamed **`BassUpperSplit`**, value
+  intact (enums serialize by VALUE; never parsed/persisted by NAME). Its
+  tests were renamed, not rewritten — behavior byte-identical.
+  **(2) `Bossa = 10`** — the authentic 1-bar comping template from the music
+  lab's sourced rhythm spec (`basico_solo`; reference material, not
+  authority). **D-FEEL-HOME=A:** flat member, same seam, NO new `PlanHits`
+  input — the bar cycle is derived from the absolute beat position, and a
+  chord change mid-cycle INHERITS the phase (spec §6.2). **D-FEEL-SCOPE=A:**
+  one pattern done well (the lab's recognizability threshold) over four
+  approximated; 2-bar patterns are recorded futures, which also mooted
+  D-FEEL-PHASE. **D-FEEL-ACCENT=A — the identity-bearing decision:** the
+  surdo weight sits on beat 2, NOT the downbeat; template-supplied accent
+  tiers reuse the SD-5 factor values, a documented per-figure exception to
+  §8.3's position curve, with a dedicated regression test (beat 2 must
+  outweigh the downbeat). **D-FEEL-TIE=A:** no-overshoot stands; the
+  syncopation (attack on 2.5, sustained to the cycle end, NO attack on
+  beat 3) lives entirely inside the window; harmony-carrying anticipation is
+  a recorded future. Degrades: ≤1-note voicing, `beatsPerBar ≤ 0`, or a
+  window with no UPPERS attack (register safety, F-WALK-REG) → Block; an
+  onset between rows gets a LOW fallback hit. 15 new tests incl. the
+  emitted-MIDI probe (BASS-WALK-1 lesson: attack-time groups asserted on
+  `GetNotes()` — full set at 0.0, uppers at 1.0, lowest alone at 2.0 surdo,
+  uppers at 2.5, nothing on beat 3). The enum tail tripwire fired on BOTH
+  deliberate edits and was updated in place (OD-BOSSA-6=A): member count 11,
+  both figures pool-excluded by `>= ConcretePoolSize` — no §8.5 rule edited.
+  Smoke-validated 2026-07-24 (A/B `BassUpperSplit` vs `Bossa`, same seed —
+  PASS: R1 pitch-subset holds; audibly different — reads as bossa, the ska
+  feel is gone).
+  Governed by Backing §8.3/§8.4/§8.6/§7.5 + Bass §3.3.
+
+- Closed **CA-T2-BOSSA (Tier-2 bossa bass/upper split)** (2026-07-24), the LAST item
+  of the CA arc and the figure CA-T2 deferred. `ChordExpressionType.Bossa = 9`:
+  the voicing's lowest note anchors the event onset and every interior bar
+  downbeat; the upper voices strike short on each beat+0.5 (`Offbeat`'s grid
+  reused verbatim). `arpeggioRate` is ignored (**D-BOSSA-RHYTHM=A**).
+  **The load-bearing decision is D-BOSSA-HOME=A:** the figure lives in the
+  ARTICULATOR, not in a reshaper-owned emission path. The rejected route would
+  have turned the reshaper from a pure list transform into an emitter and broken
+  the single unconditional `Emit`; the chosen one extends the articulator's
+  EXISTING selection vocabulary by one sentinel (`Hit.NoteIndex = -2` = the
+  upper voices, **D-BOSSA-SEL=A**) without changing the `Hit` struct shape.
+  **This is the BASS-WALK-1 reading of pitch-preservation carried forward:**
+  "pitch-preserving" means the articulator never alters a pitch VALUE, not that
+  it never chooses among the values it is handed. CA-T1 already selected one
+  note; Bossa selects a subset. The reshaper is IDENTITY for Bossa and was not
+  edited.
+  **Scope is the headline:** two runtime files changed (`ChordArticulator.cs`,
+  `ChordExpressionType.cs`). No composer, no reshaper, no card surface, no
+  orchestrator — verified against the code before writing, not assumed.
+  **Applied the BASS-WALK-1 verification lesson at the seam:** the `Emit`
+  translation now matches sentinels EXACTLY. A blanket `NoteIndex < 0` test
+  would have rendered the new subset sentinel as a full chord — green plan
+  tests, wrong MIDI, exactly the failure shape of that batch. Undefined
+  negatives degrade to the full chord (never silent). The batch's probe asserts
+  on EMITTED notes: downbeat = exactly the lowest voiced pitch, each offbeat =
+  exactly the non-lowest pitches.
+  **Register handled up front (F-WALK-REG):** a selection figure changes the
+  effective register even inventing no pitch, so the degrade rules avoid silent
+  register shifts — an event with no room for an offbeat falls back to the full
+  chord instead of rendering bass-only (**OD-BOSSA-4=A**), and a ≤1-note voicing
+  (any bassline card selecting `Bossa`) degrades to `Block`. The emitted pitch
+  set is a SUBSET of the voicing by construction, which is what the A/B smoke
+  verified rather than assumed.
+  Other decisions: **D-BOSSA-BASSNOTE=A** (the anchor is the lowest note after
+  voicer + §7 pin + reshape — with a `Down` pin it is the inverted bass, by
+  definition not by accident) · **OD-BOSSA-1=A** (low role reuses the ascending
+  sort at index 0; no third sentinel) · **OD-BOSSA-2=A** (uppers by strict `>`,
+  so a doubled bass pitch never re-strikes offbeat) · **OD-BOSSA-3=A** (onset +
+  interior bar downbeats, so long events keep a bass on every 1).
+  11 tests added to `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`; the
+  `ChordExpressionType` tail tripwire in
+  `Tests/Editor/BassTrackComposer_ArticulationTests.cs` updated in place
+  (**OD-BOSSA-6=A** — it fired correctly on the intentional append, which is
+  what it is for; it is never deleted to make a red suite green) and
+  strengthened with an explicit §8.5 pool-exclusion assertion.
+  Governed by `runtime/SSoT_Composer_Backing_Track.md` §8.4 + §8.6 (+ §7.5 for
+  the pin interaction, + a note in `SSoT_Composer_Bass_Track.md` §3.3).
+  Smoke-validated 2026-07-24 (A/B, same seed — PASS: pitch set a strict subset,
+  downbeat = lowest voiced pitch, offbeats = the rest).
+  **Finding F-BOSSA-FEEL, recorded after the smoke:** the v1 template is a
+  REGISTER SPLIT, not an authentic bossa rhythm. Low on every bar downbeat +
+  uppers on every offbeat is a regular alternation that listens as a calm ska
+  upstroke; real bossa comping alternates unevenly across a two-bar cycle and
+  mixes in full-chord attacks. The figure is correct and useful as shipped —
+  only its stylistic label overreaches. **Open decision OD-BOSSA-7:** whether to
+  rename the member (`BassUpperSplit` / `RegisterSplit`, keeping value 9) and
+  reserve `Bossa` for an authentic figure; cheapest before any asset references
+  it. The authentic template is deferred and blocked on a rhythmic
+  specification, NOT on the seam — §8.4's vocabulary already expresses every
+  role it would need.
+
+- Closed **BASS-WALK-1 (chord-tone walk for the bass)** (2026-07-24), promoting
+  the SD-F2-2 candidate that CA-F2 deferred and CA-V1 did not deliver. Opt-in
+  via `BasslineCardConfigSO.arpeggioToneMode` (new bass-only enum
+  `BassArpeggioToneMode { RepeatedNote = 0, ChordToneWalk = 1 }`); default
+  `RepeatedNote` means pre-batch output is unchanged **structurally** — the walk
+  branch is gated on the enum, not merely equal by measurement.
+  **The load-bearing decision is D-WALK-HOME=A:** the walk is NOT a new engine
+  figure. The bass hands the same single unconditional `Emit` a 3-note playable
+  built by the new pure `BassTrackComposer.BuildWalkVoicing` (root/3rd/5th
+  stacked strictly ascending from the ALREADY-DRAWN root octave), and the
+  articulator's existing `k % noteCount` arpeggio cycling does the walking. The
+  engine stays pitch-preserving in the exact sense it always held: it selects
+  among the notes handed to it and never invents one.
+  **D-WALK-RNG=A** is what made the batch cheap: zero new `ctx.rng` draws — the
+  3rd and 5th are derived from `chordPcs`, the register is the octave §2 already
+  draws, and the branch runs after both draws. The bass's per-event draw count
+  and order are untouched by construction.
+  New pure predicate `ChordArticulator.ArpeggioFits(durBeats, rate)`
+  (**D-WALK-FIT=A**) exposes the engine's arpeggio degrade rule so the bass can
+  fall back to a 1-note playable on short events — without it, a degraded
+  `Block` over the triad would emit a CHORD on the bass line. Predicate/plan
+  agreement is test-pinned as the drift detector.
+  Side effect worth naming: this retires the monophonic pool bias recorded at
+  Bass §3.3 whenever walk mode is on — `ArpeggioUp` and `ArpeggioDown` stop
+  being the same sound, so the uniform Random pool is balanced without weights.
+  Scope kept tight: triad only (7th dropped, **D-WALK-TONES**), engine sort
+  order accepted (**D-WALK-DIR**), root anchoring even in the unreachable
+  `randomChordTone` mode (**D-WALK-ANCHOR**, simplification on record).
+  9 tests added to `Tests/Editor/BassTrackComposer_ArticulationTests.cs`.
+  Governed by `runtime/SSoT_Composer_Bass_Track.md` §3.6 (+ a one-line note in
+  `SSoT_Composer_Backing_Track.md` §8.4 for the exposed predicate).
+  Smoke-validated 2026-07-24 (authored-card A/B: walk steps root/3rd/5th, the
+  `RepeatedNote` control is a flat repeated pitch).
+  **New finding F-WALK-REG, on record:** because the walk stacks UPWARD from the
+  root, it raises the line's effective ceiling by about a fifth — and the bass's
+  octave band is `octaveMin-1 .. octaveMin+1` (three octaves, and the bass
+  IGNORES `octaveMax`, unlike every other composer). Walk-mode content may need a
+  lower `octaveMin` on the bass instrument asset. Narrowing that band is a
+  recorded candidate, not part of this batch: it changes every bass render (the
+  octave draw keeps its count and order, only its range), so it needs its own
+  decision.
+  Still on record for the bass: single-pass rendering, the normalization-order
+  hazard, `degreeAccidental` ignored, and F-WALK-REG above.
+
+- Closed **CA-V1 part 2 (seeded variation)** (2026-07-24), completing the batch
+  ARTIC-1 opened and **closing the CA arc except for the bossa split and the
+  chord-tone-walk candidate**. Two axes, both opt-in and both off by default:
+  (1) **seeded velocity jitter** — new value type
+  `Composition/Data/VelocityJitter.cs`, `velocityJitter` on both the backing and
+  bassline cards, applied as a post-pass in `ChordArticulator.PlanHits`;
+  (2) **arpeggio-rate variety** — `ArpeggioRate.Random = 3` (append; 0..2
+  serialized and unchanged) resolved by a new
+  `RandomArticulationRoller.NextRate()`. Plus the **bass rider**: D6
+  (degrade-only) is LIFTED — the bass now rolls its own figures and rates and
+  carries the full Random knob set (D-V1-BASS=B).
+  **The load-bearing decision is D-V1-JIT-SRC=A:** the jitter is a PURE MIX over
+  (seed, event index, hit index), NOT a forked child rng as the roadmap had
+  framed it — so SD-3=A ("the articulator is RNG-free") survives verbatim, the
+  jitter is immune to draw-order coupling, and integer-only mixing lets the
+  tests pin exact goldens instead of the SEED-1 variance idiom. `ctx.rng` is
+  untouched; the bass's per-event draw contract is structurally safe.
+  Two new substreams (`|articrate`, `|articvel`) join `|artic` under SEED-1;
+  `trackSeed` already folds in role + musicianId, so backing and bass never
+  share a sequence. `velocityJitter == 0` returns the planned hit list by
+  reference — pre-CA-V1 bit-identity is structural, not empirical.
+  **R4**: the DBG-1 readback was deliberately NOT extended; a rate-only random
+  render leaves the figure history empty and `SnapshotRolls` now reports `null`
+  for it, preserving "fixed articulation reports null figures". **R5**: the
+  smoke surface (SmokeEntry/SmokeRenderUtil/window/runner) carries the new knobs
+  and the obsolete D6 bass warning was deleted. New
+  `Tests/Editor/ChordTrackComposer_VelocityJitterTests.cs` (16) plus additions
+  to the roller and bass test files; the pre-existing articulation suites pass
+  unchanged. Governed by `runtime/SSoT_Composer_Backing_Track.md` §8.5 + new
+  §8.7 and `runtime/SSoT_Composer_Bass_Track.md` §3.5.
+  Still on record for the bass: single-pass rendering, the normalization-order
+  hazard, `degreeAccidental` ignored, and the monophonic pool bias
+  (`ArpeggioUp` ≡ `ArpeggioDown`, mitigated by the new weights knob).
+
+- Closed **MEL-BEATUNIT-1** (2026-07-24), resolving finding **F-1**: melody is now
+  beat-unit aware. All three `MelodyTrackComposer` emission sites go through one new
+  seam, `BeatsToSpan(beats, GetBeatSpan(part.TimeSignature))`, instead of the
+  unconditional `MusicalTimeSpan.Quarter` — the two live paths (`ComposeFromPattern`,
+  procedural `ComposeMelodyFromProgression`) plus the unreachable `ComposePerBeatMelody`,
+  corrected in lockstep so it cannot reintroduce the desync (its only call site is
+  commented out; deletion is a separate open question). Direct precedent: the bass fix at
+  **CA-F2** (SD-F2-3=B), and the deviation is recorded in
+  `runtime/SSoT_Composer_Melody_Track.md` §7.1 with the same wording shape as Bass §3.4.
+  **Byte-identical in every `beatUnit == 4` meter** — `GetBeatSpan` returns
+  `MusicalTimeSpan.Quarter` there, so it is a structural identity, not an empirical one;
+  in other meters the output deliberately changes (sync FIX). **D-MEL5.1 = A stands**: the
+  meter-mismatch tiles-by-beats limitation is the other axis (how many beats a bar holds,
+  not how long a beat is) and was not revisited. **No migration** of authored X/8 content —
+  `MelodyPatternData` stores beats and `MelodyMidiImporter` already writes
+  `gridBeats = quarterNotes × beatUnit / 4`, so the data was always right and only the
+  render misread it; an author who hand-compensated at double speed must undo that.
+  Determinism surface untouched (no RNG draws added; `ResolvePatternNotesCore` and the
+  `GuideNote` payload unchanged, the latter now documented as Part beat units). 4 tests
+  added to `Tests/Editor/MelodyTrackComposer_PatternDeterminismTests.cs` (12 total).
+  **Melody smoke in compound/odd meters is now valid**; the previous "smoke melody in 4/4"
+  instruction is withdrawn, and 4/4 becomes the byte-identity control instead.
+
+- Closed **MIDIIMP-SSOT-1** (2026-07-24), documentation/governance only: MIDI file
+  import promoted to its own cross-cutting SSoT
+  (`authoring/SSoT_Authoring_MIDI_Import.md`), owning the shared contract while the
+  three domain SSoTs keep their musical semantics unchanged. `coverage-matrix.md`
+  caught up from 2026-07-17 (six missing batch notes + the primary-home flip);
+  `SSoT_INDEX.md` spine updated. Also resolved: `MIDIPercussionInstrumentSO` is
+  **package-owned** (governed under the rhythm composer SSoT; manifest path inferred
+  and flagged), and `Roadmap_Melody_Authoring_MVP.md` archived — D2–D4 carried as
+  records only, so future melody work opens a new roadmap. **F-1** (melody beat-unit
+  desync in X/8) characterized in the melody runtime SSoT and left as the pending
+  batch **MEL-BEATUNIT-1** (since closed 2026-07-24, see above).
+
+- Closed **MEL-DOCDRIFT-1** (2026-07-24), documentation-only: corrected the
+  melody-phase staleness in `authoring/SSoT_Authoring_Tools.md` §3.A/§3.D, which
+  still described Phase 3 (generation params + `SimplifiedMelodyGenerator`) and
+  Phase 4 (runtime `ComposeFromPattern`) as unimplemented — both closed
+  2026-06-17 and verified code-backed. Also added the missing Phase-3 capability
+  bullet, reworded the stale drag-to-resize limitation, and retitled §3.D from
+  "remaining planned phases" to a phase history. No code, no contract, no
+  governed-surface change. Surfaced while anchoring M2 and deferred there on
+  purpose rather than patched silently.
+
+- Applied the **batched documentation session** (2026-07-24): the accumulated
+  drafted diffs §1–§10 (`M1_Doc_Diffs_FINAL.md`, `M2_Doc_Diffs.md`,
+  `M3_Doc_Diffs.md`, `IMPORT_QOL_1_Doc_Diffs.md`) reconciled against a
+  re-verified baseline. §1–§7 were found already applied; §8, §9 and §10 were
+  applied in order. `Roadmap_MIDI_Import.md` moved to `planning/archive/`
+  (arc COMPLETE) and de-registered from the manifest's `roadmaps:` list.
+
+- Closed **IMPORT-QOL-1 — editor QoL** (2026-07-24): Suggest-subdivisions probe
+  + preserve-re-strikes toggle (bounded M3-D5 amendment) + `originalInput`
+  provenance on the chord import panel; measures advisory + config auto-assign
+  on `CompositionSmokeWindow`. 33 EditMode tests green; re-strikes smoke
+  regression PASS. D-QOL1-1..7 locked.
+
+- Closed **M3 — MIDI → ChordProgressionData** (2026-07-23): `ChordMidiImporter`
+  + 25 EditMode tests + Grid-mode import panel; M3-D1..D6 locked. MIDI Import
+  roadmap COMPLETE.
+
+- Closed **M2** (2026-07-23), the melody half of the **MIDI Import arc**
+  (`planning/archive/Roadmap_MIDI_Import.md`): `MelodyMidiImporter` (pure-function
+  `.mid` → `MelodyPatternData`; user-specified key, pitch → diatonic degree with
+  ties-downward chromatic snap, auto-centered reference octave, monophonization by
+  highest-pitch-wins plus overlap truncation, beat-absolute quantized timing with
+  preserved duration, eleven-kind warning taxonomy with no silent fallback), 20
+  EditMode tests, and the melody editor's "MIDI File Import" panel (working-copy
+  apply only; asset writes still via Apply/Save As). Verified against a real `.mid`
+  in-editor including a render pass through `ComposeFromPattern`. Decisions
+  M2-D1..D6 locked — notably **M2-D2=A: the reference octave is auto-centered and
+  reported, not user-selected**, because the true reference is the runtime
+  instrument register. Implements and supersedes `Roadmap_Melody_Authoring_MVP.md`
+  Phase D1. No runtime code touched.
+
+- Closed **PERC-FALLBACK-1** (2026-07-22): family-fallback percussion
+  resolution in `RhythmTrackComposer` — new Runtime `PercussionFallbackTable`
+  + pure `PercussionNoteResolver` (exact → fixed-order family substitute →
+  mute+warn, GM-standard opt-in wired off), all six former exact-match call
+  sites routed through one seam with the D-PF3 log discipline. Deterministic
+  by construction; kit SO read-only. Closes the render-time gap the M1
+  real-MIDI test surfaced (Brush Kit muting BassDrum1 / floor toms /
+  PedalHiHat / HiMidTom lanes).
+
+- Closed **M1** (2026-07-19), opening the new **MIDI Import arc**
+  (`planning/archive/Roadmap_MIDI_Import.md`): `DrumMidiImporter` (pure-function
+  `.mid` → `DrumPatternData` grid; beat-unit-aware quantization, GM reverse map
+  from DryWetMidi's own tables, modal-default velocity compression to the
+  `StepState` sentinel, seven-kind warning taxonomy with no silent fallback), 11
+  EditMode tests, and the editor's "MIDI File Import" panel (applies in Grid
+  mode to preserve velocity fidelity; asset writes still only via Apply/Save As).
+  Verified against a real GM drum `.mid` (100% OK). Decisions D-MIDI1..5 locked —
+  notably **D-MIDI4=A: bassline import is out of scope**, since no bassline
+  pattern asset exists and `BassTrackComposer` ignores pattern overrides in v1.
+  No runtime code touched. The real-MIDI test surfaced a render-time gap spun out
+  as **PERC-FALLBACK-1** (kit lacks the exact GM member an imported lane requests
+  → lane dropped; needs family substitution in the rhythm composer).
 
 - Closed **MGP-MIX-1** (2026-07-20, package **1.2.0**): consumer-side mix gain.
   Per-render `mixGains` map on `GenerateSinglePart`, keyed `MusicianTrackKey`;
@@ -384,7 +664,8 @@
   `(degree, octaveOffset)` resolved via `GetNoteFromScale` against the active Part
   tonality/root from the instrument's mid register (clamped to the instrument range), the
   authored loop (`pattern.TotalBeats`) tiled to the Part with quarter-mapped beats (matching
-  the procedural path; final loop truncated; `beatsPerMeasure` mismatch warns + tiles),
+  the procedural path — quarter-mapping since superseded by MEL-BEATUNIT-1, 2026-07-24;
+  final loop truncated; `beatsPerMeasure` mismatch warns + tiles),
   velocities clamped, guide notes cached via `ctx.SetMelodyForPartMusician` — and skips
   `PhrasePlanner`/strategies; otherwise the procedural path is byte-identical to before. No
   RNG (deterministic; `ctx.rng` draw order for other tracks unaffected), runtime-only (no
@@ -693,19 +974,11 @@
 
 ## Next
 
-1. **CA-V1 part 2 (seeded variation)** — the remaining CA-arc articulation work:
-   seeded velocity jitter + randomized per-pattern/per-chord arpeggio-rate variety
-   (fork a child rng off the seed; do NOT tap `ctx.rng`). Part 1 shipped via
-   MGP-ALWTTT-ARTIC-1; the bass roll wiring (D6 degrade-only) is a one-line rider.
-2. **Tier-2 bossa bass/upper split** — spun out of CA-T2: a register-selective
-   figure (bass on 1, upper voices off the beat) that the pitch-preserving Tier-1
-   articulator cannot express; needs either a register-aware articulator figure or
-   a reshaper-owned emit path.
-3. **D-L4.3 unification** (optional) — extract a shared generic over the drum and
+1. **D-L4.3 unification** (optional) — extract a shared generic over the drum and
    chord prompt builders / generators now that two working instances exist.
-4. Resume phrasing / feel runtime completion (Phase 9) — now unblocked; Phase 8
+2. Resume phrasing / feel runtime completion (Phase 9) — now unblocked; Phase 8
    (authoring-tool persistence unification) closed 2026-07-05 by PATTERN-PERSIST-1.
-5. Continue demoting the old `MIDISong` / `MIDIGeneratorManager` branch to
+3. Continue demoting the old `MIDISong` / `MIDIGeneratorManager` branch to
    legacy/reference status.
 
 Future (recorded, not scheduled): fill tag system (R3 — runtime/Composer

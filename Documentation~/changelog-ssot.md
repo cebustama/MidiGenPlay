@@ -1,5 +1,677 @@
 # changelog-ssot
 
+## 2026-07-24 — CA-T2-BOSSA-V2: authentic bossa template + member rename (CA arc re-closed)
+
+### Added
+- `ChordExpressionType.Bossa = 10` — the AUTHENTIC bossa comping figure: the lab
+  spec's `basico_solo` 1-bar template (LOW 0.0×2.0 medium · UPPERS 0.0×1.0
+  medium · UPPERS 1.0×1.5 weak · LOW 2.0×2.0 strong SURDO · UPPERS 2.5×1.5
+  strong SYNCOPATION, sustained to the cycle end, no attack on beat 3).
+  Append-only after value 9; 0..9 serialized and unchanged.
+- `ChordArticulator.BossaTemplatePlan` — pure planner: bar-length cycle from
+  absolute beat position (mid-cycle chord changes inherit phase); meter
+  clipping below 4/4; LOW onset-fallback hit; degrades to Block on ≤1-note
+  voicings, beatsPerBar ≤ 0, or windows with no UPPERS attack.
+- `ChordArticulator.TierVelocity` + `BossaTier*` constants — D-FEEL-ACCENT=A:
+  template-supplied accent tiers reusing the SD-5 factor values (the surdo
+  inversion §8.3 cannot express positionally).
+- 15 tests in `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`, incl. the
+  surdo regression test and an emitted-MIDI attack-group probe.
+
+### Changed
+- `ChordExpressionType`: member 9 RENAMED `Bossa` → `BassUpperSplit`
+  (OD-BOSSA-7=A/-7a=A). Name-only: value intact, enums serialize by value, the
+  member is never parsed or persisted by name (verified). Surface: exactly 4
+  files; the v1 tests were renamed, not rewritten.
+- `ChordArticulator.Emit`: the sorted-copy and uppers-subset gates now cover
+  both register-selective figures; sentinel translation unchanged.
+- `Tests/Editor/BassTrackComposer_ArticulationTests.cs` — tail tripwire updated
+  deliberately (OD-BOSSA-6=A): BassUpperSplit=9, Bossa=10, count 11, BOTH
+  pool-excluded.
+
+### Behavior
+- Every pre-batch path byte-identical: the rename changes no plan, and the new
+  figure is reachable only by selecting value 10.
+- `Bossa = 10` is excluded from the §8.5 Random pool by the existing
+  `>= ConcretePoolSize` mechanism — no rule edited.
+- §8.3 gains a documented per-figure accent exception (D-FEEL-ACCENT=A).
+
+### Decisions locked
+- OD-BOSSA-7=A, OD-BOSSA-7a=A (`BassUpperSplit`), D-FEEL-HOME=A,
+  D-FEEL-SCOPE=A, D-FEEL-PHASE=moot, D-FEEL-TIE=A, D-FEEL-ACCENT=A,
+  D-FEEL-DIFFS=A; OD-BOSSA-6=A reaffirmed.
+
+### Not changed
+- `ChordReshaper.cs` (identity by exclusion covers the new member), every
+  composer, card surface, orchestrator, and seam signature.
+
+### Deferred
+- 2-bar spec patterns + cycle phase anchoring · harmony-carrying anticipation
+  (`carries_next_harmony`) · LOW_ALT root/fifth alternation · muted ghost
+  strokes. All recorded in Backing §8.6; none blocked on the seam.
+
+### Arc
+- The CA arc, closed by CA-T2-BOSSA, was REOPENED by finding F-BOSSA-FEEL and
+  is CLOSED again.
+
+## 2026-07-24 — CA-T2-BOSSA: register-selective bossa bass/upper split (CA arc closed)
+
+### Added
+- `ChordExpressionType.Bossa = 9` — Tier-2 register-SELECTIVE figure (append-only
+  after `Chugging = 8`; values 0..8 serialized and unchanged).
+- `ChordArticulator.BossaPlan` — pure planner: low note at the event onset and at
+  every interior bar downbeat (legato to the next low hit / event end), upper
+  voices on `Offbeat`'s grid at ≤0.5 beat.
+- `ChordArticulator.UpperVoicesIndex = -2` — subset sentinel in the `Hit.NoteIndex`
+  selection vocabulary; `Hit` struct shape unchanged.
+- 11 tests in `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`, including an
+  emitted-MIDI probe (downbeat = lowest voiced pitch; offbeats = the non-lowest
+  pitches) and a byte-level rate-independence test.
+
+### Modified
+- `SSoT_Composer_Backing_Track.md` §8.4 — the `Hit.NoteIndex` selection vocabulary
+  is now documented and closed (`-1` full chord, `-2` uppers, `>= 0` sorted index),
+  with the exact-match translation rule and its rationale.
+- `SSoT_Composer_Backing_Track.md` §8.6 — Tier 2 now distinguishes
+  voicing-RESHAPING from register-SELECTIVE members; `Bossa` documented; the
+  "Deferred" bossa paragraph replaced by "Delivered" plus finding F-BOSSA-FEEL
+  and the authentic-template deferral.
+- `SSoT_Composer_Backing_Track.md` §7.5 — Bossa's anchor note named as the end of
+  the voicer → pin → reshape chain (no new precedence rule).
+- `SSoT_Composer_Bass_Track.md` §3.3 — records that `Bossa` on a bassline card
+  degrades to `Block` (≤1-note voicing); no bass-side code changed.
+- `Tests/Editor/BassTrackComposer_ArticulationTests.cs` — the enum tail tripwire
+  updated for the governed append and strengthened with a pool-exclusion assert.
+
+### Behavior
+- Default `Block` unchanged; every pre-batch path byte-identical (the new figure
+  is reachable only by selecting it).
+- `Emit` sentinel translation changed from a blanket `NoteIndex < 0` test to exact
+  matching; behaviour for `-1` and `>= 0` is unchanged, undefined negatives now
+  degrade to the full chord explicitly.
+- Bossa's emitted pitch set is a SUBSET of the voicing handed to `Emit` — no pitch
+  is created or altered.
+
+### Decisions locked
+- D-BOSSA-HOME=A, D-BOSSA-SEL=A, D-BOSSA-BASSNOTE=A, D-BOSSA-RHYTHM=A,
+  OD-BOSSA-1=A, OD-BOSSA-2=A, OD-BOSSA-3=A, OD-BOSSA-4=A, OD-BOSSA-5 (`Bossa`),
+  OD-BOSSA-6=A.
+
+### Not changed
+- `ChordTrackComposer.cs`, `BassTrackComposer.cs`, `ChordReshaper.cs`,
+  `BackingCardConfigSO.cs`, `BasslineCardConfigSO.cs`, the orchestrator, and every
+  seam signature. The reshaper's existing identity guard already covered `Bossa`.
+- The §8.5 Random pool: `Bossa = 9` is excluded by the existing
+  `>= ConcretePoolSize` mechanism, no rule edited (D-T2-POOL=A′).
+
+### Findings
+- **F-BOSSA-FEEL** (post-smoke): the v1 template is a REGISTER SPLIT, not an
+  authentic bossa rhythm — low on every bar downbeat, uppers on every offbeat is
+  a regular alternation reading as a calm ska upstroke. Correct and useful as
+  shipped; the stylistic label overreaches. Corrects an earlier claim that the
+  clave was blocked on "bar parity the articulator is not given": parity IS
+  derivable from absolute beat position. The real gaps are cycle PHASE
+  ANCHORING, full-chord attacks inside the template, and attacks that tie across
+  a chord change.
+
+### Open
+- **OD-BOSSA-7** — member name. `Bossa = 9` names a feel it does not deliver.
+  Rename to `BassUpperSplit` / `RegisterSplit` (value unchanged) and reserve
+  `Bossa`, or keep and improve in place. Not decided.
+
+### Deferred
+- Authentic bossa template (blocked on a rhythmic specification, not on the seam).
+- Rhythm-driven backing accents (new inter-composer input dependency).
+
+### Arc
+- The CA (Chord Articulation) arc is CLOSED: CA-T1, CA-F2, MGP-ALWTTT-ARTIC-1,
+  CA-T2, CA-V1 (parts 1–2), BASS-WALK-1, CA-T2-BOSSA.
+
+## 2026-07-24 — BASS-WALK-1: chord-tone walk for the monophonic bass
+
+### Added
+- `BassArpeggioToneMode { RepeatedNote = 0, ChordToneWalk = 1 }` — bass-only
+  enum declared in `Runtime/CoreScripts/Composition/Data/BasslineCardConfigSO.cs`
+  (D-WALK-SURF=A; append-only, never renumbered). `ChordExpressionType` is
+  deliberately NOT extended, so nothing enters the shared engine or the backing
+  card's §8.5 Random pool.
+- `BasslineCardConfigSO.arpeggioToneMode` (default `RepeatedNote`).
+- `BassTrackComposer.BuildWalkVoicing(NoteName[] chordPcs, int rootOct)` —
+  internal static, pure, RNG-free. Returns the first `Min(3, chordPcs.Length)`
+  tones stacked strictly ascending from the root at the drawn octave, each tone
+  lifted one octave if it would fall at or below the previous note.
+- `ChordArticulator.ArpeggioFits(double durBeats, ArpeggioRate rate)` — public
+  static pure predicate exposing the existing arpeggio degrade rule
+  (D-WALK-FIT=A). No behavior added; a read-only view of `ArpeggioPlan`'s
+  condition.
+
+### Modified
+- `Runtime/CoreScripts/Composition/Composers/BassTrackComposer.cs` — resolves
+  `arpeggioToneMode` alongside the CA-V1 knobs, and at the single emission site
+  chooses the `playable` handed to the unchanged `Emit` call: the walk triad
+  when (walk mode AND the resolved figure is `ArpeggioUp`/`ArpeggioDown` AND
+  `chordPcs.Length >= 2` AND `ArpeggioFits`), else the 1-note voicing. The
+  emission call itself is untouched — still ONE unconditional `Emit`.
+- `Tests/Editor/BassTrackComposer_ArticulationTests.cs` — 9 tests added
+  (voicing stacking + wrapping case, root anchoring + purity, triad-only
+  truncation, Up ≠ Down under walk vs Up ≡ Down under `RepeatedNote`, walk
+  determinism across rates, `ArpeggioFits` ↔ degrade equivalence, the monophony
+  guard incl. the hazard it prevents, enum defaults, and a pin that
+  `ChordExpressionType` gained no member).
+
+### Behavior
+- `arpeggioToneMode = RepeatedNote` (default): unchanged output. Bit-identity is
+  STRUCTURAL — the walk branch is gated on the enum.
+- `ChordToneWalk` + `ArpeggioUp`: root → 3rd → 5th → root at the card rate.
+  `ArpeggioDown`: 5th → 3rd → root. Non-arpeggio figures ignore the mode.
+- Short events (shorter than one arpeggio hit) fall back to the 1-note playable
+  and degrade to a true legacy `Block` — the line never becomes polyphonic.
+- The §8.5/§3.5 Random roll is unaffected; in walk mode the documented
+  monophonic pool bias no longer arises.
+- Register rises in walk mode: the stack is upward from the root, so the top of
+  each event sits a fifth above the drawn root (see findings).
+
+### Findings
+- **F-WALK-REG (on record, no fix in this batch).** Walk mode raises the bass
+  line's effective ceiling by roughly a fifth, on top of a pre-existing
+  three-octave sampled band (`octaveMin-1 .. octaveMin+1`). Two contributing
+  facts, both pre-dating this batch and now documented in §3.6: the band is wide
+  for a bass, and the bass IGNORES `MIDIInstrumentSO.octaveMax` (`maxOct` is
+  hardcoded to `octaveMin + 1`), unlike the chord and melody composers which use
+  `octaveMin-1 .. octaveMax-1`. Immediate mitigation is authoring-side (lower
+  `octaveMin` on the bass instrument asset). Narrowing the band in code is a
+  recorded candidate requiring its own decision: it changes every bass render,
+  though NOT the determinism surface (the octave draw keeps its count and order,
+  only its range).
+
+### Decisions locked
+D-WALK-HOME=A · D-WALK-RNG=A · D-WALK-SURF=A · D-WALK-TONES (triad) ·
+D-WALK-DIR (engine sort order) · D-WALK-FIT=A · D-WALK-ANCHOR (root-anchored).
+The SD-F2-2 deferral is RESOLVED.
+
+### Not changed
+- `ctx.rng`: no new draws, no reordering. The §2 bass draw contract (1 draw root
+  mode / 2 chord-tone mode, in that order) holds by construction.
+- The articulator: still pure, RNG-free, stateless; no new figure, no seam
+  signature change, no enum renumbering.
+- `IChordArticulator` / `IChordReshaper` / the factory / `ITrackComposer`.
+- The DBG-1 readback: the tone mode is not reported (same discipline as CA-V1's
+  R4).
+- The smoke no-asset fallback (`SmokeEntry` / `SmokeRenderUtil`): the walk knob
+  is reachable only through an authored `BasslineCardConfigSO` asset in the
+  Style slot. Extending the fallback is an optional rider, not part of this
+  batch's DoD.
+
+## 2026-07-24 — CA-V1 part 2: seeded velocity jitter + arpeggio-rate variety
+
+Closes the CA-V1 batch (part 1 was MGP-ALWTTT-ARTIC-1). Two opt-in variation
+axes, both off by default; supersedes D5 (fixed rate) and D6 (bass
+degrade-only).
+
+### Added
+- `Runtime/CoreScripts/Composition/Data/VelocityJitter.cs` — new value type.
+  `Amount` + `Seed`, `ForEvent(eventIndex)` scoping, `DeltaFor(hitIndex)`
+  uniform over [-n, +n]. **D-V1-JIT-SRC=A: a pure integer mix, not a stream** —
+  the articulator stays RNG-free (SD-3=A intact), the jitter is immune to
+  draw-order coupling, and goldens are exactly pinnable across .NET versions.
+  Distinct fold constants for the event and hit axes (the matrix must not be
+  symmetric). `MaxAmount = 64` defensive clamp.
+- `SongOrchestrator.ResolveArticulationRateSeed` (FNV-1a `"{trackSeed}|articrate"`)
+  and `ResolveVelocityJitterSeed` (`"{trackSeed}|articvel"`) — two new SEED-1
+  substreams. The jitter one is consumed as a seed for a pure mix, never as a
+  `System.Random`.
+- `ChordExpressionType.cs` — `ArpeggioRate.Random = 3` (append; 0..2 serialized
+  and unchanged), the exact mirror of `ChordExpressionType.Random = 6`.
+- `RandomArticulationRoller` — second stream (`rateRng`, optional 4th ctor
+  arg), `NextRate()` with the same draw discipline as `NextFigure()`,
+  `ConcreteRatePoolSize`, `RateHistory`, trace extension.
+- `Tests/Editor/ChordTrackComposer_VelocityJitterTests.cs` — 16 tests
+  (substream goldens, exact jitter goldens, bound/coverage, fold asymmetry,
+  default-jitter identity across every enum member, Block/PerBeat golden
+  velocities, both clamps, timing invariance, determinism, rate degrade).
+  Additions to `ChordTrackComposer_RandomArticulationTests.cs` (rate roll +
+  **stream-orthogonality pin**) and `BassTrackComposer_ArticulationTests.cs`
+  (role-based substream separation, sentinel pass-through).
+
+### Modified
+- `IChordArticulator.Emit` / `ChordArticulator.PlanHits` — optional trailing
+  `VelocityJitter jitter = default` (the recorded extension route: the
+  `IChordVoicer.VoiceChord` `forcedInversion` precedent, not a signature
+  change). `PlanHits` split into the jitter wrapper + `PlanCore` (the figure
+  switch, verbatim); jitter applied as a post-pass indexed by hit position, so
+  no figure branch learned about it. `ArpeggioIntervalBeats` degrades a leaked
+  `ArpeggioRate.Random` to `Eighth`.
+- `ChordTrackComposer` — roller now built when EITHER sentinel is selected (both
+  streams constructed); render-level `VelocityJitter` threaded through
+  `ComposeProcedural` → `RenderFromProgression`; both emission sites resolve
+  figure and rate independently and pass `jitter.ForEvent(eventIndex)`.
+  **`SnapshotRolls` now reports `null` for an empty figure history** — without
+  this, a rate-only random render would have silently broken the DBG-1 readback
+  contract (R4).
+- `BassTrackComposer` — D6 lifted: own roller + jitter + `eventIndex` counter.
+  The note-selection loop and its `ctx.rng` draw count/order are untouched.
+- `BackingCardConfigSO` (+`velocityJitter`); `BasslineCardConfigSO`
+  (+`randomRerollChance`, `randomFigureWeights`, `velocityJitter` — D-V1-BASS=B
+  parity, motivated by the monophonic pool bias where `ArpeggioUp` ≡
+  `ArpeggioDown`).
+- Smoke surface (R5, ungoverned dev infra per D-SMOKE-DOC-1=A):
+  `SmokeEntry` (+`velocityJitter` + Clone), `SmokeRenderUtil.BuildEffectiveSpec`
+  (+ param; bassline branch now also receives the Random knobs),
+  `CompositionSmokeWindow` (knobs for both roles and both sentinels, jitter
+  slider, **`RandomOnBasslineWarning` deleted** — it now asserts something
+  false), `CompositionSmokeRunner` (call-site parity).
+- `Tests/Editor/ChordMarkerParityTests.cs` — one argument
+  (`velocityJitter: default`) at the `RenderFromProgression` seam call. Kept
+  explicit rather than defaulting the parameter, so any future call site must
+  decide (anti-divergence discipline).
+
+### Behavior
+- Default (`velocityJitter = 0`, no `Random` sentinels): byte-identical, and
+  **structurally** so — `ApplyJitter` returns the input list by reference.
+- Jitter on: every hit offset uniformly in [-n, +n] and clamped 1..127,
+  `Block` included; `Block`'s legacy 0..127 clamp applies only with jitter off.
+- Rate sentinel on: per-event rate roll on its own substream; enabling it does
+  not shift a single figure roll (test-pinned).
+- Bass with `Random`: rolls instead of degrading; its sequence differs from the
+  backing's by construction (role is in `trackSeed`).
+
+### Decisions locked
+- D-V1-JIT-SRC=A · JIT-SCOPE=A · JIT-SHAPE=A · RATE-SEL=A · RATE-STREAM=A ·
+  RATE-GRAN=A · RATE-POOL=A · BASS=B · R4 (readback unchanged) · R5 (smoke in
+  scope). D5 and D6 SUPERSEDED.
+
+### Not changed
+- `ITrackComposer`; the figure math, accent curve and degrade rules; the §8.5
+  figure pool and weight semantics; `ctx.rng` consumption anywhere; the DBG-1
+  readback type; seed policy stays host-side (no new entropy site).
+- Pre-existing, on record: bass single-pass rendering, normalization-order
+  hazard, `degreeAccidental` ignored.
+
+### Cross-project (ALWTTT side — tracked there)
+- `ArpeggioRate.Random` and the new card fields are visible consumer surface;
+  the boundary doc needs a note. Any consumer byte-identity baseline must assume
+  `velocityJitter = 0`.
+
+## 2026-07-24 — MEL-BEATUNIT-1: beat-unit-aware melody timing (finding F-1 resolved)
+
+Runtime fix + tests + documentation. One invariant reworded; no contract redesigned,
+no decision reversed.
+
+### Changed — code
+- **`Runtime/CoreScripts/Composition/Composers/MelodyTrackComposer.cs`**
+  - New single conversion seam
+    `internal static ITimeSpan BeatsToSpan(double beats, MusicalTimeSpan beatSpan)`,
+    sited next to `MinNoteBeats`, carrying the deviation record in its XML doc.
+  - `var beatSpan = GetBeatSpan(part.TimeSignature);` added beside the `beatsPerBar`
+    each path already derived, at all three meter-derivation sites.
+  - Six emission expressions moved off `MusicalTimeSpan.Quarter.Multiply(...)` onto the
+    seam: `ComposeFromPattern`, the procedural `ComposeMelodyFromProgression`, and
+    `ComposePerBeatMelody`.
+  - `ComposePerBeatMelody` marked **unreachable** (its only call site is commented out in
+    `Compose`) and corrected in lockstep so re-enabling it cannot reintroduce the desync.
+    Deleting it is a separate, open question.
+  - The Phase 4 header comment claiming "one beat = a quarter" corrected — it had become
+    false with the change.
+
+### Changed — tests
+- **`Tests/Editor/MelodyTrackComposer_PatternDeterminismTests.cs`** (8 → 12 tests, still no
+  Unity fixtures): `BeatsToSpan_FourFour_IsBitIdenticalToLegacyQuarter` (the
+  non-regression control), `BeatsToSpan_SixEight_IsHalfTheLegacyQuarterTicks` (the fix,
+  mirroring the bass pin `Block_MonoEmit_BitIdentityHoldsPerBeatSpan_EighthDiffersFromLegacyQuarter`),
+  `BeatSpan_AllTimeSignatures_MatchTheirBeatUnit` (all 8 meters), and
+  `Resolve_SixEightPart_ResolutionSeamIsUnchanged` (the batch's upper boundary). A
+  `using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;` alias was
+  needed because `DryWetMidi.Interaction` declares its own `TimeSignature` — same pattern
+  as `SongOrchestratorSeedTests`.
+
+### Changed — docs
+- `runtime/SSoT_Composer_Melody_Track.md` — §7 "Meter & looping" rewritten off the
+  quarter assumption; new **§7.1** records the deviation in the shape Bass §3.4 uses;
+  guide-note handoff now states the unit; §8 gains a trigger for the timing unit / the
+  seam being bypassed. The F-1 characterization block is superseded by §7.1.
+- `ssot_manifest.yaml` — the authored-pattern invariant no longer says beats are
+  "quarter-mapped"; header changelog block added.
+- `CURRENT_STATE.md`, `coverage-matrix.md` — closure recorded; the "smoke melody in 4/4"
+  instruction withdrawn; `Next` renumbered.
+- `SSoT_CONTRACTS.md` §5 — `BassTrackComposer` and `MelodyTrackComposer` added to the
+  list of composers the meter-authority rule especially covers. Both already applied it;
+  the list had simply not been updated after CA-F2.
+
+### Decisions
+- **Scope = all three call sites** (two live, one unreachable-but-corrected), over
+  fixing only the live pair.
+- **4/4 identity is structural, and pinned at the seam.** `GetBeatSpan(FourFour)`
+  *returns* `MusicalTimeSpan.Quarter`, so the substitution cannot drift; the test asserts
+  span identity and tick equality across a multiplier set rather than reaching for MIDI
+  goldens (which would have required the `MIDIInstrumentSO` / `SongConfig` / `GenContext`
+  fixtures this test file deliberately avoids).
+- **No migration of authored X/8 patterns.** `MelodyPatternData` stores timing in beats
+  and inherits `PatternDataSO.TimeSignature`; `MelodyMidiImporter` already writes
+  `gridBeats = quarterNotes × beatUnit / 4`. The stored beats were always in the meter's
+  beat unit — only the render misread them, so rescaling assets would double-correct
+  correct data. Consequence on record: an author who hand-compensated for the old render
+  must undo that compensation.
+- **D-MEL5.1 = A stands**, with MEL-BEATUNIT-1 as a bounded exception. Beat unit and
+  bar-alignment are independent axes; bar-time renormalization remains post-MVP.
+
+### Notes
+- Precision was checked, not assumed: `MusicalTimeSpan.Multiply(double)` rounds the
+  *multiplier* to three decimals and scales numerator/denominator, so the beatSpan swap
+  leaves relative precision untouched and halves the absolute tick error in X/8.
+- No governed surface moved and no `governs:` entry changed. The test file remains
+  unlisted in the manifest, as it was before this batch — flagged here rather than
+  changed silently, since the bass SSoT does list its tests.
+- Smoke (4/4 byte-identity control + 6/8 cross-track sync) is run by the maintainer in
+  Unity; it is not evidenced by this entry.
+
+## 2026-07-24 — MIDIIMP-SSOT-1: MIDI import promoted to its own SSoT (+ governance close-outs)
+
+Documentation and governance only. No code, no contract change, no invariant
+weakened.
+
+### Added
+- **`authoring/SSoT_Authoring_MIDI_Import.md`** — new primary SSoT for the
+  cross-cutting MIDI-import pattern. Owns the shared contract only: pure-function
+  importer in `Editor/`, working-copy-only apply, the window's Timing controls as
+  meter authority, beat-unit-aware grid conversion, the `[Kind] loc: detail`
+  warning shape with no silent fallback, ticks-per-quarter-only, ties-toward-lower
+  determinism, measure derivation and the 64 cap. Also records the three documented
+  losses (drum durations + kit-agnostic GM, melody absolute register, chord
+  inversions/voicings) and what does not exist (export, meter/tempo import, key
+  detection, bassline import, full chord recognition).
+  - The three domain SSoTs keep their musical semantics and warning taxonomies
+    **unchanged** — nothing was moved out of them. This is a shared home added, not
+    a relocation, which is why no domain doc needed editing.
+  - Promotion trigger is the one M1 wrote down: revisit if import becomes
+    cross-domain. M3 made it three adopters. Precedent and shape follow
+    `authoring/SSoT_Authoring_LLM_Generation.md` (primary since L3).
+
+### Changed
+- `coverage-matrix.md` — new row for MIDI file import (primary =
+  the new SSoT), plus the six missing batch notes (M1, PERC-FALLBACK-1, M2, M3,
+  IMPORT-QOL-1, MEL-DOCDRIFT-1) and this batch's **primary-home flip** note. The
+  matrix had been silent since 2026-07-17.
+- `SSoT_INDEX.md` — the new SSoT added to the primary authoring spine. While there:
+  `authoring/SSoT_Authoring_LLM_Generation.md` had been missing from that list since
+  it became primary in 2026-05-28; added with a dated note.
+- `ssot_manifest.yaml` — new entry with six cross-cutting invariants; the three
+  importer files dual-listed (domain SSoT + import SSoT), mirroring the
+  `ChordProgressionRuntimeImporter.cs` / `PaletteSelection.cs` precedent.
+
+### Resolved
+- **`MIDIPercussionInstrumentSO` ownership** (open since PERC-FALLBACK-1 §7.5):
+  **package-owned**. No separate SSoT — homed under
+  `runtime/SSoT_Composer_Rhythm_Track.md`, which already owns the read-only
+  consumption contract in §3E, and added to that entry's `governs:`. Its path in the
+  manifest is **inferred and flagged inline**; verify against the package tree.
+- **`planning/active/Roadmap_Melody_Authoring_MVP.md` archived.** MVP complete
+  (Phases 1–5) and D1 superseded, so it moved to `planning/archive/` and was
+  de-registered from `roadmaps:`. Consequence recorded in its header: D2–D4 are
+  carried as records only, and resuming melody authoring opens a **new** roadmap
+  rather than reopening this one.
+- Residual D1 staleness in that roadmap's "Immediate next steps" (a line §8.4 did
+  not reach) corrected before archiving.
+
+### Recorded, not fixed — F-1 / MEL-BEATUNIT-1
+`runtime/SSoT_Composer_Melody_Track.md` §7 "Meter & looping (D-MEL4.3)" gains a
+characterization of the beat-unit desync: both melody paths place notes with
+`MusicalTimeSpan.Quarter` regardless of meter, so a 6/8 Part renders melody at half
+speed against the other tracks. Bounded by two properties that must be read
+together — the error is a **uniform scaling** (contour and internal rhythm survive;
+cross-track sync does not), and it is **not** an import defect (a hand-authored
+pattern hits it identically, so it predates M2 and lives in the Phase 4 render
+path). Operational note added: smoke melody with a **4/4** file, since `beatUnit = 4`
+gives factor 1. The fix is its own pending batch, **MEL-BEATUNIT-1**.
+
+### Not changed
+- The three domain authoring SSoTs, all composers, all importers, all tests. No
+  runtime or editor code.
+- `SSoT_CONTRACTS.md` — no cross-boundary contract moved.
+
+## 2026-07-24 — MEL-DOCDRIFT-1: melody-phase drift in the tools SSoT
+
+Documentation-only. No code, no contract, no invariant change.
+
+### Fixed
+- `authoring/SSoT_Authoring_Tools.md` §3.A `MelodyPatternEditorWindow` — the
+  "Status / scope (Phase 2)" block claimed Phase 3 (generation params +
+  generator) and Phase 4 (runtime `ComposeFromPattern`) were **not yet
+  implemented**. Both closed 2026-06-17 and are code-backed
+  (`DrawGenerationParams` + `SimplifiedMelodyGenerator.Generate`;
+  `MelodyTrackComposer.ComposeFromPattern` + `ResolvePatternNotesCore`,
+  verified against the package tree). Block renamed and both bullets rewritten
+  to point at the live contracts (`runtime/SSoT_Composer_Melody_Track.md` §7;
+  melody authoring SSoT §5).
+- Same section, Capabilities — the Phase-3 generation-parameters section and
+  the "Generate" button were missing from the capability list entirely, an
+  omission produced by the same staleness. Added with its contract pointer.
+- Same section, Current limitations — "drag-to-resize notes is deferred to
+  Phase 5 polish" was stale in a second way: Phase 5 closed 2026-06-22 under
+  "Closure scope = A" (editor polish treated as satisfied by the Phase 2–3
+  closures), so drag-to-resize is a standing limitation, not pending work.
+  Reworded; the limitation itself is unchanged.
+- `authoring/SSoT_Authoring_Tools.md` §3.D — retitled from "remaining planned
+  phases" to "phase history" and rewritten as a completed record (Phases 2–5
+  with closure dates and contract pointers), since it described Phases 3 and 4
+  as unimplemented. The asset-reset caveat is retained verbatim. Deferred
+  phases D2–D4 are noted as still recorded in the melody MVP roadmap; D1 is
+  noted as superseded by Batch M2.
+
+### Provenance
+Drift surfaced (not fixed) while anchoring Batch M2 — see the parked note at the
+top of `M2_Doc_Diffs.md`. M2 corrected only the one line it made outright false
+(§8.2c, the "deferred to Phase D1" clause); the rest was deliberately deferred to
+this batch rather than silently patched.
+
+### Not changed
+- `authoring/SSoT_Authoring_Melody_Composition.md` §7/§8 — already correct; they
+  were the evidence the tools SSoT was the drifted document, not the melody one.
+- `planning/active/Roadmap_Melody_Authoring_MVP.md` — Phase 3/4/5 statuses were
+  already accurate (DONE with dates); D1 already marked superseded at §8.4.
+- `ssot_manifest.yaml` governs / invariants — no governed surface moved. Header
+  changelog note only.
+- No runtime or editor code.
+
+## 2026-07-24 — IMPORT-QOL-1: editor quality of life (chord import + smoke)
+
+### Added
+- `ChordMidiImporter.SuggestSubdivisions` (+ `SubdivisionCandidate` /
+  `SubdivisionSuggestion`, `SuggestMaxErrorBeats = 0.03125` beats,
+  `SuggestCandidates = {1,2,3,4,6,8}`): pure read-only probe of how well each
+  candidate grid explains a file's note onsets and ends, sharing Import's time
+  math and channel filter. Surfaced as a "Suggest…" button beside the panel's
+  Grid Subdivisions slider — explicit press sets the slider to the smallest
+  passing candidate and always reports the full residual table; no pass → the
+  argmin is reported and the slider is untouched (D-QOL1-1..3).
+- `ChordMidiImporter.Options.preserveReStrikes` (+ "Preserve Re-strikes"
+  panel toggle, OFF by default = M3 behavior): restricts identity coalescing
+  to contiguous regions, keeping gapped re-strikes of the same chord as
+  separate events. Bounded amendment to M3-D5/M3-D6 (D-QOL1-4=A); with the
+  default-false polarity, `default(Options)` and all 25 pre-existing tests
+  keep the M3 semantics untouched.
+- MIDI-import provenance: the grid-apply paths stamp `[MIDI: <file>]` into
+  the asset's `originalInput` (suffix stripped on load into the Roman field;
+  rebuilt per apply; cleared by target rebind or a Roman-path apply). The
+  `DisplayName` growth is an accepted, documented cost (D-QOL1-5=B; corrects
+  the batch premise — the grid path never left `originalInput` empty).
+- `CompositionSmokeWindow`: pattern-measures advisory — a HelpBox listing
+  patterns that declare MORE measures than the window (TS mismatch noted per
+  line) plus an explicit "Fit to longest pattern" button that touches ONLY
+  `partContext.measures`. Shorter patterns repeat silently (legitimate);
+  nothing changes automatically (D-QOL1-7=A).
+- `CompositionSmokeWindow`: MGP Config auto-assign on open when the field is
+  empty — last manual selection restored by GUID from `EditorPrefs`, else
+  `FindAssets("t:MidiGenPlayConfig")` only when exactly one exists (never
+  guess among several).
+- 8 new EditMode tests in `ChordMidiImporterTests` (25 → 33): both coalescing
+  modes (gap merge / gap preserve / contiguous-always-merge, with per-strike
+  velocities) and the suggestion (parsimony pick, triplet pick, no-pass
+  argmin, channel-filter parity, empty file).
+
+### Fixed
+- `BuildRomanStringFromGrid` emitted durations with two decimals ("0.##"),
+  truncating anything finer than a quarter measure (25/32 → "0.78"). The
+  derived Roman string then failed `RhythmGridQuantizer`'s round-trip — every
+  candidate subdivision landed ~0.04 steps off the 0.001 tolerance — so the
+  Roman preview raised "Could not find a valid 'subdivisions' value for these
+  durations" and the string persisted to `originalInput` was not re-parseable.
+  Now six decimals (`DurationFormat`). Pre-existing since Grid mode; reachable
+  in practice from M3 onward (imports fill the grid with sub-beat events) and
+  hit on every rebind once IMPORT-QOL-1 made `originalInput` load through the
+  preview. The ASSET was never wrong — grid events, measures and subdivisions
+  are written from the grid directly; only the derived metadata string and its
+  preview were affected (D-QOL1-8).
+
+### Changed
+- `ChordProgressionEditorWindow`: "Allowed Tonalities" foldout and the LLM
+  panel foldout now default COLLAPSED; `showAllowedTonalities` is newly
+  serialized so its state persists across domain reloads like the other
+  foldouts (D-QOL1-6=B; already-open windows keep their serialized state).
+
+### Decisions locked (D-QOL1-1..7)
+- **D-QOL1-1** — suggestion residual measured as MAX error in grid beats over
+  all onsets and ends; `SuggestMaxErrorBeats = 0.03125` (1/32 beat), chosen so
+  even sub=8 (worst case 1/16 beat) is falsifiable; public, tunable constant.
+- **D-QOL1-2** — the button sets the slider only on a passing suggestion and
+  always reports the full residual table; no pass → report-only.
+- **D-QOL1-3** — Suggest opens its own file panel (same pattern as Import and
+  Analyze); path caching is out of scope.
+- **D-QOL1-4=A** — flag polarity `preserveReStrikes`, default false = M3;
+  registered as a bounded amendment to M3-D5/D6.
+- **D-QOL1-5=B** — provenance as an `originalInput` suffix with strip-on-load;
+  same rule in Apply-to-target and Save-as-new (one behavior, not two).
+- **D-QOL1-6=B** — serialize `showAllowedTonalities`, default false.
+- **D-QOL1-7=A** — smoke advisory only when a pattern EXCEEDS the window's
+  measures; repetition of shorter patterns stays silent.
+- **D-QOL1-8** — grid-derived Roman durations use six decimals so the string
+  round-trips through the quantizer; scope addition, accepted in-batch because
+  item 6 routes `originalInput` through the preview on every asset rebind.
+
+### Not changed
+- `ChordProgressionData` (no inversion field — still the documented M3
+  limitation, future expressivity batch), all runtime composers, importers'
+  M1/M2 behavior, `ssot_manifest.yaml` invariants, determinism and
+  asset-write invariants. `CompositionSmokeWindow` remains intentionally
+  ungoverned (D-SMOKE-DOC-1=A re-confirmed).
+
+## 2026-07-23 — M3: MIDI file import (chord progressions)
+
+### Added
+- `ChordMidiImporter` (`Editor/`): pure-function MIDI → `ChordProgressionData.ChordEvent`
+  list. Quantize-then-segment on sounding pitch-class sets (M3-D1); restricted
+  deterministic matching cascade against the v1 quality templates via
+  `GetIntervalsForQuality`, bass-root first, warned reduction, warned skip
+  (M3-D5); degree + accidental relative to the user key, flat-preferred (M3-D2);
+  fixed 3-pc chord threshold + channel filter (M3-D3); identical harmonic
+  regions coalesce; velocity = rounded mean (M3-D6). 14 warning kinds, M1 shape.
+- `ChordMidiImporterTests`: 25 EditMode tests over in-memory DryWetMidi files,
+  including a template-uniqueness invariant guarding the exact-match cascade.
+- `ChordProgressionEditorWindow_MidiImport.cs`: "MIDI File Import" panel partial
+  (LLM-panel pattern) — key root/tonality/channel fields, a Grid Subdivisions
+  slider (the same window field as Grid mode's Timing controls — surfaced here
+  because it IS the import resolution: minimum chord duration = one step),
+  warnings list, Roman summary readout; applies Full results to the GRID working
+  state and switches the window to Grid mode. One-line OnGUI hook in
+  `ChordProgressionEditorWindow.cs`.
+- `ChordMidiImporter.DescribeChordTimeline` + panel "Analyze File (log)" button:
+  read-only diagnostic emitting a paste-ready per-segment timeline (location,
+  duration, pitch-class set, bass, exact pitches with octaves, importer verdict)
+  to Console + clipboard. Shares the `MatchSegment` cascade with `Import` by
+  construction, so the diagnostic cannot drift from the import decision. Not
+  part of the import contract.
+
+### Changed
+- `ChordProgressionEditorWindow.cs`: OnGUI calls `DrawMidiImportPanel()` after
+  `DrawLLMPanel()` (hook only; no behavior change elsewhere).
+
+### Decisions locked (M3-D1..D6, `planning/active/Roadmap_MIDI_Import.md`)
+- See the roadmap's Phase M3 "Locked decisions" block.
+
+### Docs
+- `SSoT_Authoring_Chord_Progressions.md`: §2 assisted-paths note, §3 MIDI import
+  subsection, §7 trigger bullet. `SSoT_Authoring_Tools.md`: window capability
+  bullet. Roadmap M3 CLOSED; roadmap COMPLETE → candidate for archive.
+
+### Not changed
+- `ChordProgressionData`, `RomanProgressionParser`, `ChordQualityResolver`,
+  `ChordTrackComposer`, runtime importers/consumers: untouched. M3 is
+  authoring-only; determinism and asset-write invariants unchanged.
+
+## 2026-07-23 — M2: MIDI file import (melody)
+
+### Added
+- `Editor/MelodyMidiImporter.cs` — pure-function importer turning a standard MIDI
+  file into the canonical `MelodyPatternData` note shape. User-specified key
+  (root `NoteName` + `Tonality`, D-MIDI1=A / M2-D1=A) drives pitch → (degree,
+  absolute scale octave) through `GetScaleFromTonality`; chromatic notes snap to
+  the nearest degree, ties downward (D-MIDI2=A / M2-D6=A), with no data-model
+  change. Reference octave auto-centered to the modal scale octave, ties lower
+  (M2-D2=A), and reported. Beat-unit-aware quantization
+  (`gridBeats = quarterNotes × beatUnit / 4`); timing written in absolute beats;
+  duration preserved, quantized, one-step floor (M2-D5=A); content-derived
+  measures cover the last note's **end** (cap 64), explicit measures drop late
+  starts and clip overhangs. Monophonization: highest pitch wins on simultaneity,
+  overlaps truncate at the next onset (M2-D4=A). Channel filter with a merge
+  warning (M2-D3=A). Hard fails: SMPTE time division, no notes after the filter,
+  no notes in range. Eleven warning kinds, no silent fallback.
+- `Tests/Editor/MelodyMidiImporterTests.cs` — 20 EditMode tests over in-memory
+  DryWetMidi files: diatonic mapping (degree/beat/duration/velocity), non-C root
+  in Aeolian, chromatic snap ×2, reference octave (modal tie → lower; majority),
+  simultaneity, overlap truncation, off-grid onset + on-grid no-warn, duration
+  floor, end-based measure derivation, explicit-measure drop + clip, channel
+  filter ×3, 6/8 beat-unit conversion, empty file, null file, and a determinism
+  guard over warnings and notes. All green; additionally verified against a real
+  `.mid` in-editor, including a render pass through `ComposeFromPattern`.
+
+### Changed
+- `Editor/MelodyPatternEditorWindow.cs` — new "MIDI File Import" foldout panel
+  (Key Root + Tonality popups, 1-based MIDI channel field where 0 = all, an
+  "Import MIDI File…" button, and a per-import warning list closing with the
+  reference-octave / offset-span readout) plus `OnImportMidiFile` /
+  `ApplyMidiImport`. Straight note-list replacement into the working copy — melody
+  has no lanes and no Text mode, so M1's Grid-vs-Text apply dilemma does not
+  arise. Asset writes still happen only through Apply / Save As.
+
+### Decisions locked (M2-D1..D6, `planning/active/Roadmap_MIDI_Import.md`)
+- M2-D1=A `NoteName` root matching the runtime seam · M2-D2=A auto-centered
+  reference octave (modal, tie lower), reported not selectable · M2-D3=A channel
+  filter + merge warning, track filtering deferred · M2-D4=A highest-pitch wins /
+  overlap truncated · M2-D5=A quantized duration with one-step floor · M2-D6=A
+  chromatic ties snap downward.
+
+### Docs
+- `authoring/SSoT_Authoring_Melody_Composition.md` — new §5 "MIDI file import
+  (Batch M2)" (grid semantics, pitch→degree, reference octave, monophonization,
+  duration, warning taxonomy); §8 trigger + closing-paragraph note.
+- `authoring/SSoT_Authoring_Tools.md` — melody editor capability + limitations;
+  the stale "deferred to Phase D1" clause corrected.
+- `planning/active/Roadmap_MIDI_Import.md` — M2 CLOSED + M2-D1..D6 recorded.
+- `planning/active/Roadmap_Melody_Authoring_MVP.md` — Phase D1 marked superseded.
+
+### Not changed
+- No runtime code. No change to `MelodyPatternData`, `MelodyTrackComposer`, the
+  simplified generator, or any other composer.
+
+## 2026-07-22 — PERC-FALLBACK-1: percussion note fallback resolver
+
+Closes the M1 follow-up (render-time lane drop when the kit lacks the exact
+`GeneralMidiPercussion` a lane requests). New Runtime
+`PercussionFallbackTable` (static, fixed-order same-family substitutes per GM
+member; D-PF4=A tom ordering) + `PercussionNoteResolver` (pure: exact →
+first mapped family substitute → None default / GM-standard opt-in via
+`AsSevenBitNumber()`, D-PF2). `RhythmTrackComposer` routes all six former
+`TryGetMappedNote` call sites (procedural ×4, grid ×1, legacy ×1 — D-PF7=A)
+through one seam, `TryResolveForCompose`, which owns the D-PF3 log
+discipline (Exact silent; Substituted/GmStandard informational, gated by
+`logGenerator`, D-PF5=B; None hard actionable warning). Kit SO untouched
+(D-PF1=B, read-only). `allowGmStandard` wired false everywhere (D-PF6=B).
+Deterministic by construction (no RNG, no dictionary order). New tests:
+`PercussionNoteResolverTests` (exact; the four M1 substitution cases
+BassDrum1→AcousticBassDrum, LowFloorTom→LowTom, PedalHiHat→ClosedHiHat,
+HiMidTom→HighTom; table-order priority; None; GmStandard; null kit;
+100× determinism guard). The M1 real-MIDI import case (Brush Kit) now
+renders all lanes.
+
 ## 2026-07-20 — MGP-MIX-1: consumer-side mix gain (package 1.2.0)
 
 Closes the seam D-BAG-3=A opened. `GenerateSinglePart` gains an optional
@@ -103,6 +775,62 @@ consumer-side selector. Selection risk, not just baggage.
   live ALWTTT content referenced any of the retired assets before removal. That bump
   was never materialized; the content ships in 1.2.0 (see the MGP-MIX-1 version
   note above).
+
+## 2026-07-19 — M1: MIDI file import (drums)
+
+### Added
+- `Editor/DrumMidiImporter.cs` — pure-function importer turning a standard MIDI
+  file into the canonical `DrumPatternData` grid shape. Note number →
+  `GeneralMidiPercussion` via a reverse map built from DryWetMidi's own GM tables
+  (never a hardcoded offset); beat-unit-aware quantization
+  (`gridBeats = quarterNotes × beatUnit / 4`, so X/8 meters grid on eighths);
+  content-derived measures (cap 64) or explicit measures with drop-and-warn;
+  lane `defaultVelocity` = modal velocity (ties → lower, deterministic) with
+  default-velocity steps written as the `velocity == 0` sentinel. Hard fails:
+  SMPTE time division, no notes after the channel filter, no GM-mapped note.
+  Warns (never silently): off-grid snap > 0.25 step (first 8 detailed, rest
+  aggregated), same-lane/same-step collision (higher velocity kept), unmapped
+  note number, notes beyond range, measure cap. Note durations are discarded
+  (the drum grid is trigger-based).
+- `Tests/Editor/DrumMidiImporterTests.cs` — 11 EditMode tests over in-memory
+  DryWetMidi files: happy path (sentinel + explicit velocities, lane ordering),
+  channel filter ×3 (exclude melodic, all-channels, no-drum-notes fail),
+  off-grid snap + on-grid no-warn, collision, explicit-measure truncation,
+  derived measures, 6/8 beat-unit conversion, empty file, null file. All green;
+  additionally verified against a real GM drum `.mid` in-editor (100% OK).
+
+### Changed
+- `Editor/DrumPatternEditorWindow.cs` — new "MIDI File Import" foldout panel
+  (drum-channel-only toggle, "Import MIDI File…" button, per-import warning
+  list) plus `OnImportMidiFile` / `ApplyMidiImport`. Applies in **Grid** mode
+  and clears the text buffer, deliberately: imported velocities are arbitrary
+  1–127 values the three-tier glyph view would snap. Asset writes still happen
+  only through Apply / Save As.
+
+### Decisions locked (D-MIDI1..5, `planning/active/Roadmap_MIDI_Import.md`)
+- D-MIDI1=A user-specified key for melody/chord import (no auto-detection) ·
+  D-MIDI2=A chromatic notes snap to nearest degree + warn (no data-model change) ·
+  D-MIDI3=A restricted v1 chord detection · D-MIDI4=A **bassline import out of
+  scope** (no bassline pattern asset exists; `BassTrackComposer` ignores pattern
+  overrides in v1) · D-MIDI5=A panel inside existing editor windows, no dedicated
+  window.
+
+### Follow-up spun out (not in this batch)
+- **PERC-FALLBACK-1** — render-time robustness: `RhythmTrackComposer` drops a lane
+  when the kit lacks the exact `GeneralMidiPercussion` an imported/authored pattern
+  requests. A package-side `PercussionNoteResolver` will substitute within the GM
+  family before dropping. Governed by `runtime/SSoT_Composer_Rhythm_Track.md`.
+
+### Docs
+- `authoring/SSoT_Authoring_Rhythm_Patterns.md` — new §3A "MIDI file import
+  (Batch M1)" (grid semantics, note→lane, velocity compression, Grid-mode apply
+  rationale, warning taxonomy); §4 already-true + not-yet-true bullets; §9 trigger.
+- `authoring/SSoT_Authoring_Tools.md` — drum editor capability + limitations; §10 trigger.
+- New `planning/active/Roadmap_MIDI_Import.md` (M1 CLOSED, M2/M3 planned);
+  registered in `ssot_manifest.yaml`.
+
+### Not changed
+- No runtime code. No change to `DrumPatternData`, the text parser, or any composer.
 
 ## 2026-07-17 — MGP-ALWTTT-DBG-4+2: composition-debug package half, completion
 

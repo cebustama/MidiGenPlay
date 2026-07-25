@@ -223,6 +223,64 @@ a separate same-resolution per-cell velocity grid in the editor, and the
 per-lane asset fields. Tracked in `planning/active/Roadmap_Rhythm_Authoring_MVP.md`;
 not implementation authority.
 
+#### MIDI file import (Batch M1)
+
+`DrumPatternEditorWindow` can import a standard MIDI file (`.mid`) into the
+working copy. The parse is owned by `DrumMidiImporter` (`Editor/`, namespace
+`MidiGenPlay.Authoring`) — a pure function with no Unity-API calls, in the same
+mold as `DrumPatternEditorImporter`. The window owns the apply step; the target
+asset is untouched until Apply / Save As, exactly as for every other content
+source.
+
+**Grid semantics.** The caller supplies the target `TimeSignature` and
+subdivisions — the editor's Timing controls, not the file's own meta events.
+Grid-beat conversion is beat-unit aware, matching the runtime `GetBeatSpan`
+convention: in X/8 meters one grid beat is an eighth note, so
+`gridBeats = quarterNotes × beatUnit / 4`. Measures are derived from content
+(capped at 64) unless explicitly supplied. Only ticks-per-quarter-note files are
+supported; SMPTE time division is a hard failure.
+
+**Note → lane.** Note number → `GeneralMidiPercussion` resolves through a reverse
+map built from DryWetMidi's own GM tables, never a hardcoded offset. Lanes are
+ordered by GM note number ascending. Note *durations* are intentionally discarded:
+the drum grid is trigger-based (§2).
+
+**Velocity.** Each lane's `defaultVelocity` is the modal velocity of its imported
+hits (ties break to the lower value, for determinism). Steps whose velocity equals
+that default are written with the `velocity == 0` sentinel; all others carry an
+explicit per-step override. This is the canonical `StepState` compression, so an
+import round-trips through §2's resolution rule with no loss.
+
+**Apply is in Grid mode, deliberately.** Imported velocities are arbitrary 1–127
+values; the text glyph view would snap them to the three tiers (§3A "Lossy-render
+note"). Grid mode preserves exact fidelity, and the text buffer is cleared so it
+re-renders from the working copy on the next Text-mode entry. This is the
+text-is-a-view / asset-is-canonical principle applied to a new content source.
+
+**No silent fallback.** Every lossy step emits a warning surfaced in the MIDI
+panel, using the same `[Kind] loc: detail` shape as the L2 importer's warnings:
+
+| Warning kind | Raised when |
+|---|---|
+| `UnsupportedTimeDivision` | file is null or uses SMPTE time division (hard fail) |
+| `NoNotesFound` | channel filter, GM mapping, or measure range left zero hits (hard fail) |
+| `UnmappedNoteNumber` | a note number has no `GeneralMidiPercussion` mapping; skipped |
+| `OffGridSnap` | snap error exceeds 0.25 step; first 8 detailed, remainder aggregated |
+| `StepCollision` | two hits land on the same lane+step; the higher velocity is kept |
+| `NotesBeyondRange` | hits fall past the resolved measure count; dropped |
+| `MeasuresCapped` | content implies more than 64 measures |
+
+The importer assumes reasonably quantized input: it snaps and warns, and does not
+attempt to interpret swing or humanized feel.
+
+Note: the imported `GeneralMidiPercussion` values are kit-agnostic and may not be
+mapped 1:1 in the target percussion kit at render time (e.g. an imported
+`BassDrum1` vs a kit that maps `AcousticBassDrum`). Resolving that mismatch is a
+render-time concern owned by `runtime/SSoT_Composer_Rhythm_Track.md`, not by the
+importer.
+
+Decisions and phase scope: `planning/archive/Roadmap_MIDI_Import.md` (D-MIDI1..5).
+
 #### Normalize / apply / save contract
 
 1. All edits are made to the working copy (`_working`), a deep clone of the target asset.
@@ -286,6 +344,9 @@ Key distinction from `DrumPatternEditorWindow`:
 - Pattern saves route through the package persistence store
   (`TrackPatternConfigStoreResources<DrumPatternData>`); the editor no longer owns a
   hardcoded save folder (Phase 8, closed 2026-07-05).
+- MIDI file import into the drum grid is implemented (`DrumMidiImporter` +
+  the editor's MIDI panel, Batch M1 closed 2026-07-19). It is a content source
+  only: it writes the working copy, never the asset.
 
 ### What is **not** true yet
 
@@ -297,6 +358,9 @@ The following are **not** current persisted truth:
 - per-cell same-resolution velocity grid in text mode (v2 plan, see §3A "Text mode")
 - per-lane configurable `AccentVelocity` / `GhostVelocity` (currently parser constants)
 - true per-row polymeter persisted in the runtime asset model
+- import of meter / tempo from the MIDI file itself (the editor's Timing controls
+  are authoritative; file meta events are ignored)
+- MIDI *export* from a drum pattern asset (no such path exists)
 
 _(2026-07-05 correction: this list previously carried a further item —
 "`ComposeFromGrid` in `RhythmTrackComposer` consuming per-step velocity ... it currently
@@ -375,5 +439,7 @@ Update this SSoT when:
 - rhythm bundle authoring fields change in a way that alters pattern authoring meaning
 - text-mode glyph alphabet, length-mismatch policy, error policy, or
   round-trip contract changes
+- the MIDI import contract changes (grid-beat conversion, GM mapping source,
+  velocity compression, warning taxonomy, or the Grid-mode apply rationale)
 - row-local cycle / polymeter policy is promoted from planning into package truth
 - `RhythmPatternPanelController` is formally deprecated

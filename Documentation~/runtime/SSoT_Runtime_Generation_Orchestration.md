@@ -95,9 +95,18 @@ The contract:
   `ResolvePartContextSeed` (`base + partIndex*397`), `ResolveTrackSeedSong`,
   `ResolveTrackSeedPart` (both FNV-1a over the legacy seed-string formats),
   `ResolveArticulationSeed` (FNV-1a over `"{trackSeed}|artic"`,
-  MGP-ALWTTT-ARTIC-1) — a dedicated substream seed for the backing
-  composer's Random-articulation roll, derived from the per-track seed so it
-  never consumes the shared `ctx.rng` stream — and `ResolveTempoSeed`
+  MGP-ALWTTT-ARTIC-1) — a dedicated substream seed for the Random-articulation
+  figure roll, derived from the per-track seed so it never consumes the shared
+  `ctx.rng` stream; since CA-V1 it is consumed by the bass composer as well as
+  the backing composer, which is safe precisely because `trackSeed` already
+  folds in role and musicianId — `ResolveArticulationRateSeed` (FNV-1a over
+  `"{trackSeed}|articrate"`, CA-V1) — a SEPARATE substream for the
+  arpeggio-rate roll, kept apart from `|artic` so that enabling the rate
+  sentinel cannot shift the figure sequence (D-V1-RATE-STREAM=A) —
+  `ResolveVelocityJitterSeed` (FNV-1a over `"{trackSeed}|articvel"`, CA-V1) —
+  consumed as a SEED FOR A PURE MIX rather than as a stream: no `System.Random`
+  is constructed from it, which is what keeps the articulator RNG-free
+  (D-V1-JIT-SRC=A) — and `ResolveTempoSeed`
   (FNV-1a over `"{baseSeed}|p={partIndex}|tempo"`, BPM-DET-1) — a dedicated
   per-part-occurrence substream seed for the render-path tempo roll (§5.2),
   derived from the base seed and independent of every arithmetic context seed

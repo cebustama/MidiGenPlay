@@ -180,22 +180,83 @@ to a note the instrument can sound. This is the runtime half of the §5 determin
 boundary in `authoring/SSoT_Authoring_Melody_Composition.md`: pitch is computed at play
 time, not stored.
 
-### Meter & looping (D-MEL4.3)
+### Meter & looping (D-MEL4.3, corrected by MEL-BEATUNIT-1)
 
-Note timing is in beats; one beat maps to a quarter note (`MusicalTimeSpan.Quarter`),
-identical to the procedural `ComposeMelodyFromProgression`, so both melody paths share one
-timing model. The authored loop (`pattern.TotalBeats`) is tiled to the Part's total beats
-(`part.Measures × beatsPerMeasure`) and the final partial loop is truncated **by note
-onset**: an onset at or after the Part's end is dropped, while a note whose onset falls
-inside the Part rings to its authored duration even when that crosses the Part boundary.
+Note timing is in beats, and **one beat is the Part meter's beat unit** — a quarter in
+4/4, an eighth in 6/8 — resolved via `MusicTheory.GetBeatSpan(part.TimeSignature)` and
+applied at the single conversion seam `MelodyTrackComposer.BeatsToSpan` (§7.1). Both
+melody paths share that one timing model. The authored loop (`pattern.TotalBeats`) is
+tiled to the Part's total beats (`part.Measures × beatsPerMeasure`) and the final partial
+loop is truncated **by note onset**: an onset at or after the Part's end is dropped, while
+a note whose onset falls inside the Part rings to its authored duration even when that
+crosses the Part boundary.
+
 When the pattern's `beatsPerMeasure` differs from the Part meter the loop tiles by raw
 beats (a warning is logged under `logGenerator`). This tiles-by-beats behavior is the
 **accepted Melody Authoring MVP outcome** (D-MEL5.1 = A, Phase 5 closed 2026-06-22): a
 mismatched-meter pattern will not align to the Part's barlines, and that limitation is
-documented rather than corrected for the MVP. Full bar-time renormalization of a
-mismatched melody pattern — and beat-unit-aware timing for compound/odd meters across both
-melody paths — remains **post-MVP future work** (the procedural path likewise assumes
-quarter beats, and melody timing is continuous beats, unlike the rhythm step grid).
+documented rather than corrected.
+
+**D-MEL5.1 = A stands.** MEL-BEATUNIT-1 resolved only the beat-unit axis and is a bounded
+exception to it, not a revision of it. The two axes are independent: `Quarter` vs the Part
+beat span is *how long one beat is*; `pattern.beatsPerMeasure` vs `beatsPerBar` is *how
+many beats a bar holds*. Full bar-time renormalization of a mismatched melody pattern
+remains **post-MVP future work** (melody timing is continuous beats, unlike the rhythm step
+grid that `NormalizeGridPatternForPartIfNeeded` remaps).
+
+### 7.1 Beat-unit authority and the recorded MEL-BEATUNIT-1 deviation
+
+Every emission site in `MelodyTrackComposer` converts beats to musical time through one
+seam:
+
+    internal static ITimeSpan BeatsToSpan(double beats, MusicalTimeSpan beatSpan)
+        => beatSpan.Multiply(beats);
+
+`beatSpan` is `GetBeatSpan(part.TimeSignature)`, derived alongside the `beatsPerBar` each
+path already computed — meter authority per `SSoT_CONTRACTS.md` §5, mirroring
+`ChordTrackComposer` and, since CA-F2, `BassTrackComposer`. Three sites go through it:
+`ComposeFromPattern`, the procedural `ComposeMelodyFromProgression`, and the currently
+unreachable `ComposePerBeatMelody`.
+
+**Deviation on record (F-1, characterized 2026-07-24, closed the same day by
+MEL-BEATUNIT-1).** Both melody paths previously placed notes with
+`MusicalTimeSpan.Quarter.Multiply(whenBeats)`, treating a beat as a quarter note whatever
+the meter. In every `beatUnit != 4` meter (6/8, 9/8, 12/8, 7/8) melody therefore rendered at
+half speed against the rest of the render, and overran the Part window that
+`SongOrchestrator` sizes from the same `beatSpan`. Everything upstream was already
+beat-unit aware — the rhythm step grid, the bass, and all three MIDI importers
+(`gridBeats = quarterNotes × beatUnit / 4`); melody was the last consumer that was not. Two
+properties bound the damage and must be read together: the error was a **uniform scaling**,
+so melodic contour and internal rhythm survived intact and only **cross-track
+synchronization** broke; and it was **not** an import defect — a pattern authored by hand in
+`MelodyPatternEditorWindow` hit it identically.
+
+Scope of the change, stated as the bass's §3.4 states its own:
+
+- **Byte-identical in every `beatUnit == 4` meter.** `GetBeatSpan` returns
+  `MusicalTimeSpan.Quarter` there, so the substitution is a structural identity, not an
+  empirical one. Pinned by `BeatsToSpan_FourFour_IsBitIdenticalToLegacyQuarter`.
+- **In other meters the output deliberately changes** — a sync FIX, not a regression.
+  Pinned by `BeatsToSpan_SixEight_IsHalfTheLegacyQuarterTicks` and the all-meters table
+  test `BeatSpan_AllTimeSignatures_MatchTheirBeatUnit`.
+
+**No migration of authored content.** `MelodyPatternData` stores timing in beats and
+inherits `PatternDataSO.TimeSignature`; `MelodyMidiImporter` already writes
+`gridBeats = quarterNotes × beatUnit / 4`. Stored beats were therefore always in the
+meter's beat unit — only the render misread them, so rescaling assets would double-correct
+correct data. The one user-visible consequence: an author who hand-compensated for the old
+render (writing X/8 notes at double speed) must undo that compensation.
+
+**Boundary of the correction.** It lives entirely below `ResolvePatternNotesCore`, which
+counts beats and is meter-unit agnostic; that seam is unchanged and pinned as such by
+`Resolve_SixEightPart_ResolutionSeamIsUnchanged`. `ComposePerBeatMelody` was corrected in
+lockstep although unreachable (its only call site is commented out in `Compose`) so it
+cannot reintroduce the desync if re-enabled; whether to delete it is a separate, open
+question.
+
+**Operational note, superseding the previous one.** Melody smoke no longer needs to avoid
+compound/odd meters; a 6/8 smoke is now a valid check of melody itself, and 4/4 is the
+byte-identity control.
 
 ### Determinism
 
@@ -217,6 +278,11 @@ After rendering, the authored line is cached via
 per-musician cache the procedural path populates — so a `HarmonyTrackComposer` can
 harmonize an authored melody just as it does a procedural one.
 
+`GuideNote.startBeats` / `.durBeats` are in **Part beat units**, not quarters. The payload
+is unchanged by MEL-BEATUNIT-1, but any future consumer must convert with the Part's
+`beatSpan` (or `BeatsToSpan`); reusing `MusicalTimeSpan.Quarter` would reintroduce F-1 one
+layer downstream. There is no in-package consumer today.
+
 ### Boundary
 
 `ComposeFromPattern` is runtime code (`Runtime/CoreScripts/Composition/Composers/`) and
@@ -234,6 +300,8 @@ Update this SSoT when:
 - runtime use of melody bundles changes,
 - the authored-pattern path (`ComposeFromPattern`) — its integration surface,
   degree→pitch resolution, meter handling, or guide-note handoff — changes,
+- the melody timing unit changes, or a new emission site bypasses the single
+  `MelodyTrackComposer.BeatsToSpan` conversion seam (§7.1, MEL-BEATUNIT-1),
 - the phrase-planner return contract, the definition of a *usable* palette
   (`PhrasePlanner.HasUsablePalette`), or the missing-palette behavior changes
   (MEL-NULL-1: never returns null; a procedural melody without a usable palette

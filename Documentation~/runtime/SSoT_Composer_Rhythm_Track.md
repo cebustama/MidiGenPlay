@@ -152,6 +152,42 @@ pattern read path; the store is the palette read path (the repository is never
 a palette surface). Display metadata per pattern: name / `DisplayName`,
 `TimeSignature`, `Measures`, `subdivisions`.
 
+### E. Percussion note resolution (PERC-FALLBACK-1)
+
+All three compose paths (procedural, grid, legacy) resolve each requested
+`GeneralMidiPercussion` through a single seam,
+`RhythmTrackComposer.TryResolveForCompose`, which wraps the package-side
+`PercussionNoteResolver` (`Runtime/`). The kit
+(`MIDIPercussionInstrumentSO` — resolved **package-owned** at MIDIIMP-SSOT-1,
+2026-07-24, closing the ownership question PERC-FALLBACK-1 left open; governed
+here, no separate SSoT) is consumed **read-only** via its existing
+`TryGetMappedNote`; the resolver never edits kit assets (D-PF1=B).
+
+Resolution order (D-PF2):
+
+1. **Exact** — the kit maps the requested member directly.
+2. **Substituted** — the first *mapped* same-family substitute, walking the
+   fixed, package-owned order in `PercussionFallbackTable` (kick, snare,
+   hats, toms, cymbals, aux groups; the explicit per-member lists are the
+   authority — D-PF4=A derivation: GM-number distance ascending, ties toward
+   the lower pitch). Cross-family substitution is not performed, with the
+   deliberate exception of `HandClap`/`SideStick` → snares (backbeat role).
+3. **None** (default) — nothing in the family is mapped: the lane is muted
+   and a hard warning names the missing percussion and every substitute
+   tried. Opt-in escape hatch (`allowGmStandard`, D-PF6=B — currently wired
+   `false` at all call sites): emit the GM-standard note number
+   (`AsSevenBitNumber()`, DryWetMidi as GM authority) for GM-compliant
+   soundfonts.
+
+Log discipline (D-PF3): Exact → silence; Substituted / GmStandard →
+informational log gated by `settings.logGenerator` (D-PF5=B); None → hard
+warning regardless of the flag. The resolver itself is pure and never logs.
+
+This closes the M1 follow-up: imported or authored lanes carrying GM members
+the active kit does not map 1:1 (e.g. `BassDrum1` vs a kit mapping
+`AcousticBassDrum`) now render on the nearest family substitute instead of
+being silently dropped with a bare "No mapped note" warning.
+
 ## 4. Determinism contract
 
 Rhythm generation must be deterministic under the orchestration seed/RNG context.
@@ -166,6 +202,10 @@ Current code-backed truth:
 - `RhythmTrackComposer` uses that seeded RNG path for style choice
 - palette selection (`PickPatternOverride`) draws from the same `ctx.rng` and consumes one `NextDouble()` per pick through the shared `PaletteSelector`; same seed => same pattern picked
 - same seed should produce stable style selection and stable MIDI output, assuming unchanged inputs
+- percussion note resolution is deterministic by construction: a static
+  fixed-order fallback table + first-mapped-substitute-wins, no RNG and no
+  dictionary iteration — same kit + same requested member ⇒ same note, every
+  render (`PercussionNoteResolverTests` determinism guard)
 
 Rhythm runtime should not silently depend on unrelated global randomness for style selection.
 
@@ -196,6 +236,10 @@ The following are already part of current runtime truth:
   `SnapshotAsStepVelocities()` as of 2026-05-23 (changelog-ssot.md). The
   `SnapshotAsIndices()` API remains available as a default-velocity-only
   view but is no longer called by any runtime composer.
+- family-fallback percussion resolution in all three compose paths
+  (PERC-FALLBACK-1): exact kit mapping → fixed-order family substitute →
+  mute + actionable warning (GM-standard emission exists behind an opt-in
+  flag, wired off)
 
 ### Present in the input surface but **not yet fully closed semantically**
 
@@ -247,3 +291,5 @@ Update this SSoT when:
 - the future rhythm editor changes authored data contracts consumed by runtime
 - the per-render override precedence (step 0) or the resolution readback changes
   (MGP-ALWTTT-DBG-1+3).
+- the percussion fallback table contents, family grouping, or resolution
+  order change (PERC-FALLBACK-1)

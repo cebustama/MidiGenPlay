@@ -1,5 +1,12 @@
 # Roadmap — Melody Authoring MVP
 
+**Status: COMPLETE and ARCHIVED (2026-07-24).** Phases 1–5 all closed (1–2
+2026-06-16; 3–4 2026-06-17; 5 2026-06-22); D1 superseded by Batch M2. Moved to
+`planning/archive/` and de-registered from `ssot_manifest.yaml` `roadmaps:`.
+Deferred phases **D2, D3 and D4 are carried forward as records only** — this file
+is closed history, so resuming melody authoring work opens a **new** roadmap that
+cites these sketches rather than reopening this one.
+
 > Active MidiGenPlay package planning.
 > This roadmap is grounded in the current codebase and intentionally separates **what already exists**, **what is next**, and **what remains later**.
 > This document is planning, not implementation authority. It does not override governed SSoTs.
@@ -30,7 +37,8 @@ Goals:
 
 ### Deferred (later phases within this roadmap)
 
-- MIDI file import → absolute note → scale-degree conversion (Phase D1).
+- MIDI file import → absolute note → scale-degree conversion (Phase D1) —
+  **superseded by `Roadmap_MIDI_Import.md` Batch M2**.
 - Probabilistic / weighted note events in `MelodyPatternData` (Phase D2).
 - Full `MelodyTrackComposer` pipeline capture as wizard generation source (Phase D3).
 - Performance metadata sink for articulatory rendering — Pink Trombone integration (Phase D4).
@@ -503,7 +511,12 @@ continuity but are not implementation authority.
 ## Phase D1 — MIDI file import → scale-degree conversion
 
 ### Status
-Deferred. Not part of MVP.
+**Superseded by `planning/archive/Roadmap_MIDI_Import.md` Batch M2.** The sketch
+below is retained as historical context only; the implemented contract is the
+melody SSoT §5 "MIDI file import (Batch M2)". Of this sketch's open questions,
+key/root is user-specified rather than detected (D-MIDI1=A) and chromatic notes
+snap to the nearest degree with a warning rather than carrying accidental
+metadata (D-MIDI2=A).
 
 ### Goal
 Allow importing a MIDI file and converting absolute note data into the
@@ -701,8 +714,10 @@ follow-up — a melody-determinism EditMode fixture — has **landed (F-A)** via
 internal seam (`MelodyTrackComposer.ResolvePatternNotesCore`) plus
 `Tests/Editor/MelodyTrackComposer_PatternDeterminismTests.cs`; no contract change.
 
-Deferred phases (D1 MIDI import, D2 probabilistic events, D3 full-pipeline capture) follow
-post-MVP and are not implementation authority.
+Deferred phases D2 (probabilistic events) and D3 (full-pipeline capture) follow post-MVP
+and are not implementation authority. **D1 (MIDI import) is superseded** — it landed as
+Batch M2 of `planning/archive/Roadmap_MIDI_Import.md`; the implemented contract is
+`authoring/SSoT_Authoring_Melody_Composition.md` §5 "MIDI file import (Batch M2)".
 
 Phase 4's and Phase 5's SSoT triggers (runtime SSoT §7 + authoring SSoT §7/§8 + this
 roadmap + coverage-matrix + CURRENT_STATE + changelog + manifest log) were applied at close.

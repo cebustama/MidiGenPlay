@@ -179,7 +179,7 @@ namespace MidiGenPlay.Composition
 
                 MidiFile pFile = (style != null)
                     ? style.Compose(kit, bpm, part.Measures, channel, recipe)
-                    : ComposeProcedural(kit, bpm, part.TimeSignature, part.Measures, channel);
+                    : ComposeProcedural(kit, bpm, part.TimeSignature, part.Measures, channel, LogEnabled);
 
                 // Post-process here so all styles remain pure
                 StampBankAndPatch(pFile, kit, channel);
@@ -250,8 +250,8 @@ namespace MidiGenPlay.Composition
             ReportChoice(resolvedSource);
 
             var file = hasGrid
-                ? ComposeFromGrid(kit, data, bpm, part.TimeSignature, part.Measures, channel)
-                : ComposeFromLegacy(kit, data, bpm, part.TimeSignature, part.Measures, channel);
+                ? ComposeFromGrid(kit, data, bpm, part.TimeSignature, part.Measures, channel, LogEnabled)
+                : ComposeFromLegacy(kit, data, bpm, part.TimeSignature, part.Measures, channel, LogEnabled);
 
             if (_settings != null && _settings.logGenerator)
             {
@@ -391,13 +391,65 @@ namespace MidiGenPlay.Composition
         }
 
 
+        // -------------------------------------------------------------------
+        // PERC-FALLBACK-1 — single percussion-resolution seam for the three
+        // compose paths (procedural / grid / legacy). Wraps
+        // PercussionNoteResolver and applies the D-PF3 log discipline:
+        // Exact → silence; Substituted / GmStandard → informational log gated
+        // by logSubstitutions (LogEnabled, D-PF5=B); None → hard warning
+        // naming the missing percussion and the substitutes tried.
+        // allowGmStandard is wired false for now (D-PF6=B); flip here (and
+        // decide its config home) if a GM-compliant-soundfont escape hatch is
+        // ever needed.
+        // -------------------------------------------------------------------
+        private static bool TryResolveForCompose(
+            MIDIPercussionInstrumentSO kit,
+            GeneralMidiPercussion percussion,
+            bool logSubstitutions,
+            out Melanchall.DryWetMidi.MusicTheory.Note note)
+        {
+            bool ok = PercussionNoteResolver.TryResolve(
+                kit, percussion, allowGmStandard: false,
+                out note, out var resolution, out var resolvedAs);
+
+            switch (resolution)
+            {
+                case PercussionNoteResolver.Resolution.Substituted:
+                    if (logSubstitutions)
+                        Debug.Log(
+                            $"{LogTag} Percussion substituted: {percussion} -> {resolvedAs} " +
+                            $"(kit '{SafeName(kit)}' has no exact mapping).");
+                    break;
+
+                case PercussionNoteResolver.Resolution.GmStandard:
+                    if (logSubstitutions)
+                        Debug.Log(
+                            $"{LogTag} Percussion {percussion}: emitting GM-standard note " +
+                            $"(kit '{SafeName(kit)}' maps nothing in its family).");
+                    break;
+
+                case PercussionNoteResolver.Resolution.None:
+                    Debug.LogWarning(
+                        $"{LogTag} No playable percussion for {percussion}: kit '{SafeName(kit)}' " +
+                        $"maps neither it nor its family substitutes " +
+                        $"[{string.Join(", ", PercussionFallbackTable.GetSubstitutes(percussion))}]. " +
+                        $"Lane muted. Add a kit mapping for {percussion} or one of its substitutes.");
+                    break;
+
+                    // Resolution.Exact: silence by design.
+            }
+
+            return ok;
+        }
+
         // simple, musical, meter-aware grid
         private static MidiFile ComposeProcedural(
             MIDIPercussionInstrumentSO kit,
             int bpm,
             MusicTheory.MusicTheory.TimeSignature ts,
             int measures,
-            int channel)
+            int channel,
+            bool logSubstitutions)
         {
             var tsInfo = GetTimeSignatureDetails(ts, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
@@ -406,15 +458,15 @@ namespace MidiGenPlay.Composition
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
             var pb = new PatternBuilder().MoveToStart();
 
-            // Mappings (with safe fallbacks)
-            bool hasKick =
-                kit.TryGetMappedNote(GeneralMidiPercussion.AcousticBassDrum, out var kick);
-            bool hasSnare =
-                kit.TryGetMappedNote(GeneralMidiPercussion.AcousticSnare, out var snare);
-            bool hasCHH =
-                kit.TryGetMappedNote(GeneralMidiPercussion.ClosedHiHat, out var chh);
-            bool hasOHH =
-                kit.TryGetMappedNote(GeneralMidiPercussion.OpenHiHat, out var ohh);
+            // Mappings (family-fallback aware; PERC-FALLBACK-1, D-PF7=A)
+            bool hasKick = TryResolveForCompose(
+                kit, GeneralMidiPercussion.AcousticBassDrum, logSubstitutions, out var kick);
+            bool hasSnare = TryResolveForCompose(
+                kit, GeneralMidiPercussion.AcousticSnare, logSubstitutions, out var snare);
+            bool hasCHH = TryResolveForCompose(
+                kit, GeneralMidiPercussion.ClosedHiHat, logSubstitutions, out var chh);
+            bool hasOHH = TryResolveForCompose(
+                kit, GeneralMidiPercussion.OpenHiHat, logSubstitutions, out var ohh);
 
             // Backbeat rule: 1 = kick, ceil(beats/2)+1 = snare (clamped to beatsPerBar)
             int backbeat = Mathf.Min(beatsPerBar, Mathf.CeilToInt(beatsPerBar / 2f) + 1);
@@ -474,7 +526,8 @@ namespace MidiGenPlay.Composition
             int bpm,
             MusicTheory.MusicTheory.TimeSignature ts,
             int partMeasures,
-            int channel)
+            int channel,
+            bool logSubstitutions)
         {
             var tsInfo = GetTimeSignatureDetails(ts, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
@@ -503,11 +556,10 @@ namespace MidiGenPlay.Composition
 
                 foreach (var lane in lanes)
                 {
-                    if (!kit.TryGetMappedNote(lane.instrument, out var note))
-                    {
-                        Debug.LogWarning($"[RhythmTrackComposer] No mapped note for {lane.instrument}");
+                    // PERC-FALLBACK-1: family-fallback resolution replaces the
+                    // old exact-enum match ("No mapped note for X" mute).
+                    if (!TryResolveForCompose(kit, lane.instrument, logSubstitutions, out var note))
                         continue;
-                    }
 
                     foreach (var (stepIndex, velocity) in lane.steps)
                     {
@@ -536,7 +588,8 @@ namespace MidiGenPlay.Composition
             int bpm,
             MusicTheory.MusicTheory.TimeSignature ts,
             int measures,
-            int channel)
+            int channel,
+            bool logSubstitutions)
         {
             var tsInfo = GetTimeSignatureDetails(ts, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
@@ -567,11 +620,9 @@ namespace MidiGenPlay.Composition
                     continue;
                 }
 
-                if (!kit.TryGetMappedNote(gm, out var note))
-                {
-                    Debug.LogWarning($"[RhythmTrackComposer] No MIDI note for {gm}");
+                // PERC-FALLBACK-1: family-fallback resolution (was exact match).
+                if (!TryResolveForCompose(kit, gm, logSubstitutions, out var note))
                     continue;
-                }
 
                 string noteStr = $"{note.NoteName}{note.Octave}";
                 string processed = line.Replace(tag, noteStr);

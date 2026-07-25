@@ -44,6 +44,8 @@
 |   |   +---cross-project
 |   |   |   +---ALWTTT
 |   |   |   |   +---ALWTTT_Melody_Authoring_Pipeline.md
+|   |   |   |   +---Handoff_MGP_BAGGAGE_1.md
+|   |   |   |   +---Handoff_MGP_MIX_1.md
 |   |   |   |   +---README.md
 |   |   |   |   +---SSoT_CompositionCards_TrackStyleBundles.md
 |   |   |   |   +---SSoT_CompositionSystem_INDEX.md
@@ -285,7 +287,6 @@
 |   |   \---PercussionElementDropdown.prefab
 |   +---Resources
 |   |   \---ScriptableObjects
-|   |       +---Chord Progressions
 |   |       +---LLM
 |   |       |   +---AnthropicClientData.asset
 |   |       |   \---OpenAIClientData.asset
@@ -405,7 +406,6 @@
 |   |       |       +---Phrase - Burst Then Hold  - Default.asset
 |   |       |       +---Phrase - Even Flow - Default.asset
 |   |       |       \---Phrase - Sustain Lead In - Default.asset
-|   |       +---Song Configs
 |   |       \---Tonality Profiles
 |   |           +---Aeolian.asset
 |   |           +---Dorian.asset

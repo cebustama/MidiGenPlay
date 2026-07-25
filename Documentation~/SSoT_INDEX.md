@@ -49,6 +49,10 @@ Primary authoring SSoTs:
 - `authoring/SSoT_Authoring_Rhythm_Patterns.md`
 - `authoring/SSoT_Authoring_Melody_Composition.md`
 - `authoring/SSoT_Authoring_Tools.md`
+- `authoring/SSoT_Authoring_LLM_Generation.md` (cross-cutting; primary since Batch
+  L3, 2026-05-28 — omitted from this list until 2026-07-24)
+- `authoring/SSoT_Authoring_MIDI_Import.md` (cross-cutting; primary since
+  MIDIIMP-SSOT-1, 2026-07-24)
 
 ## Folder roles
 

@@ -80,6 +80,40 @@ namespace MidiGenPlay.EditorTools
         private Vector2 _scroll;
         private string _lastPath;
 
+        /// <summary>IMPORT-QOL-1 item 3 — EditorPrefs key remembering the last
+        /// manually-assigned MGP Config by GUID (project-agnostic; a stale GUID
+        /// simply resolves to nothing).</summary>
+        private const string ConfigGuidPrefKey =
+            "MidiGenPlay.CompositionSmoke.ConfigGuid";
+
+        /// <summary>
+        /// IMPORT-QOL-1 item 3 — auto-assign MGP Config when the field is
+        /// empty on open: (1) the last manual selection, restored by GUID from
+        /// EditorPrefs; (2) else, the project's config IF exactly one exists
+        /// (with several candidates we never guess). The field stays fully
+        /// editable; this only fills a blank.
+        /// </summary>
+        private void OnEnable()
+        {
+            if (config != null) return;
+
+            string guid = EditorPrefs.GetString(ConfigGuidPrefKey, "");
+            if (!string.IsNullOrEmpty(guid))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(path))
+                    config = AssetDatabase.LoadAssetAtPath<MidiGenPlayConfig>(path);
+            }
+
+            if (config == null)
+            {
+                var guids = AssetDatabase.FindAssets("t:MidiGenPlayConfig");
+                if (guids.Length == 1)
+                    config = AssetDatabase.LoadAssetAtPath<MidiGenPlayConfig>(
+                        AssetDatabase.GUIDToAssetPath(guids[0]));
+            }
+        }
+
         private void OnGUI()
         {
             // Domain-reload safety for serialized reference fields.
@@ -92,14 +126,24 @@ namespace MidiGenPlay.EditorTools
 
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("Assets", EditorStyles.boldLabel);
-            config = (MidiGenPlayConfig)EditorGUILayout.ObjectField(
+            var newConfig = (MidiGenPlayConfig)EditorGUILayout.ObjectField(
                 "MGP Config", config, typeof(MidiGenPlayConfig), false);
+            if (newConfig != config)
+            {
+                config = newConfig;
+                // IMPORT-QOL-1 item 3 — remember manual selections by GUID.
+                if (config != null && AssetDatabase.TryGetGUIDAndLocalFileIdentifier(
+                        config, out string cfgGuid, out long _))
+                    EditorPrefs.SetString(ConfigGuidPrefKey, cfgGuid);
+            }
 
             EditorGUILayout.Space(8);
             DrawPartContext();
 
             EditorGUILayout.Space(8);
             DrawEntries();
+
+            DrawPatternMeasuresAdvisory();
 
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("Render", EditorStyles.boldLabel);
@@ -157,6 +201,43 @@ namespace MidiGenPlay.EditorTools
                 EditorGUILayout.IntField("Measures", partContext.measures));
             partContext.bpm = Mathf.Clamp(
                 EditorGUILayout.IntField("BPM", partContext.bpm), 20, 400);
+        }
+
+        /// <summary>
+        /// IMPORT-QOL-1 item 2 — advisory-only HelpBox listing every assigned
+        /// pattern that declares MORE measures than the window (only the
+        /// window's length renders, so the tail is cut); a differing time
+        /// signature is noted as an extra clause on the same line. Patterns
+        /// SHORTER than the window repeat — legitimate existing behavior,
+        /// deliberately not warned. This NEVER changes measures automatically:
+        /// "Fit to longest pattern" is an explicit button and touches ONLY
+        /// partContext.measures, never the time signature.
+        /// </summary>
+        private void DrawPatternMeasuresAdvisory()
+        {
+            int longest = 0;
+            List<string> lines = null;
+            foreach (var e in entries)
+            {
+                var p = e?.spec?.pattern;
+                if (p == null || p.Measures <= partContext.measures) continue;
+
+                longest = Mathf.Max(longest, p.Measures);
+                string tsNote = p.TimeSignature != partContext.timeSignature
+                    ? $" (its time signature {p.TimeSignature} also differs " +
+                      $"from the part's {partContext.timeSignature})"
+                    : "";
+                (lines ??= new List<string>()).Add(
+                    $"'{p.name}' ({e.spec.role}) declares {p.Measures} measures; " +
+                    $"the window renders {partContext.measures}, so its tail is " +
+                    $"cut{tsNote}.");
+            }
+            if (lines == null) return;
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(string.Join("\n", lines), MessageType.Warning);
+            if (GUILayout.Button($"Fit to longest pattern ({longest} measures)"))
+                partContext.measures = longest;
         }
 
         private void DrawEntries()
@@ -221,16 +302,20 @@ namespace MidiGenPlay.EditorTools
                     e.arpeggioRate = (ArpeggioRate)EditorGUILayout.EnumPopup(
                         "Arpeggio Rate", e.arpeggioRate);
 
-                    // MGP-ALWTTT-ARTIC-1: Random selection policy knobs.
-                    if (e.chordExpression == ChordExpressionType.Random &&
-                        e.spec.role == TrackRole.Backing)
+                    // MGP-ALWTTT-ARTIC-1 + CA-V1: Random selection knobs, now for
+                    // Bassline too (D6 lifted) and for the rate sentinel.
+                    if (e.chordExpression == ChordExpressionType.Random ||
+                        e.arpeggioRate == ArpeggioRate.Random)
                         DrawRandomArticulationKnobs(e);
-                }
 
-                // MGP-ALWTTT-ARTIC-1 (D6): Random is not wired on the bass yet.
-                var randWarn = RandomOnBasslineWarning(e);
-                if (randWarn != null)
-                    EditorGUILayout.HelpBox(randWarn, MessageType.Warning);
+                    // CA-V1: jitter is independent of the Random sentinels.
+                    e.velocityJitter = EditorGUILayout.IntSlider(
+                        new GUIContent("Velocity Jitter",
+                            "Seeded per-hit velocity offset, uniform in [-n, +n], " +
+                            "clamped 1..127. 0 = exact legacy velocities. Applies " +
+                            "to every figure, Block included."),
+                        e.velocityJitter, 0, 32);
+                }
 
                 EditorGUILayout.EndVertical();
             }
@@ -305,28 +390,6 @@ namespace MidiGenPlay.EditorTools
                     EditorStyles.miniLabel);
 
             EditorGUI.indentLevel--;
-        }
-
-        /// <summary>
-        /// MGP-ALWTTT-ARTIC-1 (D6): the Random roll is wired on the Backing
-        /// composer only. A Bassline card selecting Random degrades to Block in
-        /// the articulator (never silent, but easy to mistake for a bug here).
-        /// Covers BOTH the in-memory fallback and an authored bassline asset.
-        /// </summary>
-        private static string RandomOnBasslineWarning(SmokeEntry e)
-        {
-            if (e.spec.role != TrackRole.Bassline) return null;
-
-            bool wantsRandom =
-                (e.spec.style == null && e.chordExpression == ChordExpressionType.Random) ||
-                (e.spec.style is BasslineCardConfigSO b &&
-                 b.chordExpression == ChordExpressionType.Random);
-
-            return wantsRandom
-                ? "Random articulation is not wired on the bass composer in v1 " +
-                  "(MGP-ALWTTT-ARTIC-1, D6): this row will render as Block. Use " +
-                  "the Backing row to exercise the roll."
-                : null;
         }
 
         // ---------- Validation (button gating; assembler re-validates) ----------
@@ -566,7 +629,7 @@ namespace MidiGenPlay.EditorTools
         private static SmokeTrackSpec BuildEffectiveSpec(SmokeEntry e) =>
             SmokeRenderUtil.BuildEffectiveSpec(
                 e.spec, e.chordExpression, e.arpeggioRate,
-                e.randomRerollChance, e.randomFigureWeights);
+                e.randomRerollChance, e.randomFigureWeights, e.velocityJitter);
 
     }
 }

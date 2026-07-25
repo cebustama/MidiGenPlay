@@ -131,7 +131,7 @@ namespace MidiGenPlay.Composition
                 .Where(e => e != null)
                 .Select(e => SmokeRenderUtil.BuildEffectiveSpec(
                     e.spec, e.chordExpression, e.arpeggioRate,
-                    e.randomRerollChance, e.randomFigureWeights))
+                    e.randomRerollChance, e.randomFigureWeights, e.velocityJitter))
                 .ToList();
 
             // 2) Assemble via the shared runtime-safe brain.

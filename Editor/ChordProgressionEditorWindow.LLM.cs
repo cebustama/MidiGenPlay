@@ -39,7 +39,9 @@ using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 public partial class ChordProgressionEditorWindow
 {
     // -- LLM panel state --
-    [SerializeField] private bool llmFoldout = true;
+    // IMPORT-QOL-1 item 4: collapsed by default; state still persists across
+    // domain reloads via window serialization.
+    [SerializeField] private bool llmFoldout = false;
     [SerializeField] private ChordGenreVocabularySO llmVocabulary;
     [SerializeField] private LLMClientData llmClientOverride; // null → default client
     [SerializeField] private string llmGenreName = "";

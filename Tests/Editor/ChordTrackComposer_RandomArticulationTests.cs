@@ -269,6 +269,77 @@ namespace MidiGenPlay.Tests.Editor
                 Assert.That(random[i].NoteIndex, Is.EqualTo(block[i].NoteIndex));
             }
         }
+
+        // ---------- CA-V1: arpeggio-rate roll ----------
+
+        [Test]
+        public void NextRate_NeverReturnsTheRandomSentinel()
+        {
+            var r = new RandomArticulationRoller(
+                new System.Random(1), 1f, null, new System.Random(2));
+            for (int i = 0; i < 500; i++)
+                Assert.AreNotEqual(ArpeggioRate.Random, r.NextRate());
+        }
+
+        [Test]
+        public void NextRate_IsDeterministicPerSeedAndVariesAcrossSeeds()
+        {
+            List<ArpeggioRate> Seq(int seed)
+            {
+                var r = new RandomArticulationRoller(
+                    new System.Random(1), 1f, null, new System.Random(seed));
+                return Enumerable.Range(0, 48).Select(_ => r.NextRate()).ToList();
+            }
+
+            CollectionAssert.AreEqual(Seq(4242), Seq(4242));
+            CollectionAssert.AreNotEqual(Seq(4242), Seq(9999));
+        }
+
+        [Test]
+        public void NextRate_ZeroRerollChance_HoldsOneRateForTheWholeRender()
+        {
+            var r = new RandomArticulationRoller(
+                new System.Random(1), 0f, null, new System.Random(77));
+            var first = r.NextRate();
+            for (int i = 0; i < 64; i++)
+                Assert.AreEqual(first, r.NextRate());
+        }
+
+        [Test]
+        public void NextRate_FullRerollChance_ProducesMoreThanOneRate()
+        {
+            var r = new RandomArticulationRoller(
+                new System.Random(1), 1f, null, new System.Random(77));
+            var seen = new HashSet<ArpeggioRate>();
+            for (int i = 0; i < 200; i++) seen.Add(r.NextRate());
+            Assert.Greater(seen.Count, 1);
+        }
+
+        [Test]
+        public void NextRate_NoRateStream_DegradesToEighth()
+        {
+            // ARTIC-1 call shape (three args) must keep compiling and stay inert.
+            var r = new RandomArticulationRoller(new System.Random(1), 1f, null);
+            Assert.AreEqual(ArpeggioRate.Eighth, r.NextRate());
+        }
+
+        [Test]
+        public void RateRoll_DoesNotPerturbTheFigureSequence()
+        {
+            // D-V1-RATE-STREAM=A: the two axes live on separate streams, so
+            // enabling the rate roll must not shift a single figure.
+            var figuresOnly = new RandomArticulationRoller(
+                new System.Random(7), 1f, null);
+            var both = new RandomArticulationRoller(
+                new System.Random(7), 1f, null, new System.Random(99));
+
+            for (int i = 0; i < 64; i++)
+            {
+                var expected = figuresOnly.NextFigure();
+                both.NextRate();                 // interleaved, other stream
+                Assert.AreEqual(expected, both.NextFigure());
+            }
+        }
     }
 }
 #endif

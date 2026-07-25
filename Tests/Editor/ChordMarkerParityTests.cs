@@ -81,7 +81,8 @@ namespace MidiGenPlay.Tests.Editor
                 inversionHints: null,
                 chordExpression: ChordExpressionType.Block,
                 arpeggioRate: ArpeggioRate.Eighth,
-                articRoller: null);
+                articRoller: null,
+                velocityJitter: default);
 
             return (gridFile, progFile);
         }

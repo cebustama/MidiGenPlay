@@ -51,6 +51,9 @@ The original package reference implementation. Demonstrates:
 - multiple authoring modes (Roman string and grid)
 - normalize / preview / apply / save flow
 - separation between authoring input and persisted structure
+- MIDI file import into the grid working state (Batch M3, `ChordMidiImporter`;
+  restricted deterministic detection, warnings-not-silence; see
+  `SSoT_Authoring_Chord_Progressions.md` §3)
 
 #### `DrumPatternEditorWindow`
 
@@ -82,6 +85,12 @@ Capabilities:
   resolution, and a pre-network prompt cost cap. Async and non-blocking; output is
   committed to the working copy and applied through the existing Apply/Save flow.
   - Contract + architecture authority: `authoring/SSoT_Authoring_LLM_Generation.md`
+- **MIDI file import** (Batch M1): a "MIDI File Import" panel with a
+  drum-channel-only toggle and an "Import MIDI File…" button. Quantizes a `.mid`
+  into lanes + per-step velocities using the window's Timing controls, applies to
+  the working copy in Grid mode, and surfaces every lossy step as a warning.
+  - Contract authority: `authoring/SSoT_Authoring_Rhythm_Patterns.md` §3A
+    "MIDI file import (Batch M1)"
 - safe signature normalize/rebuild (resizes lane step arrays without data loss where possible)
 - Apply To Asset and Save As New Asset flows
 
@@ -95,11 +104,15 @@ Current limitations (known, not blocking):
 - text-mode is lossy on render when per-step velocities fall outside the three
   glyph tiers (default / accent / ghost); the asset value remains canonical
   until the user explicitly types a different glyph in that cell
+- MIDI import reads meter from the window's Timing controls, not from the file's
+  own time-signature meta events; a file in a different meter is re-gridded, not
+  rejected
+- MIDI import has no export counterpart
 
 #### `MelodyPatternEditorWindow`
 
 The dedicated melody authoring entry point, implemented in Phase 2 of
-`planning/active/Roadmap_Melody_Authoring_MVP.md` (closed 2026-06-16). Follows the
+`planning/archive/Roadmap_Melody_Authoring_MVP.md` (closed 2026-06-16). Follows the
 same architectural pattern as the chord and drum editors, adapted for a
 scale-degree "ladder" note grid.
 
@@ -115,21 +128,39 @@ Capabilities:
 - configurable visible octave window that auto-fits to cover all notes on load;
   notes outside the window or beyond the current measure count are preserved (not
   deleted) and surfaced as a hidden-note count
+- **generation-parameters section + simplified generator** (Phase 3, closed
+  2026-06-17): a top section binding a `MelodyGenerationParamsSO` and a
+  "Generate" button driving the editor-only `SimplifiedMelodyGenerator` into the
+  working copy (the bound asset is untouched until Apply / Save As, and the
+  params SO is saved independently of the pattern)
+  - Contract authority: `authoring/SSoT_Authoring_Melody_Composition.md` §5
+    ("Generation parameters & simplified generator (Phase 3)")
 - explicit Normalize (snap notes to the current subdivision grid)
+- **MIDI file import** (Batch M2): a "MIDI File Import" panel with Key Root +
+  Tonality popups and a MIDI-channel filter (0 = all channels), an
+  "Import MIDI File…" button, and a per-import warning list. Quantizes a `.mid`
+  into scale-degree notes using the window's Timing controls, monophonizes
+  polyphonic input, applies to the working copy, and surfaces every lossy step as
+  a warning.
+  - Contract authority: `authoring/SSoT_Authoring_Melody_Composition.md` §5
+    "MIDI file import (Batch M2)"
 - Apply To Asset and Save As New Asset flows
 - grid authoring semantics authority:
   `authoring/SSoT_Authoring_Melody_Composition.md` §5 ("Grid authoring semantics (Phase 2)")
 
-Status / scope (Phase 2):
+Status / scope (Phases 2–3 landed; consumed at runtime since Phase 4):
 
-- this window authors `MelodyPatternData` only and makes **no runtime changes**;
-  its output is **not yet consumed at runtime** — the `MelodyTrackComposer`
-  pattern-override path (`ComposeFromPattern`) is Phase 4 (see §3.D and
-  `runtime/SSoT_Composer_Melody_Track.md`)
-- there is **no generation-parameters section / generator** yet — the top section
-  of the wizard is Phase 3 (see §3.D)
+- this window authors `MelodyPatternData` and changes **no runtime code**, but its
+  output **is** consumed at runtime: the `MelodyTrackComposer` pattern-override
+  path (`ComposeFromPattern` / `ResolvePatternNotesCore`) landed in Phase 4,
+  closed 2026-06-17. Consumption contract:
+  `runtime/SSoT_Composer_Melody_Track.md` §7 (carrier precedence, D-MEL4.1 +
+  D-MEL-INT1); phase history in §3.D
+- the generation-parameters section and the editor-only `SimplifiedMelodyGenerator`
+  landed in Phase 3, closed 2026-06-17 — see Capabilities above
 - there is **no text/DSL mode** (a rhythm/chord-only feature); the analogous melody
-  import path is MIDI-file → scale-degree, deferred to Phase D1
+  import path is MIDI-file → scale-degree, landed in Batch M2 of
+  `planning/archive/Roadmap_MIDI_Import.md` (see Capabilities above)
 
 Current limitations (known, not blocking):
 
@@ -137,8 +168,32 @@ Current limitations (known, not blocking):
 - unsaved new patterns are lost on domain reload if no asset is assigned
 - the visible octave window and the current selection are editor UI state only —
   not persisted in the asset
-- drag-to-resize notes is deferred to Phase 5 polish; duration is edited via the
-  inspector "Length (steps)" field
+- MIDI import reads meter from the window's Timing controls, not from the file's
+  own time-signature meta events; a file in a different meter is re-gridded, not
+  rejected
+- MIDI import auto-centers the reference octave (modal, ties lower); it is
+  reported in the panel, not user-selectable
+- **the imported pattern does not preserve absolute register.** Only degrees and
+  relative octave offsets are stored, so the anchor those offsets hang from is
+  re-decided at render: `MelodyTrackComposer` pins offset 0 to the instrument's
+  mid register (`refOct = (octaveMin + octaveMax − 2) / 2`, integer division),
+  not to the octave the importer reported. The rendered line is therefore
+  transposed by `refOct − referenceOctave` octaves relative to the source file —
+  uniformly, so the contour itself is unaffected. To land on the source register,
+  choose an instrument whose `octaveMin`/`octaveMax` make `refOct` equal the
+  reported reference octave. Observed in the M2 smoke (2026-07-23): reference
+  octave 5, `refOct` 4, rendered one octave down with the contour intact
+- separately, offsets falling outside the instrument band are **clamped** at
+  render, which flattens the contour at that end. Safe offsets are
+  `[−⌊W/2⌋, +⌈W/2⌉]` where `W = octaveMax − octaveMin`; a wider imported span
+  loses its extremes, and the clamp emits no warning or log. Did not fire in the
+  M2 smoke (span −1..+1). Both behaviours are render-time and owned by
+  `runtime/SSoT_Composer_Melody_Track.md` (D-MEL4.2), not by the importer
+- MIDI import has no export counterpart
+- no drag-to-resize on notes; duration is edited via the inspector
+  "Length (steps)" field. Originally slated for Phase 5 polish, which closed
+  2026-06-22 under "Closure scope = A" (editor polish treated as satisfied by the
+  Phase 2–3 closures), so this is a standing limitation rather than pending work
 
 ### B. Legacy runtime-scene MVP panel
 
@@ -168,25 +223,35 @@ The package also contains smaller editor/tooling components such as:
 These are reusable building blocks available for future editor work, including Phase 8
 persistence cleanup.
 
-### D. Melody Pattern Editor — remaining planned phases
+### D. Melody Pattern Editor — phase history
 
-The **Melody Pattern Editor** has landed its editor-window shell and scale-degree
-"ladder" note grid (Phase 2 of
-`planning/active/Roadmap_Melody_Authoring_MVP.md`, closed 2026-06-16) and is now a
-Category-A tool — see its entry in §3.A. Two parts of the planned wizard remain
-**not yet implemented**:
+The **Melody Pattern Editor** is a Category-A tool — see its entry in §3.A. The
+**Melody Authoring MVP is complete** (`planning/archive/Roadmap_Melody_Authoring_MVP.md`,
+Phase 5 closed 2026-06-22). Phase record, for orientation only — this section is
+not implementation authority:
 
-- **Generation-parameters section + simplified generator (Phase 3).** The top
-  section of the wizard surfacing `MelodyGenerationParamsSO` (Tier-1 params:
-  scale/tonality, GM instrument hint, density, octave range, rhythmic style) plus a
-  "Generate" button driving an editor-only simplified generator into the working
-  copy. Contract: `authoring/SSoT_Authoring_Melody_Composition.md` §5
+- **Phase 2 (closed 2026-06-16).** Editor-window shell + scale-degree "ladder"
+  note grid. Grid semantics: `authoring/SSoT_Authoring_Melody_Composition.md` §5
+  ("Grid authoring semantics (Phase 2)").
+- **Phase 3 (closed 2026-06-17).** Generation-parameters section surfacing
+  `MelodyGenerationParamsSO` (Tier-1 params: scale/tonality, GM instrument hint,
+  density, octave range, rhythmic style) + a "Generate" button driving the
+  editor-only `SimplifiedMelodyGenerator` into the working copy. Contract:
+  `authoring/SSoT_Authoring_Melody_Composition.md` §5
   (`MelodyGenerationParamsSO` is a generation-time aid only, never read at runtime).
-- **Runtime consumption (Phase 4).** A `MelodyTrackComposer.ComposeFromPattern`
-  branch that consumes an authored `MelodyPatternData` at runtime (resolving scale
-  degrees to absolute pitch against the active tonality/root), analogous to the
-  rhythm `ComposeFromGrid` path. Until this lands, authored melody patterns are not
-  consumed by any composer. Authority: `runtime/SSoT_Composer_Melody_Track.md`.
+- **Phase 4 (closed 2026-06-17).** Runtime consumption via the
+  `MelodyTrackComposer.ComposeFromPattern` branch (scale degrees resolved to
+  absolute pitch against the active tonality/root), analogous to the rhythm
+  `ComposeFromGrid` path. Authority: `runtime/SSoT_Composer_Melody_Track.md` §7.
+- **Phase 5 (closed 2026-06-22).** Edge-case validation, determinism guard, and
+  documentation closure. D-MEL5.1 = A: tiles-by-beats on meter mismatch is the
+  accepted MVP outcome.
+
+Deferred phases still recorded in that roadmap: **D2** (probabilistic / weighted
+note events), **D3** (full pipeline capture as wizard generation source), **D4**
+(performance metadata sink). **D1** (MIDI file import) is superseded — it landed
+as Batch M2 of `planning/archive/Roadmap_MIDI_Import.md`; the implemented contract
+is `authoring/SSoT_Authoring_Melody_Composition.md` §5 "MIDI file import (Batch M2)".
 
 > Asset-reset caveat (mirrors §7): the Phase-1 `MelodyPatternData` redesign
 > changed the serialized note shape, so pre-existing melody `.assets` deserialize
@@ -295,6 +360,7 @@ Update this SSoT when:
 - the package adopts a new authoring-tool pattern
 - a new package-owned editor window becomes canonical
 - `DrumPatternEditorWindow` capabilities or known limitations change
+- a package editor tool gains or changes a file-import path (e.g. MIDI import)
 - the save/preview/normalize model changes
 - `RhythmPatternPanelController` is formally deprecated
 - the runtime consumption of per-step velocity is closed (update asset-truth vs runtime-consumption gap note)

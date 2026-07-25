@@ -65,7 +65,14 @@ This rule is especially important for:
 
 - `ChordTrackComposer`
 - `RhythmTrackComposer`
+- `BassTrackComposer` (since CA-F2)
+- `MelodyTrackComposer` (since MEL-BEATUNIT-1)
 - authoring assets that may be reused across signatures
+
+The concrete obligation is that one beat is `MusicTheory.GetBeatSpan(part.TimeSignature)`,
+never an assumed quarter note. Both entries above were added after a batch fixed exactly
+that assumption; each recorded the deviation in its own SSoT
+(`SSoT_Composer_Bass_Track.md` §3.4, `SSoT_Composer_Melody_Track.md` §7.1).
 
 ## 6. No silent promotion contract
 

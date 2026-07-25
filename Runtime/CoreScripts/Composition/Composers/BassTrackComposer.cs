@@ -1,12 +1,13 @@
-﻿using System;
-using System.Linq;
-using Melanchall.DryWetMidi.Common;
+﻿using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.Composing;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay.Composition;
+using System;
+using System.Linq;
 using UnityEngine;
+using static MidiGenPlay.Composition.BasslineCardConfigSO;
 using static MidiGenPlay.MusicTheory.MusicTheory;
 using NoteTheory = Melanchall.DryWetMidi.MusicTheory.Note;
 
@@ -22,6 +23,9 @@ namespace MidiGenPlay.Composition
     /// MoveToTime+Note pair (test-pinned). The note-selection loop — including
     /// its per-event ctx.rng draw sequence — is deliberately unchanged; only the
     /// emission pair was replaced. See runtime/SSoT_Composer_Bass_Track.md.
+    /// CA-V1: the bass now owns the Random roll too (D6 lifted) and carries the
+    /// seeded velocity jitter. Both run on seed-derived substreams; ctx.rng and
+    /// the note-selection draw order are untouched.
     public sealed class BassTrackComposer : ITrackComposer
     {
         private readonly MidiGenPlayConfig _settings;
@@ -97,6 +101,36 @@ namespace MidiGenPlay.Composition
             // lifecycle does not apply.
             var (chordExpression, arpeggioRate) = ResolveArticulation(cfg);
 
+            // CA-V1 (D-V1-BASS=B): the ARTIC-1 D6 limitation is LIFTED — the bass
+            // now rolls its own figures/rates instead of degrading Random to
+            // Block. Its substreams derive from the BASS trackSeed, which already
+            // folds in role + musicianId (ResolveTrackSeed*), so backing and bass
+            // on the same part never share a roll sequence.
+            //
+            // Critical: none of this touches ctx.rng. The note-selection loop
+            // below keeps its exact per-event draw count and order (1 draw root
+            // mode, 2 chord-tone mode) — the determinism surface of section 2 of
+            // the Bass SSoT.
+            var bassStyle = cfg?.Parameters?.Style as BasslineCardConfigSO;
+            int trackSeed = ctx != null ? ctx.trackSeed : 0;
+            var toneMode = bassStyle != null
+                ? bassStyle.arpeggioToneMode : BassArpeggioToneMode.RepeatedNote;
+
+            RandomArticulationRoller articRoller = null;
+            if (chordExpression == ChordExpressionType.Random ||
+                arpeggioRate == ArpeggioRate.Random)
+            {
+                articRoller = new RandomArticulationRoller(
+                    new System.Random(SongOrchestrator.ResolveArticulationSeed(trackSeed)),
+                    bassStyle != null ? bassStyle.randomRerollChance : 1f,
+                    bassStyle != null ? bassStyle.randomFigureWeights : null,
+                    new System.Random(SongOrchestrator.ResolveArticulationRateSeed(trackSeed)));
+            }
+
+            var velocityJitter = new VelocityJitter(
+                bassStyle != null ? bassStyle.velocityJitter : 0,
+                SongOrchestrator.ResolveVelocityJitterSeed(trackSeed));
+
             // CA-F2 (SD-F2-3=B): meter authority — derive the beat grid from the
             // Part TS, mirroring ChordTrackComposer. NOTE the recorded deviation:
             // legacy bass emitted on MusicalTimeSpan.Quarter unconditionally, so
@@ -122,6 +156,7 @@ namespace MidiGenPlay.Composition
 
             var rng = ctx?.rng ?? new System.Random();
 
+            int eventIndex = 0;
             foreach (var ce in prog.events.OrderBy(e => e.startStep))
             {
                 var degreeRoot = scaleNames[(int)ce.degree];
@@ -150,12 +185,52 @@ namespace MidiGenPlay.Composition
                 // a repeated-note pulse. Velocity note: Block clamps 0..127 where
                 // legacy raw-cast threw out-of-range — byte-identical for valid
                 // 0..127 data, strictly more robust otherwise.
-                _articulator.Emit(pb, new[] { note }, startBeats, lenBeats,
+                var effectiveExpression =
+                    articRoller != null &&
+                    chordExpression == ChordExpressionType.Random
+                        ? articRoller.NextFigure() : chordExpression;
+                var effectiveRate =
+                    articRoller != null &&
+                    arpeggioRate == ArpeggioRate.Random
+                        ? articRoller.NextRate() : arpeggioRate;
+
+                // BASS-WALK-1 (D-WALK-HOME=A / D-WALK-RNG=A): when the resolved figure is
+                // an arpeggio and walk mode is on, hand the SAME Emit a root-anchored
+                // triad and let the existing k % noteCount cycling do the walk. Zero new
+                // ctx.rng draws: 3rd/5th are deterministic from chordPcs, stacked above
+                // the already-drawn root octave. ArpeggioFits guards the degrade path so
+                // a too-short event never emits a 3-note chord (mono invariant).
+                NoteTheory[] playable;
+                if (toneMode == BassArpeggioToneMode.ChordToneWalk &&
+                    (effectiveExpression == ChordExpressionType.ArpeggioUp ||
+                     effectiveExpression == ChordExpressionType.ArpeggioDown) &&
+                    chordPcs.Length >= 2 &&
+                    ChordArticulator.ArpeggioFits(lenBeats, effectiveRate))
+                {
+                    playable = BuildWalkVoicing(chordPcs, oct);
+                }
+                else
+                {
+                    playable = new[] { note };
+                }
+
+                _articulator.Emit(pb, playable, startBeats, lenBeats,
                                   beatSpan, beatsPerBar, ce.velocity, stepsPerBeat,
-                                  chordExpression, arpeggioRate);
+                                  effectiveExpression, effectiveRate,
+                                  velocityJitter.ForEvent(eventIndex));
+
+                eventIndex++;
             }
 
             var file = pb.Build().ToFile(tempoMap);
+
+            if (_settings?.logGenerator == true)
+            {
+                var all = file.GetNotes().OrderBy(n => n.Time).ToList();
+                Debug.Log($"[BASS-WALK probe2] notes={all.Count} " +
+                          $"distinctPitches={all.Select(n => (int)n.NoteNumber).Distinct().Count()} " +
+                          $"first12={string.Join(",", all.Take(12).Select(n => (int)n.NoteNumber))}");
+            }
 
             // channel + program (match other composers)
             ForceAllChannel(file, channel);
@@ -167,10 +242,34 @@ namespace MidiGenPlay.Composition
                 var lastTick = file.GetTrackChunks().SelectMany(c => c.GetTimedEvents())
                                    .Select(te => te.Time).DefaultIfEmpty(0).Max();
                 Debug.Log($"[BassTrackComposer] notes={notes} lastTick={lastTick} " +
-                          $"expr={chordExpression} rate={arpeggioRate}");
+                          $"expr={chordExpression} rate={arpeggioRate} " +
+                          $"jitter={velocityJitter.Amount}" +
+                          (articRoller != null
+                              ? $" | CA-V1 roll {articRoller.DescribeRolls()}"
+                              : ""));
             }
 
             return file;
+        }
+
+        /// <summary>
+        /// BASS-WALK-1: root/3rd/5th (first Min(3, chordPcs.Length) tones) stacked
+        /// strictly ascending from the drawn root octave — each tone placed in the
+        /// nearest octave above the previous note. Deterministic; no rng.
+        /// </summary>
+        public static NoteTheory[] BuildWalkVoicing(NoteName[] chordPcs, int rootOct)
+        {
+            int count = Math.Min(3, chordPcs.Length);
+            var notes = new NoteTheory[count];
+            notes[0] = NoteTheory.Get(chordPcs[0], rootOct);
+            for (int i = 1; i < count; i++)
+            {
+                var n = NoteTheory.Get(chordPcs[i], rootOct);
+                if (n.NoteNumber <= notes[i - 1].NoteNumber)
+                    n = NoteTheory.Get(chordPcs[i], rootOct + 1);
+                notes[i] = n;
+            }
+            return notes;
         }
 
         /// <summary>

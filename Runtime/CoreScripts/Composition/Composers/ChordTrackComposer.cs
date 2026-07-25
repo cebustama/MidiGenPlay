@@ -243,16 +243,30 @@ namespace MidiGenPlay.Composition
             // Fixed<->Random changes articulation only, never voicings). The
             // articulator stays RNG-free and never sees Random. Null roller
             // (any fixed figure) => CA-T1 behavior, bit-identical.
+            int trackSeed = ctx != null ? ctx.trackSeed : 0;
+
             RandomArticulationRoller articRoller = null;
-            if (chordExpression == ChordExpressionType.Random)
+            if (chordExpression == ChordExpressionType.Random ||
+                arpeggioRate == ArpeggioRate.Random)
             {
-                int articSeed = SongOrchestrator.ResolveArticulationSeed(
-                    ctx != null ? ctx.trackSeed : 0);
+                // CA-V1: both streams are constructed whenever EITHER sentinel is
+                // selected. The unused one costs one System.Random and is never
+                // drawn from, which keeps the two axes independent: a fixed
+                // figure + Random rate consumes zero figure draws.
                 articRoller = new RandomArticulationRoller(
-                    new System.Random(articSeed),
+                    new System.Random(SongOrchestrator.ResolveArticulationSeed(trackSeed)),
                     backingStyle != null ? backingStyle.randomRerollChance : 1f,
-                    backingStyle != null ? backingStyle.randomFigureWeights : null);
+                    backingStyle != null ? backingStyle.randomFigureWeights : null,
+                    new System.Random(SongOrchestrator.ResolveArticulationRateSeed(trackSeed)));
             }
+
+            // CA-V1 (D-V1-JIT-SRC=A): render-level jitter policy. NOT a stream —
+            // a seed for a pure per-(event, hit) mix, so the articulator stays
+            // RNG-free and ctx.rng is untouched. Amount 0 (default / no card) is
+            // exact identity.
+            var velocityJitter = new VelocityJitter(
+                backingStyle != null ? backingStyle.velocityJitter : 0,
+                SongOrchestrator.ResolveVelocityJitterSeed(trackSeed));
 
             // MGP-ALWTTT-DBG-1 (Ask A): readback payload for this render;
             // content fields fill as resolution progresses, identity is
@@ -445,7 +459,7 @@ namespace MidiGenPlay.Composition
                     Debug.Log("[ChordTrackComposer] Procedural backing (no ChordProgressionData).");
                 var proceduralFile = ComposeProcedural(instrument, bpm, part, cfg, ctx, channel, effectiveVL,
                          modulationHint, previousRoot, inversionHints,
-                         chordExpression, arpeggioRate, articRoller);
+                         chordExpression, arpeggioRate, articRoller, velocityJitter);
 
                 // Ask A: procedural path. The built progression was cached by
                 // ComposeProcedural via SetProgressionForPart; the resolved
@@ -667,7 +681,11 @@ namespace MidiGenPlay.Composition
         /// </summary>
         private static List<ChordExpressionType> SnapshotRolls(
             RandomArticulationRoller roller)
-            => roller == null
+            // CA-V1: a rate-only Random render builds a roller whose FIGURE
+            // history stays empty. The DBG-1 contract is "fixed articulation
+            // reports null figures", so an empty history must report null too —
+            // R4: the readback is deliberately NOT extended to rates or jitter.
+            => roller == null || roller.History.Count == 0
                 ? null
                 : new List<ChordExpressionType>(roller.History);
 
@@ -696,7 +714,8 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<int?> inversionHints,
             ChordExpressionType chordExpression,
             ArpeggioRate arpeggioRate,
-            RandomArticulationRoller articRoller)
+            RandomArticulationRoller articRoller,
+            VelocityJitter velocityJitter)
         {
             var rng = ctx?.rng ?? new System.Random();
 
@@ -719,7 +738,7 @@ namespace MidiGenPlay.Composition
             // Render using the same path as authored progressions
             return RenderFromProgression(instrument, bpm, part, prog, channel, ctx, vlOverride,
                                  modulationHint, previousRoot, inversionHints,
-                                 chordExpression, arpeggioRate, articRoller);
+                                 chordExpression, arpeggioRate, articRoller, velocityJitter);
         }
 
         /// <summary>
@@ -1359,7 +1378,8 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<int?> inversionHints,
             ChordExpressionType chordExpression,
             ArpeggioRate arpeggioRate,
-            RandomArticulationRoller articRoller)
+            RandomArticulationRoller articRoller,
+            VelocityJitter velocityJitter)
         {
             // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
             // reproject to a runtime clone before rendering.
@@ -1456,14 +1476,23 @@ namespace MidiGenPlay.Composition
                     // MGP-ALWTTT-ARTIC-1: per-event figure resolution (null
                     // roller => fixed CA-T1 figure). Emit remains the single
                     // unconditional call; only the figure VALUE varies.
-                    var effectiveExpression = articRoller != null
-                        ? articRoller.NextFigure() : chordExpression;
+                    var effectiveExpression =
+                        articRoller != null &&
+                        chordExpression == ChordExpressionType.Random
+                            ? articRoller.NextFigure() : chordExpression;
+                    // CA-V1: independent axis on its own substream. A fixed
+                    // figure with a Random rate rolls rates only, and vice versa.
+                    var effectiveRate =
+                        articRoller != null &&
+                        arpeggioRate == ArpeggioRate.Random
+                            ? articRoller.NextRate() : arpeggioRate;
                     // CA-T2: same reshape+emit as the grid path.
                     var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
 
                     _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,
-                                      effectiveExpression, arpeggioRate);
+                                      effectiveExpression, effectiveRate,
+                                      velocityJitter.ForEvent(eventIndex));
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;

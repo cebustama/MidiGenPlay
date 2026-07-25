@@ -1,5 +1,6 @@
 ﻿#if UNITY_EDITOR
 using BCS.LLM.Core.Clients;
+using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay;
 using MidiGenPlay.Authoring;
@@ -12,6 +13,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using static MidiGenPlay.MusicTheory.MusicTheory;
+using EventType = UnityEngine.EventType;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 /// <summary>
@@ -156,6 +158,25 @@ public class DrumPatternEditorWindow : EditorWindow
     [SerializeField] private int _maxCharBudget = 4000;
 
     // -------------------------------------------------------------------------
+    // M1 (Roadmap_MIDI_Import) — MIDI file import state
+    // -------------------------------------------------------------------------
+
+    /// <summary>Whether the MIDI import panel foldout is expanded.</summary>
+    [SerializeField] private bool _midiPanelExpanded = true;
+
+    /// <summary>
+    /// M1 — when true, only notes on the GM drum channel (MIDI ch 10) are read;
+    /// when false, all channels are accepted (some exports place drums elsewhere).
+    /// </summary>
+    [SerializeField] private bool _midiImportDrumChannelOnly = true;
+
+    /// <summary>
+    /// M1 — warning lines from the most recent MIDI file import, rendered in the
+    /// MIDI panel with the same shape as the LLM/import notes. Cleared per import.
+    /// </summary>
+    private readonly List<string> _midiImportWarnings = new List<string>();
+
+    // -------------------------------------------------------------------------
     // Non-serialised working state
     // -------------------------------------------------------------------------
 
@@ -232,6 +253,8 @@ public class DrumPatternEditorWindow : EditorWindow
         DrawTimingControls();
         EditorGUILayout.Space(4f);
         DrawLLMPanel();
+        EditorGUILayout.Space(4f);
+        DrawMidiImportPanel();
         EditorGUILayout.Space(4f);
         DrawLanesAndGrid();
         EditorGUILayout.Space(6f);
@@ -654,6 +677,148 @@ public class DrumPatternEditorWindow : EditorWindow
         _textRows = new string[laneCount];
         for (int i = 0; i < laneCount; i++)
             _textRows[i] = (dslLines != null && i < dslLines.Count) ? dslLines[i] : string.Empty;
+    }
+
+    // -------------------------------------------------------------------------
+    // M1 (Roadmap_MIDI_Import) — MIDI file import panel
+    // -------------------------------------------------------------------------
+
+    private void DrawMidiImportPanel()
+    {
+        _midiPanelExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(
+            _midiPanelExpanded, "MIDI File Import");
+
+        if (_midiPanelExpanded)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(
+                    "Imports a .mid file into the working copy using the Timing controls " +
+                    "above (time signature + subdivisions). Measures are derived from the " +
+                    "file content. Nothing is written to the asset until Apply / Save As.",
+                    EditorStyles.wordWrappedMiniLabel);
+
+                _midiImportDrumChannelOnly = EditorGUILayout.ToggleLeft(
+                    new GUIContent("Drum channel only (MIDI ch 10)",
+                        "When on, only notes on the GM percussion channel are read. " +
+                        "Turn off for files that place drums on another channel — note " +
+                        "that melodic notes will then be misread as GM percussion."),
+                    _midiImportDrumChannelOnly);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUI.enabled = _working != null;
+                    if (GUILayout.Button(
+                        new GUIContent("Import MIDI File…",
+                            "Choose a .mid file to quantize into the drum grid."),
+                        GUILayout.Width(170f)))
+                        OnImportMidiFile();
+                    GUI.enabled = true;
+                }
+
+                if (_midiImportWarnings.Count > 0)
+                {
+                    EditorGUILayout.Space(2f);
+                    EditorGUILayout.LabelField(
+                        $"MIDI import notes ({_midiImportWarnings.Count})",
+                        EditorStyles.boldLabel);
+                    for (int i = 0; i < _midiImportWarnings.Count; i++)
+                        EditorGUILayout.LabelField(_midiImportWarnings[i], EditorStyles.miniLabel);
+                }
+            }
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+    }
+
+    private void OnImportMidiFile()
+    {
+        if (_working == null) return;
+
+        string path = EditorUtility.OpenFilePanel("Import MIDI File", "", "mid");
+        if (string.IsNullOrEmpty(path)) return; // user cancelled — not a warning
+
+        _midiImportWarnings.Clear();
+
+        MidiFile file;
+        try
+        {
+            file = MidiFile.Read(path);
+        }
+        catch (Exception ex)
+        {
+            _midiImportWarnings.Add(
+                $"Could not read '{Path.GetFileName(path)}': {ex.GetType().Name}: {ex.Message}");
+            Repaint();
+            return;
+        }
+
+        var options = new DrumMidiImporter.Options
+        {
+            timeSignature = editTimeSignature,
+            subdivisions = Mathf.Clamp(editSubdivisions, 1, 4),
+            measures = 0, // derive from content
+            channel = _midiImportDrumChannelOnly ? DrumMidiImporter.GmDrumChannel : -1,
+        };
+
+        var result = DrumMidiImporter.Import(file, options);
+
+        foreach (var w in result.warnings)
+            _midiImportWarnings.Add(w.ToString());
+
+        if (result.mode != DrumMidiImporter.ImportMode.Full)
+        {
+            Repaint(); // Failed: nothing applied; existing grid preserved.
+            return;
+        }
+
+        ApplyMidiImport(result);
+        Repaint();
+    }
+
+    /// <summary>
+    /// Apply an M1 import result to the working copy: signature + lane composition
+    /// + per-step states. Mirrors <see cref="ConfigureGridFromOutcome"/> structurally,
+    /// but stays in GRID mode: imported velocities are arbitrary 1–127 values and the
+    /// text glyph view would snap them to tiers — the grid preserves exact fidelity
+    /// (the asset's per-step state is canonical; text is a view, Phase 7).
+    /// The asset itself is untouched until Apply / Save As.
+    /// </summary>
+    private void ApplyMidiImport(DrumMidiImporter.Result result)
+    {
+        if (_working == null) return;
+
+        // Sync the editor's timing controls so the readout matches.
+        editTimeSignature = result.timeSignature;
+        editMeasures = Mathf.Max(1, result.measures);
+        editSubdivisions = Mathf.Clamp(result.subdivisions, 1, 4);
+
+        int beats = TimeSignatureProperties[editTimeSignature].BeatsPerMeasure;
+
+        // Rebuild lanes from the import result (step lists arrive full-length).
+        _working.lanes = new List<DrumPatternData.Lane>(result.lanes.Count);
+        foreach (var lane in result.lanes)
+        {
+            _working.lanes.Add(new DrumPatternData.Lane
+            {
+                instrument = lane.instrument,
+                defaultVelocity = Mathf.Clamp(lane.defaultVelocity, 1, 127),
+                steps = new List<DrumPatternData.StepState>(lane.steps),
+            });
+        }
+        if (_working.lanes.Count == 0)
+            _working.lanes.Add(new DrumPatternData.Lane());
+
+        // Align the signature; EnsureSizes is a no-op when lists already match.
+        _working.SetSignature(beats, editMeasures, editSubdivisions);
+        _working.TimeSignature = editTimeSignature;
+        _velocityModeRows.Clear();
+        _firstStepX = -1f;
+
+        // Grid mode (velocity fidelity); the text buffer is stale — clear it so it
+        // re-renders from the working copy on the next Text-mode entry.
+        _inputMode = InputMode.Grid;
+        _textRows = Array.Empty<string>();
     }
 
     // -------------------------------------------------------------------------
