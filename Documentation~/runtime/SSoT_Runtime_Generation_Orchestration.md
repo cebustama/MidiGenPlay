@@ -63,6 +63,18 @@ This keeps role-selection logic separate from orchestration and from composer-sp
 - **per-render pattern override** (`patternOverride`, Ask C / D-DBG4=A) and the
   **per-track readback sink** (`ReportResolved`, Ask A) — both swap/restored by
   `GenerateOne` exactly like `rng` and `trackSeed` (§5.3)
+- **rhythm onset channel** (`GetRhythmOnsetsForPart` /
+  `SetRhythmOnsetsForPartMusician`, MGP-ALWTTT-BASS-POCKET-1, D-PKT-SRC=B):
+  a per-part publish/consume cache, same mould as the progression and melody
+  caches, wired identically in BOTH entry points. List-backed per part so
+  "first publisher wins" is publication (track-list) order by construction;
+  empty/null publications are ignored (indistinguishable from not
+  publishing). The helper factories `SongOrchestrator.CreateSetRhythmOnsetsForPartMusician`
+  / `CreateGetRhythmOnsetsForPart` are `public static` test seams — see the
+  convention note in §5.6. This channel introduces the package's first
+  composer→composer DATA dependency (Rhythm publishes, Bass consumes); it is
+  order-sensitive by design (D-PKT-ORDER=A) and the consumer owns the degrade
+  path.
 
 This context should be treated as orchestration-owned runtime state, not as a gameplay/session bridge.
 
@@ -111,6 +123,11 @@ The contract:
   per-part-occurrence substream seed for the render-path tempo roll (§5.2),
   derived from the base seed and independent of every arithmetic context seed
   above.
+- `ResolveWalkSeed` (FNV-1a over `"{trackSeed}|walk"`, B3 WALK-2) — the
+  improvised-walk substream KEY. Unlike the roller seeds it never feeds a
+  stateful `System.Random`: the bass consumes it as the key of a pure
+  per-(event, hit) integer mix (the VelocityJitter idiom), so no draw order
+  exists downstream of it and no toggle can shift anything derived from it.
 - **`GenContext.trackSeed`** exposes the per-track seed int behind the
   per-track RNG; `GenerateOne` swap/restores it exactly like `ctx.rng`.
   Composers may derive dedicated deterministic substreams from it but must
@@ -251,6 +268,57 @@ re-run FNV equality) and `SongOrchestratorKeyingTests.cs`.
   (live channel control via `IPlayMidi`, ducking/highlight) are a distinct
   plane. MIX-1 lives in the bytes; both compose at the synth.
 
+### 5.5 Host-supplied default progression (MGP-ALWTTT-BASS-SOLO-1)
+
+**Surface (D-SOLO-SURF=A2).** `GenerateSinglePart` accepts a trailing optional
+`ChordProgressionData defaultProgression`, declared on `ISongOrchestrator` and
+implemented by `SongOrchestrator`. Before the track loop, the orchestrator
+pre-seeds the per-render `progressionByPart` cache with it, so the shared
+channel is populated for parts that have no Backing track and therefore no
+publisher. `GenerateSong` does NOT take the parameter in v1 (the jam path is
+`GenerateSinglePart`).
+
+**Guard (D-SOLO-GUARD=A).** If the part contains a Backing track, the default
+is warn + ignore: the Backing track owns the shared harmony, and seeding under
+it would fork the backing's own render from the shared channel (the card-palette
+publish is guarded by don't-overwrite). The warning names the alternative — the
+per-render `patternOverride` on the Backing track (§5.3, precedence step 0).
+
+**Semantics.** Seeded as-is (no TS normalization on this path, D-SOLO-NORM=A —
+hosts author the default in the part TS) and as a name-preserving runtime clone,
+so no runtime state aliases the asset. RUNTIME-REQUALITY (§4.1 of
+`authoring/SSoT_Authoring_Chord_Progressions.md`) is applied here for opt-in
+assets, since no backing composer runs on this path to do it; when requality
+clones, that clone IS the seeded instance (single clone, never two).
+
+**Backward compatibility.** A null default (the default value) performs no
+seeding at all: zero rng draws, zero allocations, byte-identical output. The
+seam is exposed as the public static `SongOrchestrator.TrySeedDefaultProgression`
+returning `DefaultProgressionSeedResult { NotSupplied, Seeded,
+IgnoredBackingPresent }`; guarded by
+`Tests/Editor/SongOrchestrator_DefaultProgressionTests.cs`.
+
+Because it shares the entry point, this backing-less seed path inherits B1
+with no edits of its own: the color table (when the default enables it) and
+secondary-dominant resolution run here too. Zero code changes in
+`SongOrchestrator`.
+
+### 5.6 Test-seam visibility convention (F-IVT-STALE, recorded at B0)
+
+Named orchestration/composer seams that exist for EditMode tests are declared
+`public static` in practice, not `internal`. `Runtime/AssemblyInfo.cs` carries
+`[assembly: InternalsVisibleTo("MidiGenPlay.Tests.Editor")]`, but no test in the
+package exercises internal access, and the members its comment cited as
+"internal seams" (`ChordTrackComposer.TryDirectionalFirstChordCore`,
+`SongOrchestrator.ResolveTrackSeedPart`) are public — as are
+`BassTrackComposer.ResolveArticulation`, `TrySeedDefaultProgression`,
+`DefaultProgressionSeedResult`, `ChordProgressionRequality.TryMapCoreQuality`
+and the §5 onset-channel factories. The directive is therefore INERT (likely a
+test-assembly name mismatch) and is retained only as an escape hatch. **The
+convention on record is `public`**; a batch that wants the internal discipline
+back must first confirm the real test `.asmdef` name and re-run the suite. Doc
+sites that described any of the above as "internal" were corrected at B0.
+
 ## 6. Meter and timing rule
 
 For package runtime rendering, the **Part time signature is authoritative**.
@@ -291,4 +359,12 @@ Update this SSoT when:
   change (MGP-ALWTTT-DBG-1+3, §5.3),
 - the consumer mix-gain contract (§5.4) changes: the per-entry emission gate,
   the composition law, the identity scale, the keying, the Rhythm exclusion,
-  or the `appliedCc7ByTrack` readback shape (MGP-MIX-1).
+  or the `appliedCc7ByTrack` readback shape (MGP-MIX-1),
+- the rhythm onset channel changes (§5): its publish/consume shape, the
+  first-publisher-wins ordering, or the empty-publication rule
+  (MGP-ALWTTT-BASS-POCKET-1),
+- the host-supplied default-progression channel changes (§5.5): the guard, the
+  seeding site relative to the track loop, the clone/normalization discipline,
+  or its extension to `GenerateSong`,
+- the test-seam visibility convention (§5.6) changes, or the
+  `InternalsVisibleTo` directive is repaired or removed.

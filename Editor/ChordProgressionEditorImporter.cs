@@ -46,6 +46,10 @@ namespace MidiGenPlay.Authoring
                 (int)ChordProgressionRuntimeImporter.ImportWarningKind.MissingOrGarbledSetupCard,
             MissingSetupField =
                 (int)ChordProgressionRuntimeImporter.ImportWarningKind.MissingSetupField,
+            // CPE-META-2 (D3=A): optional metadata field present but invalid
+            // (ignored, mode never degraded). Mirror; append-only.
+            InvalidMetadataField =
+                (int)ChordProgressionRuntimeImporter.ImportWarningKind.InvalidMetadataField,
         }
 
         /// <summary>One importer-side warning (mirror).</summary>
@@ -75,8 +79,20 @@ namespace MidiGenPlay.Authoring
 
             public readonly string progression;
 
+            // -- CPE-META-2 (D3=A): mirrored optional metadata (mode == Full
+            //    only). Presence flags gate application; absent != default.
+            public readonly bool hasQualityRenderPolicy;
+            public readonly ChordProgressionData.QualityRenderPolicy qualityRenderPolicy;
+            public readonly bool hasUseColorTable;
+            public readonly bool useColorTable;
+            public readonly bool hasCadence;
+            public readonly ChordProgressionData.CadenceType cadence;
+            public readonly bool hasAllowedTonalities;
+            public readonly IReadOnlyList<Tonality> allowedTonalities;
+
             public readonly IReadOnlyList<ImportWarning> warnings;
 
+            /// <summary>Pre-CPE-META-2 ctor (compat): no metadata declared.</summary>
             public Result(
                 ImportMode mode,
                 TimeSignature timeSignature,
@@ -85,6 +101,28 @@ namespace MidiGenPlay.Authoring
                 Tonality referenceTonality,
                 string progression,
                 IReadOnlyList<ImportWarning> warnings)
+                : this(mode, timeSignature, measures, defaultDurationMeasures,
+                       referenceTonality, progression, warnings,
+                       false, default, false, false, false, default, false, null)
+            {
+            }
+
+            public Result(
+                ImportMode mode,
+                TimeSignature timeSignature,
+                int measures,
+                float defaultDurationMeasures,
+                Tonality referenceTonality,
+                string progression,
+                IReadOnlyList<ImportWarning> warnings,
+                bool hasQualityRenderPolicy,
+                ChordProgressionData.QualityRenderPolicy qualityRenderPolicy,
+                bool hasUseColorTable,
+                bool useColorTable,
+                bool hasCadence,
+                ChordProgressionData.CadenceType cadence,
+                bool hasAllowedTonalities,
+                IReadOnlyList<Tonality> allowedTonalities)
             {
                 this.mode = mode;
                 this.timeSignature = timeSignature;
@@ -93,6 +131,14 @@ namespace MidiGenPlay.Authoring
                 this.referenceTonality = referenceTonality;
                 this.progression = progression ?? string.Empty;
                 this.warnings = warnings ?? Array.Empty<ImportWarning>();
+                this.hasQualityRenderPolicy = hasQualityRenderPolicy;
+                this.qualityRenderPolicy = qualityRenderPolicy;
+                this.hasUseColorTable = hasUseColorTable;
+                this.useColorTable = useColorTable;
+                this.hasCadence = hasCadence;
+                this.cadence = cadence;
+                this.hasAllowedTonalities = hasAllowedTonalities;
+                this.allowedTonalities = allowedTonalities ?? Array.Empty<Tonality>();
             }
         }
 
@@ -126,7 +172,12 @@ namespace MidiGenPlay.Authoring
                 // null progression (struct ctor normalizes to string.Empty).
                 r.mode == ChordProgressionRuntimeImporter.ImportMode.Failed
                     ? null : r.progression,
-                warnings);
+                warnings,
+                // CPE-META-2: mechanical mirror of the metadata fields.
+                r.hasQualityRenderPolicy, r.qualityRenderPolicy,
+                r.hasUseColorTable, r.useColorTable,
+                r.hasCadence, r.cadence,
+                r.hasAllowedTonalities, r.allowedTonalities);
         }
 
         /// <summary>

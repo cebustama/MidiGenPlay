@@ -188,6 +188,37 @@ the active kit does not map 1:1 (e.g. `BassDrum1` vs a kit mapping
 `AcousticBassDrum`) now render on the nearest family substitute instead of
 being silently dropped with a bare "No mapped note" warning.
 
+## 3bis. Onset publication (MGP-ALWTTT-BASS-POCKET-1, D-PKT-SRC=B)
+
+> Numbered `3bis` deliberately: §3A–§3E are cited by name from
+> `coverage-matrix.md`, `ssot_manifest.yaml` and sibling SSoTs, so §4–§10 are
+> not renumbered.
+
+On the GRID path only, `RhythmTrackComposer.Compose` publishes the resolved
+pattern's audible onsets through `ctx.SetRhythmOnsetsForPartMusician(part,
+cfg.MusicianId, onsets)` — after TS normalization, before composing, and only
+when a sink is installed (direct composer calls without a ctx skip it
+entirely).
+
+The payload (`MidiGenerator.RhythmOnset`: semantic `GeneralMidiPercussion`
+lane, part-relative beat, resolved 1..127 velocity) is produced by the pure
+seam `ExtractResolvedOnsets`, a mirror of `ComposeFromGrid`'s step→beat math
+with three contract deltas:
+- **truncation**: onsets at or beyond the part end are dropped (the compose
+  path's ceil-repeat may emit past the boundary; the published channel is the
+  part's musical surface);
+- **audibility filter**: only lanes that RESOLVE on the kit are published
+  (same PERC-FALLBACK-1 resolution as composition, silent). The published
+  instrument stays the authored SEMANTIC lane, pre-substitution;
+- **ordering**: sorted by (beat, instrument).
+
+**Scope on record:** the procedural and legacy paths publish NOTHING in v1 —
+this is the documented degrade trigger for consumers (Bass SSoT §3.7).
+Publishing from those paths is a recorded future candidate, not an implied
+behavior.
+
+Test surface: `Tests/Editor/RhythmTrackComposer_OnsetPublicationTests.cs`.
+
 ## 4. Determinism contract
 
 Rhythm generation must be deterministic under the orchestration seed/RNG context.
@@ -293,3 +324,5 @@ Update this SSoT when:
   (MGP-ALWTTT-DBG-1+3).
 - the percussion fallback table contents, family grouping, or resolution
   order change (PERC-FALLBACK-1)
+- onset publication changes (§3bis): its scope, the payload semantics, or the
+  grid-only limitation (MGP-ALWTTT-BASS-POCKET-1)

@@ -259,6 +259,49 @@ CE-F1.
 
 ---
 
+## B2 — TONFILTER-1 — CLOSED (2026-07-27)
+
+**The only batch of the currently agreed sequence with a real impact radius: it
+removes a `ctx.rng` draw wherever the filter fires today, so any render that
+hits it changes.** Everything else in the sequence (B1, B3's opt-ins) is inert
+by default; this one is not, and must be scheduled on its own.
+
+**Finding F-TONFILTER-REVERT (recorded 2026-07-26 during RUNTIME-REQUALITY).**
+`ChordProgressionData.tonalities`, the per-asset allowed-tonalities list, has no
+consumers in cards or authoring assets — yet it can REVERT a part's tonality
+(`runtime/SSoT_Composer_Backing_Track.md` §2.2) and spends an rng draw doing so.
+That is a veto by a field nobody authors, over a decision the card made.
+
+Decision to resolve first — the whole batch turns on it:
+- **(A) Demote veto → selection weight.** The filter becomes one more term in the
+  palette selection, alongside the TS tiers already handled by the shared
+  `PaletteSelector`. Principle: **the card decides; the material adapts.**
+  Now cheaper than it was, because RUNTIME-REQUALITY gives a progression a
+  supported way to sound correct in a foreign tonality instead of being vetoed
+  out of it.
+- **(B) Deprecate `tonalities` outright**, if the "no consumers" reading is
+  confirmed across the package AND the consumer side. Cheapest, and removes the
+  draw entirely.
+
+Either way the batch also owes a **conflict signal**: today an asset that is
+unrenderable in the active mode fails silently through the filter. Selection
+should say so.
+
+Interaction to check before opening: the shared `PaletteSelector` consumes
+exactly one `rng.NextDouble()` per pick (the determinism invariant recorded
+above). Removing or relocating the tonality draw must not disturb that count, and
+the SEED-1 goldens are the detector.
+
+**Outcome (D-B2-1=C, D-B2-2=B, D-B2-3=A).** Neither (A) nor (B) as posed: the
+empirical reading corrected the finding — the runtime importer IS a contracted
+writer of `tonalities`, and the 2b revert nullified RUNTIME-REQUALITY in
+exactly the case REQUALITY exists to solve. The revert and its draw were
+removed; the field stays as descriptive metadata; the conflict signal lives in
+the readback plus a gated log; `PaletteSelector` is untouched (the 1-draw
+invariant stands); the legacy `PickTemplateForPart` is unchanged. Real impact
+radius: only renders with a tonality mismatch — everything else byte-identical
+(pinned by tests plus a parity smoke).
+
 ## What remains later (not yet scheduled)
 
 - Seed library expansion: Half-Time Heavy, Latin Clave Engine, Breakbeat Amen

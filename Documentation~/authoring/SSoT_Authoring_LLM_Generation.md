@@ -270,6 +270,17 @@ second instance left §2's stage shape intact (copy-then-unify, D-L4.3); the one
 contract subtlety it surfaced is the degrade-vs-fail enforcement point now
 documented in §3.3. No alias stage was needed.
 
+CPE-META-2 (2026-07-29): the chord setup card carries optional asset-metadata
+lines (`Quality render policy` / `Use color table` / `Cadence` / `Allowed
+tonalities`). The prompt asks the model for the two DESCRIPTIVE fields only —
+Cadence and Allowed tonalities (D-M2-4=A); the render-semantics pair is a human
+choice the model has no basis to make, though the importer accepts it when
+hand-written. The importer parses all four presence-gated, warning
+(`InvalidMetadataField`) and ignoring on invalid values without degrading the
+import mode. The window stages the direct-bound trio for one-shot consumption
+by the next Apply/Save (see `authoring/SSoT_Authoring_Chord_Progressions.md`
+§3).
+
 A future shared generic over the two prompt builders / generators
 (`LLMAuthoringPromptBuilder<TParser, TVocab>` or similar) is deferred until the
 two instances justify the abstraction (D-L4.3 rationale).

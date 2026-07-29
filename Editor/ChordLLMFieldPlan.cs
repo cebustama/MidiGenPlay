@@ -1,4 +1,5 @@
 ﻿#if UNITY_EDITOR
+using System.Collections.Generic;
 using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 using Tonality = MidiGenPlay.MusicTheory.MusicTheory.Tonality;
 
@@ -36,6 +37,20 @@ namespace MidiGenPlay.Authoring
         /// <summary>The Roman string to write to progressionInput (empty if !ApplyFields).</summary>
         public readonly string Progression;
 
+        // -- CPE-META-2 (D3=A, D-M2-1=A): metadata the window should STAGE as
+        //    pending (policy / color table / cadence — the D2=C direct-bound
+        //    trio, consumed one-shot by the next Apply/Save) or apply to its
+        //    tonality toggles (allowed tonalities — mirror state, rides the
+        //    existing apply route). Presence flags gate everything.
+        public readonly bool SetQualityRenderPolicy;
+        public readonly ChordProgressionData.QualityRenderPolicy QualityRenderPolicy;
+        public readonly bool SetUseColorTable;
+        public readonly bool UseColorTable;
+        public readonly bool SetCadence;
+        public readonly ChordProgressionData.CadenceType Cadence;
+        public readonly bool SetAllowedTonalities;
+        public readonly IReadOnlyList<Tonality> AllowedTonalities;
+
         /// <summary>True when the window should run its preview after applying fields.</summary>
         public readonly bool RunPreview;
 
@@ -50,7 +65,15 @@ namespace MidiGenPlay.Authoring
             TimeSignature ts, Tonality tonality,
             bool setDefaultDuration, float defaultDuration,
             string progression, bool runPreview,
-            string statusMessage, bool statusIsError)
+            string statusMessage, bool statusIsError,
+            bool setQualityRenderPolicy = false,
+            ChordProgressionData.QualityRenderPolicy qualityRenderPolicy = default,
+            bool setUseColorTable = false,
+            bool useColorTable = false,
+            bool setCadence = false,
+            ChordProgressionData.CadenceType cadence = default,
+            bool setAllowedTonalities = false,
+            IReadOnlyList<Tonality> allowedTonalities = null)
         {
             ApplyFields = applyFields;
             SetSetupFields = setSetupFields;
@@ -62,6 +85,14 @@ namespace MidiGenPlay.Authoring
             RunPreview = runPreview;
             StatusMessage = statusMessage ?? string.Empty;
             StatusIsError = statusIsError;
+            SetQualityRenderPolicy = setQualityRenderPolicy;
+            QualityRenderPolicy = qualityRenderPolicy;
+            SetUseColorTable = setUseColorTable;
+            UseColorTable = useColorTable;
+            SetCadence = setCadence;
+            Cadence = cadence;
+            SetAllowedTonalities = setAllowedTonalities;
+            AllowedTonalities = allowedTonalities ?? System.Array.Empty<Tonality>();
         }
 
         /// <summary>
@@ -81,8 +112,19 @@ namespace MidiGenPlay.Authoring
                         defaultDuration: outcome.defaultDurationMeasures,
                         progression: outcome.progression,
                         runPreview: true,
-                        statusMessage: "Generated and previewed. Press \"Apply To Target Asset\" to write.",
-                        statusIsError: false);
+                        statusMessage: HasMetadata(outcome)
+                            ? "Generated and previewed. Metadata staged — written by the next " +
+                              "Apply/Save (see the Asset Metadata section)."
+                            : "Generated and previewed. Press \"Apply To Target Asset\" to write.",
+                        statusIsError: false,
+                        setQualityRenderPolicy: outcome.hasQualityRenderPolicy,
+                        qualityRenderPolicy: outcome.qualityRenderPolicy,
+                        setUseColorTable: outcome.hasUseColorTable,
+                        useColorTable: outcome.useColorTable,
+                        setCadence: outcome.hasCadence,
+                        cadence: outcome.cadence,
+                        setAllowedTonalities: outcome.hasAllowedTonalities,
+                        allowedTonalities: outcome.allowedTonalities);
 
                 case ChordProgressionLLMResponseHandler.OutcomeKind.ProgressionOnly:
                     return new ChordLLMFieldPlan(
@@ -111,6 +153,11 @@ namespace MidiGenPlay.Authoring
                         statusIsError: true);
             }
         }
+
+        /// <summary>True when the outcome carries any declared metadata field.</summary>
+        private static bool HasMetadata(ChordProgressionLLMResponseHandler.Outcome o)
+            => o.hasQualityRenderPolicy || o.hasUseColorTable ||
+               o.hasCadence || o.hasAllowedTonalities;
     }
 }
 #endif

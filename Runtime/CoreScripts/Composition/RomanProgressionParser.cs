@@ -14,6 +14,21 @@ namespace MidiGenPlay.Composition
     ///   (via suffix or case). If null, caller may infer diatonic quality.
     /// - durationMeasures: duration in *measures* for this chord.
     /// </summary>
+    /// <summary>
+    /// EDITOR-CASE-1. Letter-case of a token's Roman core, captured for
+    /// every parsed chord regardless of parse mode so downstream resolution
+    /// (ChordQualityResolver) can honor the author's case under auto-diatonic
+    /// modes instead of silently discarding it. Mixed case is a typo smell:
+    /// the resolver ignores it and the editor warns.
+    /// </summary>
+    public enum RomanCaseHint
+    {
+        None = 0,   // rests / not applicable
+        Lower = 1,  // "iv" — minor-family intent
+        Upper = 2,  // "IV" — major-family intent
+        Mixed = 3,  // "Iv" — ambiguous; discarded with a warning
+    }
+
     [Serializable]
     public struct ParsedChord
     {
@@ -23,18 +38,31 @@ namespace MidiGenPlay.Composition
         public bool isRest;
         public int degreeAccidental; // -1 = flat, 0 = none, +1 = sharp
 
+        /// <summary>
+        /// EDITOR-CASE-1. Case of the Roman core, always populated (append-
+        /// only field; default None keeps every pre-existing construction
+        /// site valid). Informational when explicitQuality is already set by
+        /// a suffix — suffix always wins.
+        /// </summary>
+        public RomanCaseHint caseHint;
+
         public ParsedChord(
             ScaleDegree degree,
             ChordQuality? explicitQuality,
             float durationMeasures,
             bool isRest = false,
-            int degreeAccidental = 0)
+            int degreeAccidental = 0,
+            RomanCaseHint caseHint = RomanCaseHint.None)
         {
             this.degree = degree;
             this.explicitQuality = explicitQuality;
             this.durationMeasures = durationMeasures;
             this.isRest = isRest;
             this.degreeAccidental = degreeAccidental;
+            // EDITOR-CASE-1: a struct with an explicit constructor must
+            // assign EVERY field (CS0171). Optional + defaulted to None so
+            // every pre-existing call site keeps compiling unchanged.
+            this.caseHint = caseHint;
         }
 
         public static ParsedChord MakeRest(float durationMeasures)
@@ -150,6 +178,7 @@ namespace MidiGenPlay.Composition
                         out var degree,
                         out var explicitQ,
                         out var accidental,
+                        out var tokenCaseHint,
                         out var degErr))
                 {
                     error = degErr;
@@ -162,7 +191,8 @@ namespace MidiGenPlay.Composition
                     explicitQuality = explicitQ,
                     durationMeasures = dur,
                     isRest = false,
-                    degreeAccidental = accidental
+                    degreeAccidental = accidental,
+                    caseHint = tokenCaseHint
                 };
                 chords.Add(pc);
             }
@@ -188,11 +218,13 @@ namespace MidiGenPlay.Composition
             out ScaleDegree degree,
             out ChordQuality? explicitQuality,
             out int degreeAccidental,
+            out RomanCaseHint caseHint,
             out string error)
         {
             degree = ScaleDegree.Tonic;
             explicitQuality = null;
             degreeAccidental = 0;
+            caseHint = RomanCaseHint.None;
             error = null;
 
             if (string.IsNullOrWhiteSpace(token))
@@ -258,20 +290,34 @@ namespace MidiGenPlay.Composition
                 hasExplicitFromSuffix = true;
             }
 
-            // --- Optionally, infer triad from case if no suffix ---
-            if (!hasExplicitFromSuffix && inferTriadFromCaseWhenNoSuffix)
+            // --- EDITOR-CASE-1: always capture the Roman core's case ------
+            // The hint travels on ParsedChord so auto-diatonic resolution can
+            // honor unambiguous case (suffix > case > auto precedence) instead
+            // of silently discarding it. Behavior below (converting case to an
+            // explicit triad) is UNCHANGED and still gated on the flag: in
+            // None mode the case remains a hard explicit quality.
             {
-                // Example convention:
-                //   "ii" → minor
-                //   "V"  → major
-                // Mixed case → ignore and leave null.
                 bool anyLower = romanCore.Any(ch => char.IsLetter(ch) && char.IsLower(ch));
                 bool anyUpper = romanCore.Any(ch => char.IsLetter(ch) && char.IsUpper(ch));
 
-                if (anyLower && !anyUpper)
-                    explicitQuality = ChordQuality.Minor;
-                else if (anyUpper && !anyLower)
-                    explicitQuality = ChordQuality.Major;
+                if (anyLower && anyUpper)
+                    caseHint = RomanCaseHint.Mixed;
+                else if (anyLower)
+                    caseHint = RomanCaseHint.Lower;
+                else if (anyUpper)
+                    caseHint = RomanCaseHint.Upper;
+
+                // --- Optionally, infer triad from case if no suffix ---
+                //   "ii" → minor
+                //   "V"  → major
+                // Mixed case → ignore and leave null.
+                if (!hasExplicitFromSuffix && inferTriadFromCaseWhenNoSuffix)
+                {
+                    if (caseHint == RomanCaseHint.Lower)
+                        explicitQuality = ChordQuality.Minor;
+                    else if (caseHint == RomanCaseHint.Upper)
+                        explicitQuality = ChordQuality.Major;
+                }
             }
 
             return true;

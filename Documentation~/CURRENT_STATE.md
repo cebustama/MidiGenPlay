@@ -10,12 +10,37 @@
   closed the same day — catalogue cleanup. Both
   ship in package **1.2.0**: the 1.1.0 bump BAGGAGE-1 planned was never
   materialized in `package.json`, so the version goes 1.0.0 → 1.2.0 in a single
-  jump and 1.1.0 does not exist). Next candidates, in no committed order:
-  **volume01 authoring** of the 70 instruments (blocked on ALWTTT D-CSV-18
-  listening verdicts), **MGP-ALWTTT-BASSFILL-1** (recalibrated to a robustness
-  gap: warn-on-short-progression preferred over auto-fill; D-CSV-23 moves
-  ALWTTT's progression standard to 8 bars), and the **PatchName/PatchIndex
-  hygiene check** on the instrument catalogue. Earlier: MGP-ALWTTT-DBG-4+2
+  jump and 1.1.0 does not exist). **INST-WIZ-1** closed 2026-07-25 — MIDI
+  instrument catalogue wizard + the multi-edit repair of the instrument dropdown
+  drawers (editor-only). **Three bass/harmony batches shipped 2026-07-25/26 and
+  their documentation was applied in one pass by the doc-only batch B0 —
+  DOC-CLOSE (2026-07-26):** MGP-ALWTTT-BASS-POCKET-1, MGP-ALWTTT-BASS-POCKET-2
+  and MGP-ALWTTT-BASS-SOLO-1 + RUNTIME-REQUALITY (see "Just completed").
+  **The B-series is closed.** **B1 — HARMONY-PURE-1: CLOSED (2026-07-27)** (zero
+  impact radius, all opt-in or host-invoked: REQUALITY-2 color table, SECDOM-1
+  `appliedTarget`, CADENCE-META, MOD-1 pure modulation helpers, EDITOR-CASE-1
+  — outcome record on `planning/active/Roadmap_Chord_Expressivity.md`); **B2 —
+  TONFILTER-1: CLOSED (2026-07-27)** (the only one of the three with a real
+  impact radius: it removed the tonality revert in step 2b of
+  `ChordTrackComposer` and its conditional `ctx.rng` draw — outcome record on
+  `planning/active/Roadmap_Composition_Expressivity.md`; the legacy
+  `PickTemplateForPart` library filter was deliberately left in place, recorded
+  as F-B2-LIBRARY in `runtime/SSoT_Composer_Backing_Track.md` §2.2 and
+  `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3, and retiring it is an
+  unscheduled runtime candidate); **B3 — BASS-REG-1 + WALK-2:
+  CLOSED (2026-07-27).** Both phases shipped — the register decisions
+  (D-REG-1..4) and the improvised walking bass
+  (`arpeggioToneMode = ImprovisedWalk`, D-W2-*). This closes the bass thread of
+  the Chord Articulation arc. Outcome record on
+  `planning/active/Roadmap_Chord_Articulation.md` §B3. Also open, in no committed
+  order: **volume01 authoring** of the 70 instruments (blocked on
+  ALWTTT D-CSV-18 listening verdicts; the flat 1.0 baseline is now confirmed
+  from the INST-WIZ-1 export rather than assumed), and
+  **MGP-ALWTTT-BASSFILL-1** (recalibrated to a robustness gap:
+  warn-on-short-progression preferred over auto-fill; D-CSV-23 moves ALWTTT's
+  progression standard to 8 bars). The **PatchName/PatchIndex hygiene check** is
+  no longer a candidate — resolved 2026-07-25 with no findings across all 79
+  instrument assets. Earlier: MGP-ALWTTT-DBG-4+2
   closed 2026-07-17, completing the **composition-debug arc package half** —
   DBG-1+3 + DBG-4+2 both done; the only remaining arc work is the single ALWTTT
   consumer session, driven by the DBG-4+2 handoff. BPM-DET-1 + CA-T2 closed
@@ -44,6 +69,270 @@
   and palette/seed-library expansion.
 
 ## Just completed
+
+- Closed **CPE-META-2 — metadata in the import payload (D3=A) + LLM emission
+  (D4)** (2026-07-29). The import payload and the LLM route now carry chord
+  asset metadata: four OPTIONAL setup-card lines, presence-gated, with the
+  append-only `InvalidMetadataField` warning and NO import-mode degradation.
+  One-shot pending staging in the window (D-M2-1=A) preserves the D2=C
+  no-clobber rule — an import announces what it will write, the next
+  Apply/Save consumes it, and re-applies afterwards never touch metadata; the
+  allowed-tonality list is the exception (mirror state, rides the existing
+  toggles→asset route). The runtime payload path stamps the same metadata
+  (D-M2-3=A: one grammar, one behavior), a declared list replacing the
+  TONFILTER-1 provenance default. The prompt asks only for the descriptive
+  fields (D-M2-4=A). New EditMode suite
+  `ChordProgressionImport_MetadataTests`. Closes the authoring gap surfaced by
+  the ALWTTT fase-B content pass: an imported asset can now be fully authored
+  in one pass.
+- Closed **CPE-META-1 — asset metadata section in
+  `ChordProgressionEditorWindow`** (2026-07-29). The window now authors asset
+  metadata (render policy, color table, cadence, plus read-only `DisplayName`
+  and `originalInput` provenance) in a direct-bound section (D2=C — Undo +
+  SetDirty per change; the apply pipelines never read or write these fields, so
+  clobber is structurally impossible), and per-event `isDiatonic` + SECDOM-1 in
+  the Grid selection inspector (D1=A+C), each with a non-blocking advisory
+  (ML-8b for cadence-vs-policy, SECDOM validity per event). Zero changes to
+  `ChordProgressionData`; exit criteria 1–7 PASS. Import payload unchanged at
+  the time (D3=B) — superseded the same day by CPE-META-2.
+- Closed **B4 — DOC-CLOSE-2** (2026-07-28). **Documentation-only batch, zero
+  code.** Applied the nine corrections derived from the 2026-07-28 drift run
+  (10 findings across 6 governed documents; **none of them code drift** — the
+  heavy checks came back clean: register seams, `ResolveWalkSeed`, the A→B→C
+  publication order, the field-by-field copy list, `PlanHits(noteCount: 1)`).
+  Recorded **F-B2-LIBRARY** as a bounded exception in
+  `runtime/SSoT_Composer_Backing_Track.md` §2.2 and
+  `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3 (the code is intended;
+  only the wording generalized); added **§4.6** for MOD-1 / `ModulationPlanner`,
+  clearing the M-3 governance debt; aligned the Bass SSoT §0 governs list with
+  the manifest and gave §3.6bis / D-REG-2 / D-REG-3 their update triggers;
+  resolved **F-CS-SEQ** here; and swept `changelog-ssot.md` and
+  `coverage-matrix.md` for B1/B2/B3, which the completion invariant of
+  `SSoT_CONTRACTS.md` §9 required and which had been missing — **with that
+  sweep, B1/B2/B3 is closed by its own contract.** No runtime, composer, rng
+  path or asset semantics touched.
+- Closed **B1 — HARMONY-PURE-1** (2026-07-27): REQUALITY-2 opt-in colour table
+  (`useColorTable`, D-CT-GATE=A, D-CT-DIM=A), per-event SECDOM-1 (D-SD-ENC=A,
+  D-SD-OWN=A), CADENCE-META (`cadence`, D-CAD-AUTH=A), MOD-1 pure
+  `ModulationPlanner` (D-MOD-OUT=A; the host consumes it through
+  `patternOverride`; zero composer edits), EDITOR-CASE-1 (D-EC-SEM=B,
+  parse-time). Publication pipeline A→B→C with a single clone; determinism
+  intact (zero rng; the MOD-1 seed only breaks ties via FNV-1a). Zero impact
+  radius VERIFIED by a byte-parity smoke. The `ChordEvent` field-surface canary
+  is live. Pre-existing editor F-NORM-DROP hazards (`isDiatonic` /
+  `degreeAccidental` in the grid copies) fixed.
+- Closed **B2 — TONFILTER-1** (2026-07-27): `tonalities` demoted to metadata;
+  the tonality revert in step 2b of `ChordTrackComposer` and its conditional
+  rng draw removed. Conflict signal on `ResolvedTrackChoice.tonalityMismatch`
+  plus a gated warning. The importer contract is intact (it writes provenance).
+  Pinned by `ChordTrackComposer_TonalityMetadataTests` (4 tests). Impact
+  radius: only renders whose progression is tonality-incompatible (content
+  imported into a foreign tonality); everything else byte-identical.
+- Closed **B0 — DOC-CLOSE** (2026-07-26). **Documentation-only batch, no code
+  except a comment.** Applied, in one pass and in order, the three drafted-but-
+  unapplied diff files POCKET-1 → POCKET-2 → SOLO-1/REQUALITY across
+  `runtime/SSoT_Composer_Bass_Track.md` (new §1 host-default paragraph, amended
+  normalization-order bullet, new §3.7 + §3.7.1, six new §5 triggers),
+  `runtime/SSoT_Composer_Rhythm_Track.md` (new §3bis onset publication),
+  `runtime/SSoT_Runtime_Generation_Orchestration.md` (§5 onset-channel bullet,
+  new §5.5 and §5.6, four new §8 triggers),
+  `runtime/SSoT_Composer_Backing_Track.md` (§3 application sites + F-NORM-DROP),
+  `authoring/SSoT_Authoring_Chord_Progressions.md` (§4.1 render policy),
+  the three roadmaps, `coverage-matrix.md`, `changelog-ssot.md` and
+  `ssot_manifest.yaml`.
+  **Decisions taken at B0:** **F-IVT-STALE = (a)** — the comment on
+  `Runtime/AssemblyInfo.cs` is corrected and `public` is consecrated as the
+  test-seam convention (recorded as Orchestration §5.6); the alternative
+  (repair the assembly name and revert the three new seams to `internal`) is
+  code, needs the real test `.asmdef` name, and is registered as a candidate.
+  **Correction made on the way in:** the POCKET-1 diff described
+  `SongOrchestrator.CreateSetRhythmOnsetsForPartMusician` /
+  `CreateGetRhythmOnsetsForPart` as "internal static test seams"; they are
+  `public static` — a fourth instance of F-IVT-STALE, caught before it entered
+  a governed document. **coverage-matrix** rows were translated into the file's
+  own `Concept | Primary | Secondary` schema rather than the `feature | tests |
+  smoke` shape the diff proposed (that shape is not this file's). No
+  primary-home flip. `SSoT_CONTRACTS.md` deliberately unchanged: no
+  cross-cutting contract moved.
+
+- Closed **MGP-ALWTTT-BASS-SOLO-1 + RUNTIME-REQUALITY** (2026-07-26; docs
+  applied at B0). Two independent, both opt-in, both byte-identical at their
+  defaults.
+  **(1) SOLO-1** — a part with a Bassline row and no Backing row no longer
+  renders silence. `GenerateSinglePart` takes an optional host-supplied
+  `defaultProgression` that pre-seeds the shared progression cache before the
+  track loop (**D-SOLO-SRC=A / D-SOLO-SURF=A2**), so every harmony consumer
+  (Bassline, Melody, Harmony) sees it. **D-SOLO-GUARD=A:** warn + ignore when
+  the part HAS a Backing track — seeding under it would fork the render, since
+  the backing card-palette publish is guarded by don't-overwrite; the warning
+  names `patternOverride` on Backing as the supported alternative.
+  **D-SOLO-NORM=A:** seeded as-is (a THIRD instance of the normalization-order
+  hazard — hosts author the default in the part TS). **D-SOLO-DET:** pure
+  dictionary write, zero `ctx.rng` draws; a null default is byte-identical, and
+  the zero-draws claim is pinned end-to-end by smoke gate 3 (seeded default ≡
+  the same asset in the bass row's own `Pattern` slot, same seed, same notes).
+  Clone-on-seed is name-preserving so the Ask-A readback stays meaningful.
+  **(2) RUNTIME-REQUALITY** — `ChordProgressionData.qualityRenderPolicy`
+  (`AsAuthored` / `DiatonicToPart` / `DiatonicToPartFunctional`, append-only,
+  default inert) re-resolves DIATONIC event qualities to the part's tonality at
+  render time, size-preserving (**D-RQ-MAP=A**: triads via the diatonic triad,
+  sevenths via the diatonic seventh; sus / 6ths / 9ths pass through; `Major` is
+  never promoted to `Dominant7`). **D-RQ-BORROW=A:** borrowed events are never
+  touched. **D-RQ-FUNC=A / -FUNC-SCOPE=A:** the Functional variant keeps an
+  authored `Major`/`Dominant7` on the dominant degree and re-marks it borrowed,
+  so the leading tone survives in modes whose diatonic v would lose it.
+  **D-RQ-LOCRIAN=A:** documented no-op. **D-RQ-SITE:** the transform is
+  DATA-level, applied at two publication boundaries (the backing composer's
+  clone step, after the §2.2 tonality alignment; and
+  `SongOrchestrator.TrySeedDefaultProgression`), because backing, bass and
+  melody each derive chord pitch classes independently — a composer-local
+  branch would make them diverge.
+  **New finding F-NORM-DROP, fixed and regression-pinned:** the TS/subdivision
+  reprojection does not `Instantiate`; it builds a fresh `ChordProgressionData`
+  and copies fields ONE BY ONE, so an omitted field silently reverts to its
+  default on the runtime clone. `qualityRenderPolicy` was initially omitted,
+  which made requality inert for nearly every asset (authoring writes `sub x1`;
+  the composer normalizes to `x4`). Any new `ChordProgressionData` field must be
+  added to that copy list.
+  25 EditMode tests green (`SongOrchestrator_DefaultProgressionTests` 6,
+  `ChordProgressionRequalityTests` 19), full suite re-run green; 7 smoke gates +
+  1 optional pass. Gates 6 and 7 as originally specified are **void** — a Block
+  bass plays roots only and I/IV/V roots are identical in C Ionian and C
+  Aeolian, so the render could not distinguish "requality worked" from
+  "requality never ran"; superseded by 6'/7' (through the backing, which plays
+  full chords) and the optional 6b (bass walk, which exposes the third).
+  Governed by `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.5,
+  `runtime/SSoT_Composer_Bass_Track.md` §1,
+  `authoring/SSoT_Authoring_Chord_Progressions.md` §4.1 and
+  `runtime/SSoT_Composer_Backing_Track.md` §3.
+
+- Closed **MGP-ALWTTT-BASS-POCKET-2 (pocket shaping)** (2026-07-25; docs applied
+  at B0). Two opt-in refinements of §3.7, both inert at their defaults and both
+  living INSIDE the `pocketMode = SlapPocket` branch, so the POCKET-1 degrade
+  guarantee is structurally unaffected.
+  **D-PKT-VEL2 = B:** additive per-class `pocketSlapBoost` / `pocketPopBoost`
+  (`[Range(-64,64)]`, default 0) over the drum step's velocity, clamped 1..127.
+  Because published onsets already arrive clamped, a boost of 0 is an EXACT
+  identity, not an approximate one. The motivating case is a pop-only boost:
+  pops sit an octave up and read weaker than slaps at equal drum velocity
+  against a softly-authored kit. **D-PKT-LANES2 = C, serialization C1:**
+  `pocketCustomLanes` + `pocketSlapLanes` / `pocketPopLanes`; the lists REPLACE
+  the built-in families rather than extending them, an empty list DISABLES that
+  trigger class, and a lane in both lists resolves to POP. Matching stays on the
+  SEMANTIC authored lane — field-verified against a kit that maps `SideStick`
+  onto `AcousticSnare`.
+  Alternatives on record as not taken: VEL2=C (float scale + curve, deferred, no
+  content demanded it); VEL2=D (revert D-PKT-VEL=A, rejected — it removes the
+  "breathes with the drummer" property); LANES2=B (fold `SideStick` into the
+  snare family, rejected — it hardcodes a genre opinion where the same result is
+  a content decision).
+  27 tests green, of which the 16 POCKET-1 tests run UNMODIFIED against the
+  extended seam signature (that is the default-path identity pin at seam level);
+  11 smoke gates pass, including G3 — the degrade gate under the most hostile
+  shaping available (boosts +30/−30, custom lanes on, both lists empty), which
+  still produces a bass hash identical to `Off` in the same track order.
+  **Adds a second instance to F-WALK-REG** (see the BASS-WALK-1 entry).
+  **Golden fragility on record:** every POCKET-2 smoke hash is a function of the
+  bass instrument's `octaveMin`, which was edited between capture sessions
+  (`Slap Bass 1` 2 → 1). Every gate's internal A/B remains valid, but these
+  hashes are **not a durable golden** — re-derive them if `octaveMin` changes,
+  and never read a mismatch as a POCKET-2 regression without checking the
+  instrument asset first. Cross-track-order comparison is separately invalid.
+
+- Closed **MGP-ALWTTT-BASS-POCKET-1 (rhythm-coupled bass, "SlapPocket")**
+  (2026-07-25; docs applied at B0), promoting the ALWTTT R2 candidate. Opt-in
+  via `BasslineCardConfigSO.pocketMode` (new bass-only enum
+  `PocketCouplingMode { Off = 0, SlapPocket = 1 }`); per chord event, a window
+  containing kick/snare onsets has its figure REPLACED by slap hits (kick family
+  → the §2 selected note) and pop hits (snare family → the same note +12,
+  **D-PKT-POP-PITCH=A**), at the DRUM step's velocity (**D-PKT-VEL=A**) with a
+  0.5-beat gate cap (**D-PKT-GATE=A**); a window without them renders the
+  resolved figure exactly as decoupled (**D-PKT-EXPR=A**), so pocket and figures
+  mix within one render.
+  **The load-bearing decision is D-PKT-SRC=B:** the source is a new
+  `GenContext` onset CHANNEL published by `RhythmTrackComposer` on the GRID path
+  only — the package's **first composer→composer data dependency**. It is
+  order-sensitive by design (**D-PKT-ORDER=A**: Rhythm must precede Bassline in
+  `Part.Tracks`) and the CONSUMER owns the degrade path. **Degradation is pinned
+  as BYTE-identity, not approximate:** no source (no Rhythm track / bass-first /
+  procedural or legacy rhythm path) ⇒ the decoupled figure, at most one warning
+  per `Compose`, never an error, never silence — which holds structurally
+  because the CA-V1 roller rolls per event whether or not its result is used.
+  **Zero new `ctx.rng` draws:** the plan is a pure function of (published
+  onsets, event window) and runs after both §2 draws, the same structural
+  argument as D-WALK-RNG=A. Emission was restructured into a SEGMENT list
+  drained by ONE unconditional `Emit` call — SD-F2-1's anti-divergence
+  discipline carried over segments; nothing was added to `ChordExpressionType`.
+  Classification uses the SEMANTIC lane, so PERC-FALLBACK-1 substitutions cannot
+  re-classify a hit.
+  **Consumer hash duty declared and handed over:** with `pocketMode != Off` the
+  resolved rhythm pattern is a hash-relevant input of the BASS track and ALWTTT
+  must extend `ComputeTrackInputsHashesForPart`.
+  Governed by `runtime/SSoT_Composer_Bass_Track.md` §3.7,
+  `runtime/SSoT_Composer_Rhythm_Track.md` §3bis and
+  `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.
+  **Open observation carried forward (NOT a POCKET-1 defect):** in the bass-only
+  and bass-first renders the operator read the bass MIDI as spanning 4 bars
+  rather than the part's 8. The logs contradict it — the part is
+  `lenTicks=3072` (8 bars at 96 TPQN) and the bass reports `notes=4
+  lastTick=3073`, trimmed at 3072, i.e. 4 Block notes of 2 bars each covering
+  the full part; `BassTrackComposer` derives its spans from the progression
+  alone, so the rendered span equals the progression's span by construction.
+  Undecided causes: a DAW display/import artefact (the captures show each track
+  drawn twice), or the progression asset's events summing to fewer beats than
+  assumed (which would contradict `lastTick`). **Decisive check:** the bar
+  position of the last bass note-off. Nothing in the applied documentation
+  depends on this.
+
+- Closed **INST-WIZ-1 (MIDI instrument catalogue wizard + drawer repair)**
+  (2026-07-25). Editor-only batch, 4 files, no runtime touched — **no
+  determinism or golden implication by construction.**
+  **(1) `Editor/MidiInstrumentCatalogueWizard.cs`** (new,
+  `MidiGenPlay/MIDI Instrument Catalogue Wizard...`): scan the two instrument
+  Resources roots, filter (melodic/percussion, `InstrumentType`, free text over
+  every serialized property), sort, inspect, edit, create/duplicate/rename/delete,
+  and CSV-export the filtered set (file or clipboard). **D-W1=A** — this is the
+  first catalogue tool that is not read-only, so it is documented as a
+  **catalogue + management** variant (`SSoT_Authoring_Tools` §3.E) and the
+  manifest's read-only catalogue invariant was rewritten rather than left to
+  drift. Editing is delegated to the asset's own inspector for exactly ONE
+  target, which reuses the existing dropdown drawers instead of reimplementing
+  them and makes the multi-object hazard unreachable from the window. The export
+  column set is the union of every visible serialized property, so it is complete
+  without the window knowing the field names.
+  **(2) The three `MIDIInstrumentSO` dropdown drawers rewritten (D-W2=B)** — this
+  is the load-bearing half. `PatchDropdownDrawer` wrote `property.stringValue` on
+  **every repaint**; since a `SerializedProperty` write hits ALL selected targets,
+  merely drawing the inspector for a multi-selection stamped the first asset's
+  patch onto every selected asset. The other two had the same shape via
+  `Mathf.Max(index, 0)` compared against a `-1` "not found", which read as a user
+  change and fired the dependent `BankName`/`PatchName` resets. All three also
+  mixed property writes (all targets) with direct field writes
+  (`midiInstrument.PatchName = ""`, `SetPatchIndex(...)` — first target only),
+  which is what left the catalogue incoherent. Now: writes gated behind
+  `BeginChangeCheck`, everything routed through `SerializedProperty` (dependent
+  resets and the `PatchName`+`PatchIndex` pair included) so multi-edits are
+  coherent and single-undo, `showMixedValue` on mixed selections, and an
+  ambiguous list source (mixed soundfont/bank) disables the popup instead of
+  guessing. **Second-order fix:** the same unconditional writes were "repairing"
+  out-of-list values in SINGLE selection too — a standing violation of the §1
+  no-silent-writes invariant, now an empty selection instead. Deliberate
+  behavior change on record: an invalid `BankName` no longer auto-corrects to the
+  first bank on inspector open.
+  Verification 2026-07-25, 5/5 PASS (compile + columns; multi-select shows mixed
+  and mutates nothing; multi-edit writes coherent name+index to all targets with
+  one undo; mixed soundfonts disable Bank/Patch; corrupt `PatchName` not
+  rewritten).
+  **Findings carried by the export (79 assets: 70 melodic bank 000, 9 kits bank
+  001):** `PatchName` prefix == `PatchIndex` with **zero** mismatches and **zero**
+  duplicate `(bank, patch)` pairs ⇒ the standing PatchName/PatchIndex hygiene
+  candidate closes with no findings, and ALWTTT's Poly Synth / Warm Pad collision
+  is confirmed a measurement artifact. `volume01 = 1.0` on all 70 melodic
+  instruments is now verified from data (D-MIX-6 authoring still open, still
+  blocked on D-CSV-18). Bass register data for the ALWTTT R2 close-out:
+  `Fingered Bass` 33 · `Picked Bass` 34 · `Slap Bass 1` 36 · `Slap Bass 2` 37,
+  all `octaveMin/Max = 2/3` (the bass composer ignores `octaveMax`).
+  Governed by `authoring/SSoT_Authoring_Tools.md` §3.C + §3.E.
 
 - Closed **CA-T2-BOSSA-V2 (authentic bossa template + rename)** (2026-07-24),
   reopening and re-closing the CA arc on finding F-BOSSA-FEEL. Two
@@ -178,12 +467,34 @@
   root, it raises the line's effective ceiling by about a fifth — and the bass's
   octave band is `octaveMin-1 .. octaveMin+1` (three octaves, and the bass
   IGNORES `octaveMax`, unlike every other composer). Walk-mode content may need a
-  lower `octaveMin` on the bass instrument asset. Narrowing that band is a
-  recorded candidate, not part of this batch: it changes every bass render (the
-  octave draw keeps its count and order, only its range), so it needs its own
-  decision.
+  lower `octaveMin` on the bass instrument asset.
+  **RESOLVED (B3 — BASS-REG-1, 2026-07-27).** Both instances are closed and the
+  bass now honours `octaveMax`. Decisions: D-REG-1=C (hard ceiling on the band
+  AND on everything emitted), D-REG-2=B (a pop that would exceed the ceiling
+  folds onto the selected note; pop identity untouched), D-REG-3=B (a walk
+  voicing that would exceed it transposes whole −12; strict ascent preserved),
+  D-REG-4=B (the §2 band narrows from three octaves to two,
+  `octaveMin-1 .. min(octaveMin, octaveMax-1)`). Impact radius: EVERY bass
+  render — the octave draw keeps its count and order, only its range, which
+  remaps the same seed. Pinned by `BassTrackComposer_RegisterTests` (17 tests);
+  the WALK-1 pins run unmodified against the ceiling-free 2-arg overload.
+  D-REG-0=A split B3 in two: this register phase, and the improvised walking
+  bass (WALK-2) still open.
+  **ImprovisedWalk shipped (B3 WALK-2, 2026-07-27).** Third `arpeggioToneMode`
+  value: a seeded walking line — event-root anchor, chord-tone middles placed
+  near the previous note, chromatic/whole-step approach into the NEXT event's
+  root (wrapping to the first). The engine is untouched: rhythm, accents and
+  jitter come from `PlanHits` called composer-side (`noteCount: 1`); pitches
+  re-enter the single `Emit` as 1-note Block segments (velocity passthrough).
+  Variation is a pure `(ResolveWalkSeed, eventIndex, hitIndex)` mix — no
+  stream, no draw discipline, nothing a toggle can shift. Opt-in:
+  `RepeatedNote`, `ChordToneWalk` and `pocketMode = Off` are byte-identical
+  (the four pre-existing bass/orchestrator suites run unmodified as the
+  detector). Register: per-note −12 fold under the D-REG-1=C ceiling. 13 tests
+  in `BassTrackComposer_WalkImprovTests`; governed by
+  `runtime/SSoT_Composer_Bass_Track.md` §3.6bis.
   Still on record for the bass: single-pass rendering, the normalization-order
-  hazard, `degreeAccidental` ignored, and F-WALK-REG above.
+  hazard, and `degreeAccidental` ignored.
 
 - Closed **CA-V1 part 2 (seeded variation)** (2026-07-24), completing the batch
   ARTIC-1 opened and **closing the CA arc except for the bossa split and the

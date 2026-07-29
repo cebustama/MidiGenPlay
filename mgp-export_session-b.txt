@@ -1,0 +1,31 @@
+# ============================================================
+# Set: session-b  -- minimal file set for the ALWTTT phase-B
+#                    authoring session (content pass).
+# Paths are relative to the MidiGenPlay PACKAGE ROOT.
+# A bare filename (no slash) is searched recursively, so the
+# list survives file moves.
+# ============================================================
+
+# --- deliverables of the phase-A specification session
+Documentation~/planning/Especificacion_Contenido_FaseA.md
+Documentation~/planning/Handoff_Contenido_FaseB_ALWTTT.md
+
+# --- authoring format authority
+Documentation~/authoring/SSoT_Authoring_Chord_Progressions.md
+Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md
+
+# --- what policy / color table / register actually DO at render time
+Documentation~/runtime/SSoT_Composer_Backing_Track.md
+Documentation~/runtime/SSoT_Composer_Bass_Track.md
+
+# --- baseline and authority order
+Documentation~/CURRENT_STATE.md
+Documentation~/SSoT_INDEX.md
+
+# --- verification seams (make "zero warnings" checkable)
+Runtime/CoreScripts/Composition/RomanProgressionParser.cs
+Editor/DrumPatternTextParser.cs
+Runtime/CoreScripts/Data/ChordProgressionData.cs
+
+# --- only if the package-side bass register edits happen in this session
+Runtime/CoreScripts/ScriptableObjects/MIDIInstrumentSO.cs

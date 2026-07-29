@@ -205,6 +205,11 @@ Produce exactly two parts, in this order:
    - Measures (total): <N>
    - Default duration (measures): <D>
    - Reference tonality: <Tonality enum name, e.g. Ionian>
+   - Cadence: <one of: None, Authentic, Plagal, Half, Modal>
+   - Allowed tonalities: <comma-separated Tonality enum names, e.g. Ionian, Mixolydian>
+
+   Cadence rules: classify the progression you actually emitted — Authentic only if it closes V(7)->I with a leading tone; Plagal for IV->I closes; Half if it ends ON the dominant; Modal for characteristic modal motion (e.g. bVII->i, bVII->I); None if nothing clearly applies. When unsure, use None — a wrong class is worse than an empty one.
+   Allowed tonalities rules: list the modes this progression genuinely works in. ALWAYS include the Reference tonality. Only add other modes when the progression's qualities remain musically coherent there; when unsure, list only the Reference tonality.
 
 2. A progression block — a single Roman-numeral string inside a fenced code block:
 
@@ -263,6 +268,7 @@ The sum of all chord durations (each chord's (x), or the default duration when o
 2. No 11/13/add9/6-9 extended chords (`6`, `m6`, `7sus4`, `9`, `maj9`, `m9` ARE in the alphabet) and no slash/inversion chords; every suffix is in the alphabet.
 3. Durations sum to exactly the target Measures; decimals use a dot.
 4. Tokens separated by ` – `; no prose, tempo, or absolute names inside the block.
+5. The setup card includes Cadence (a valid class of the progression you emitted, or None) and Allowed tonalities (valid Tonality enum names, including the Reference tonality).
 
 If any check fails, regenerate. Do not emit partial output.";
 

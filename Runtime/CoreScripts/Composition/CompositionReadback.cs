@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 
 namespace MidiGenPlay.Composition
@@ -6,8 +6,8 @@ namespace MidiGenPlay.Composition
     /// <summary>
     /// MGP-ALWTTT-DBG-1 (D-DBG1=A, converges with BASS-1): the composite key
     /// for every per-track surface of <see cref="PartRender"/> and for the
-    /// per-render override map. A musicianId alone is NOT unique — the same
-    /// musician can own several roles in one part — so all new surfaces are
+    /// per-render override map. A musicianId alone is NOT unique ï¿½ the same
+    /// musician can own several roles in one part ï¿½ so all new surfaces are
     /// born keyed on (musicianId, TrackRole).
     /// </summary>
     public readonly struct MusicianTrackKey : IEquatable<MusicianTrackKey>
@@ -66,12 +66,12 @@ namespace MidiGenPlay.Composition
     }
 
     /// <summary>
-    /// MGP-ALWTTT-DBG-1 (Ask A): the per-track readback payload — what one
+    /// MGP-ALWTTT-DBG-1 (Ask A): the per-track readback payload ï¿½ what one
     /// composer actually resolved for one render. Transported through
     /// <c>MidiGenerator.GenContext.ReportResolved</c> (D-DBG2=A), which
     /// <c>SongOrchestrator.GenerateOne</c> installs/collects with the same
     /// swap/restore discipline as <c>ctx.rng</c> / <c>ctx.trackSeed</c>.
-    /// Identity is by source-asset NAME captured pre-clone (D-DBG3=A) — no
+    /// Identity is by source-asset NAME captured pre-clone (D-DBG3=A) ï¿½ no
     /// GUIDs at runtime. <see cref="musicianId"/> and <see cref="role"/> are
     /// stamped authoritatively by the orchestrator's sink; composers only fill
     /// the content fields they know.
@@ -120,6 +120,16 @@ namespace MidiGenPlay.Composition
         /// per-part shared progression (GenContext cache) rather than an
         /// explicit TrackParameters asset.</summary>
         public bool usesSharedProgression;
+
+        /// <summary>Backing, TONFILTER-1 (D-B2-2=B): true when the resolved
+        /// progression's authored reference tonalities (descriptive metadata,
+        /// D-B2-1=C â€” NOT a runtime filter) exclude the part's tonality AND
+        /// the asset renders AsAuthored (no RUNTIME-REQUALITY adaptation).
+        /// The render is intentional â€” the card's tonality wins â€” but the
+        /// asset's authored qualities may read as modal borrowing; consider
+        /// qualityRenderPolicy=DiatonicToPart on the asset. False whenever
+        /// tonalities is empty, compatible, or requality is opted in.</summary>
+        public bool tonalityMismatch;
     }
 
     /// <summary>

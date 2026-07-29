@@ -64,7 +64,15 @@ namespace MidiGenPlay.Composition
             // in v1 (all Rhythm tracks share MIDI channel 9, so per-musician
             // CC7 cannot target one drummer; D-MIX-4=A). Pure data: touches no
             // ctx.rng, no seed chain — same map + same seed => same bytes.
-            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null);
+            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null,
+            // MGP-ALWTTT-BASS-SOLO-1 (D-SOLO-SURF=A2): HOST-supplied default
+            // progression, pre-seeded into the per-render shared cache for
+            // parts with NO Backing track so harmony consumers (Bassline,
+            // Melody, Harmony) can render. Warn + ignore when a Backing track
+            // exists (D-SOLO-GUARD=A). Seeded as-is — no TS normalization on
+            // this path (D-SOLO-NORM=A). Pure: zero rng draws; null leaves the
+            // render byte-identical.
+            ChordProgressionData defaultProgression = null);
     }
 
     /// Coordinates parts/repetitions, meta events, metronome, composer calls, trimming, shifting, and merging.
@@ -155,6 +163,12 @@ namespace MidiGenPlay.Composition
                     var melodyByPartAndMusician =
                         new Dictionary<SongConfig.PartConfig,
                         Dictionary<string, List<MidiGenerator.GuideNote>>>();
+                    // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): rhythm onset
+                    // channel, list-backed so "first publisher" is publication
+                    // (track-list) order by construction.
+                    var rhythmOnsetsByPart =
+                        new Dictionary<SongConfig.PartConfig,
+                        List<(string musicianId, List<MidiGenerator.RhythmOnset> onsets)>>();
 
                     // --- GENERATION CONTEXT ---
                     var ctx = new MidiGenerator.GenContext
@@ -241,7 +255,13 @@ namespace MidiGenPlay.Composition
                                 }
                             }
                             return null;
-                        }
+                        },
+
+                        // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B)
+                        SetRhythmOnsetsForPartMusician =
+                            CreateSetRhythmOnsetsForPartMusician(rhythmOnsetsByPart, _settings),
+                        GetRhythmOnsetsForPart =
+                            CreateGetRhythmOnsetsForPart(rhythmOnsetsByPart)
                     };
 
                     // TODO: PASS 0: generate chord progressions
@@ -305,7 +325,8 @@ namespace MidiGenPlay.Composition
             Dictionary<MusicianTrackKey, MIDIInstrumentSO> instrumentOverrides = null,
             int? seedOverride = null,
             IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides = null,
-            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null)
+            IReadOnlyDictionary<MusicianTrackKey, float> mixGains = null,
+            ChordProgressionData defaultProgression = null)
         {
             if (part == null || part.Tracks == null || part.Tracks.Count == 0)
                 return new PartRender { merged = new MidiFile(), stemsByMusician = new(), partTicks = 0, bpm = 120 };
@@ -355,8 +376,21 @@ namespace MidiGenPlay.Composition
 
             // --- Per-part caches (identical concept to GenerateSong) ---
             var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
+
+            // MGP-ALWTTT-BASS-SOLO-1 (D-SOLO-SRC=A / D-SOLO-SURF=A2): host-supplied
+            // default progression for BACKING-LESS parts, pre-seeded into the
+            // shared cache before the track loop so every harmony consumer
+            // (Bassline, Melody, Harmony) sees it via GetProgressionForPart.
+            // Warn + ignore when a Backing track exists (D-SOLO-GUARD=A). Pure
+            // dictionary write: zero rng draws (D-SOLO-DET); null => byte-identical.
+            TrySeedDefaultProgression(part, defaultProgression, progressionByPart);
             var melodyByPartAndMusician = new Dictionary<SongConfig.PartConfig, Dictionary<string, List<MidiGenerator.GuideNote>>>();
             var producedByRole = new Dictionary<TrackRole, MidiFile>();
+            // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): rhythm onset channel,
+            // list-backed so "first publisher" is publication order.
+            var rhythmOnsetsByPart =
+                new Dictionary<SongConfig.PartConfig,
+                List<(string musicianId, List<MidiGenerator.RhythmOnset> onsets)>>();
 
             // --- GenContext (same delegates as GenerateSong) ---
             var partSeed = ResolvePartContextSeed(baseSeed, partIndex);
@@ -427,7 +461,13 @@ namespace MidiGenPlay.Composition
                         }
                     }
                     return null;
-                }
+                },
+
+                // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B)
+                SetRhythmOnsetsForPartMusician =
+                    CreateSetRhythmOnsetsForPartMusician(rhythmOnsetsByPart, _settings),
+                GetRhythmOnsetsForPart =
+                    CreateGetRhythmOnsetsForPart(rhythmOnsetsByPart)
             };
 
             // Channel allocation must mirror the session channel layout
@@ -928,6 +968,13 @@ namespace MidiGenPlay.Composition
         public static int ResolveVelocityJitterSeed(int trackSeed)
             => StableHash32($"{trackSeed}|articvel");
 
+        // B3 WALK-2 (D-W2-RNG=B): dedicated walk substream seed. Consumed as
+        // the KEY of a pure per-(event, hit) integer mix in BassTrackComposer
+        // (the VelocityJitter idiom), never as a stateful stream — so there is
+        // no draw order to protect and no roll discipline to maintain.
+        public static int ResolveWalkSeed(int trackSeed)
+            => StableHash32($"{trackSeed}|walk");
+
         // BPM-DET-1 (D-BPM2=A): dedicated tempo substream seed. FNV-1a over a
         // documented string keyed on (baseSeed, partIndex) — the tempo is chosen
         // per part-occurrence, not per rep, so rep is intentionally NOT in the
@@ -962,6 +1009,90 @@ namespace MidiGenPlay.Composition
                 }
                 return (int)hash;
             }
+        }
+
+        // ── MGP-ALWTTT-BASS-SOLO-1 (D-SOLO-SRC=A / D-SOLO-SURF=A2) ────────────
+        // PUBLIC test seam, matching the house pattern of the other pure seams
+        // in this codebase (SongOrchestrator.ResolveTrackSeedPart,
+        // ChordTrackComposer.TryDirectionalFirstChordCore): both are public
+        // despite AssemblyInfo.cs describing them as internal-with-
+        // InternalsVisibleTo. See the batch notes — that InternalsVisibleTo
+        // entry appears inert (test assembly name mismatch), so public is the
+        // de-facto convention here.
+
+        /// <summary>Outcome of the per-render default-progression seeding.</summary>
+        public enum DefaultProgressionSeedResult
+        {
+            NotSupplied,            // no default passed — byte-identical legacy path
+            Seeded,                 // part has no Backing track; cache pre-seeded
+            IgnoredBackingPresent,  // D-SOLO-GUARD=A: Backing owns harmony — warn+ignore
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-SOLO-1. Pre-seeds the per-render shared-progression
+        /// cache with a HOST-supplied default so harmony-consuming tracks
+        /// (Bassline, Melody, Harmony) can render in a part that has no Backing
+        /// track — otherwise the only publishers of the shared channel are the
+        /// Backing composer (card palette / override / procedural) and the
+        /// authored fallback (<see cref="FindProgressionForPart"/>, which reads
+        /// the Backing track's Pattern), so a backing-less part renders silence
+        /// on those roles (Bass SSoT §1).
+        ///
+        /// D-SOLO-GUARD=A: if the part HAS a Backing track the default is
+        /// warn + ignore — the Backing track owns the shared harmony. Seeding
+        /// under it would fork the render (the Backing card-palette publish is
+        /// guarded by "don't overwrite": backing would sound its own pick while
+        /// the other tracks consumed the pre-seeded default). To impose harmony
+        /// on a part WITH backing, use the per-render patternOverride on the
+        /// Backing track (precedence step 0, imposes unconditionally).
+        ///
+        /// D-SOLO-NORM=A: seeded AS-IS; TS normalization is the Backing
+        /// composer's site and does not run here. Hosts must author the default
+        /// in the part TS (documented discipline; mirrors the Bass SSoT §1
+        /// normalization-order hazard).
+        ///
+        /// D-SOLO-DET: pure dictionary write — zero rng draws, no stream
+        /// perturbation. A null default leaves the render byte-identical.
+        ///
+        /// Clone-on-seed mirrors the override discipline (decouples runtime
+        /// state from the asset instance); the clone keeps the source asset's
+        /// name so the Ask-A readback stays meaningful.
+        /// </summary>
+        public static DefaultProgressionSeedResult TrySeedDefaultProgression(
+            SongConfig.PartConfig part,
+            ChordProgressionData defaultProgression,
+            Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart)
+        {
+            if (defaultProgression == null)
+                return DefaultProgressionSeedResult.NotSupplied;
+
+            if (part?.Tracks != null &&
+                part.Tracks.Any(t => t != null && t.Role == TrackRole.Backing))
+            {
+                Debug.LogWarning(
+                    $"[SongOrchestrator] defaultProgression ('{defaultProgression.name}') " +
+                    $"supplied but part '{part.Name}' has a Backing track. The Backing " +
+                    $"track owns the shared harmony (D-SOLO-GUARD=A); to impose a " +
+                    $"progression on a part WITH backing, use the per-render " +
+                    $"patternOverride on the Backing track instead. Ignoring.");
+                return DefaultProgressionSeedResult.IgnoredBackingPresent;
+            }
+
+            // RUNTIME-REQUALITY (D-RQ-SITE, site 2): in the backing-less path
+            // no ChordTrackComposer runs, so the diatonic re-resolution for
+            // opt-in assets happens here, against the part's tonality at seed
+            // time. AsAuthored (default) returns the SAME reference => the
+            // plain clone below runs, exactly the pre-REQUALITY behavior.
+            // When requality DID clone, that clone is already a fresh runtime
+            // instance — reuse it (single clone, no double Instantiate).
+            var requalified = ChordProgressionRequality.ApplyDiatonicRequality(
+                defaultProgression, part.Tonality);
+            var clone = ReferenceEquals(requalified, defaultProgression)
+                ? UnityEngine.Object.Instantiate(defaultProgression)
+                : requalified;
+            clone.name = defaultProgression.name; // keep readback identity (no "(Clone)")
+            progressionByPart[part] = clone;
+            return DefaultProgressionSeedResult.Seeded;
         }
 
         private Action<SongConfig.PartConfig, ChordProgressionData>
@@ -1005,6 +1136,61 @@ namespace MidiGenPlay.Composition
                         $"<color=orange>{LogTag} " +
                         $"Progression chords for part '{p.Name}': {seqChords}</color>");
                 }
+            };
+        }
+
+        // ------------------------------------------------------------------
+        // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B) — rhythm onset channel.
+        // Same factory idiom as CreateSetProgressionForPart. The store is
+        // LIST-backed per part so "first publisher" is publication order by
+        // construction (never dictionary-enumeration order). Re-publication by
+        // the same (part, musicianId) replaces its own entry in place (a
+        // composer publishes at most once per Compose; the guard covers
+        // repeated renders against a stale cache, which cannot occur today but
+        // costs nothing). Empty/null payloads are ignored — publishing nothing
+        // must be indistinguishable from not publishing (degrade contract).
+        // ------------------------------------------------------------------
+        public static Action<SongConfig.PartConfig, string, List<MidiGenerator.RhythmOnset>>
+            CreateSetRhythmOnsetsForPartMusician(
+            Dictionary<SongConfig.PartConfig,
+                List<(string musicianId, List<MidiGenerator.RhythmOnset> onsets)>> store,
+            MidiGenPlayConfig settings)
+        {
+            return (p, musicianId, onsets) =>
+            {
+                if (p == null || onsets == null || onsets.Count == 0) return;
+
+                if (!store.TryGetValue(p, out var list))
+                {
+                    list = new List<(string, List<MidiGenerator.RhythmOnset>)>();
+                    store[p] = list;
+                }
+
+                var key = musicianId ?? "";
+                int existing = list.FindIndex(e => (e.musicianId ?? "") == key);
+                if (existing >= 0) list[existing] = (key, onsets);
+                else list.Add((key, onsets));
+
+                if (settings?.logGenerator == true)
+                {
+                    Debug.Log($"<color=cyan>{LogTag} Published rhythm onsets for part " +
+                              $"'{p.Name}' musician='{key}' count={onsets.Count}</color>");
+                }
+            };
+        }
+
+        public static Func<SongConfig.PartConfig, List<MidiGenerator.RhythmOnset>>
+            CreateGetRhythmOnsetsForPart(
+            Dictionary<SongConfig.PartConfig,
+                List<(string musicianId, List<MidiGenerator.RhythmOnset> onsets)>> store)
+        {
+            return (p) =>
+            {
+                if (p == null || !store.TryGetValue(p, out var list)) return null;
+                foreach (var (_, onsets) in list)
+                    if (onsets != null && onsets.Count > 0)
+                        return onsets;
+                return null;
             };
         }
 

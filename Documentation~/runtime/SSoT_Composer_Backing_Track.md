@@ -91,6 +91,31 @@ Display metadata per palette: `GetDisplayName()`, entry count, and per-entry
 progression metadata (name / `DisplayName` / `originalInput`, `TimeSignature`,
 `Measures`, `subdivisions`, `tonalities`).
 
+**Semantics of `tonalities` (TONFILTER-1, D-B2-1=C).**
+`ChordProgressionData.tonalities` is DESCRIPTIVE metadata: it records which
+modes the progression was authored or imported for (the runtime importer
+writes the reference tonality of the Roman parse as its single entry —
+provenance, not a filter). The runtime does NOT consult it to decide or to
+revert the part's tonality: the tonality is the card's authority. The
+supported adaptation for use outside the reference tonality is
+`qualityRenderPolicy` (RUNTIME-REQUALITY, §3). When an `AsAuthored`
+progression renders in a foreign tonality the composer signals it on
+`ResolvedTrackChoice.tonalityMismatch` and, gated by `logGenerator`, in a
+warning — it never fails silently and never spends a draw.
+
+**Exception on record — F-B2-LIBRARY.** The legacy procedural template path
+`ChordTrackComposer.PickTemplateForPart` — reachable only from
+`BuildProceduralProgression` (`ChordTrackComposer.cs:985`) when
+`ctx.Settings.progressionLibrary != null` — still DISCARDS library entries whose
+allowed list (`entry.compatibleTonalities` when non-empty, otherwise
+`progression.tonalities`) excludes the part's tonality
+(`ChordTrackComposer.cs:1626–1635`), which B2 left unchanged on purpose
+(`planning/active/Roadmap_Composition_Expressivity.md` §B2 outcome: "the legacy
+`PickTemplateForPart` is unchanged"), so the "does not filter" contract above
+holds for the override, palette and runtime-importer paths, and retiring the
+library filter is a RUNTIME candidate — it changes renders — not a
+documentation one.
+
 ## 3. Meter normalization contract
 
 Backing runtime follows the package-wide rule:
@@ -98,6 +123,42 @@ Backing runtime follows the package-wide rule:
 - **Part meter is authoritative**
 - progression assets are not silently treated as more authoritative than the current part
 - adaptation should preserve meaningful bar-relative position rather than mutating authoring assets globally
+
+**Application sites and field-copy hazard (RUNTIME-REQUALITY).** Two data-level
+transforms run on the runtime clone of a progression, in this order:
+
+1. TS/subdivision reprojection (this section);
+2. `ChordProgressionRequality.ApplyDiatonicRequality` against the part's FINAL
+   tonality — the PART's tonality, which is card authority and is never
+   reverted by the asset's `tonalities` metadata (TONFILTER-1), so the mode
+   the listener actually gets is the one the qualities are resolved to.
+
+**The second transform (requality boundary).** It applies the full harmonic
+publication pipeline (`ChordProgressionRequality.ApplyDiatonicRequality`, same
+entry point): **A** core requality (policy-driven; unchanged) → **B** the color
+table (policy + `useColorTable`; REQUALITY-2) → **C** secondary dominants
+(per-event opt-in; SECDOM-1, active under ANY policy). Contract order, pinned
+by tests: TS/subdivision reprojection FIRST, then A→B→C, materialized in a
+single clone-if-changed. The reprojection's field-copy list includes
+`useColorTable` and `cadence` (asset) and `hasAppliedTarget` /
+`appliedTarget` (event) — hazard F-NORM-DROP, verified in smoke with
+`sub x1 → x4`.
+
+Both happen inside the same clone/publication step, so the don't-overwrite
+publication guard still compares against the ORIGINAL asset and every
+shared-channel consumer (bass, melody) sees the transformed data. The second
+site is `SongOrchestrator.TrySeedDefaultProgression` (the backing-less path,
+§5.5 of the Orchestration SSoT).
+
+> **Field-copy hazard (F-NORM-DROP, found in verification).** The reprojection
+> does NOT clone with `Instantiate`; it builds a fresh `ChordProgressionData`
+> and copies fields ONE BY ONE. Any field omitted there silently reverts to its
+> default on the runtime clone. `qualityRenderPolicy` was initially omitted,
+> which made requality inert for every progression that needs normalization —
+> i.e. nearly all of them, since authoring writes `sub x1` and the composer
+> normalizes to `x4`. **Any new `ChordProgressionData` field must be added to
+> that copy list.** Pinned by
+> `ChordProgressionRequalityTests.PolicySurvivesFieldByFieldCloning_NormalizationParity`.
 
 ## 4. Boundary with authoring
 
@@ -793,3 +854,6 @@ Update this SSoT when:
   accidental handling) changes (MGP-ALWTTT-DBG, §2.1);
 - the Random-articulation readback (`resolvedFigures`) meaning changes
   (MGP-ALWTTT-DBG-1, §8.5).
+- the F-B2-LIBRARY exception changes (§2.2): the `PickTemplateForPart` tonality
+  filter is retired, gated, or extended to another selection path — any of which
+  is a runtime change with an impact radius, not a wording change.

@@ -23,6 +23,7 @@
 |   |   +---SSoT_Authoring_Chord_Progressions.md
 |   |   +---SSoT_Authoring_LLM_Generation.md
 |   |   +---SSoT_Authoring_Melody_Composition.md
+|   |   +---SSoT_Authoring_MIDI_Import.md
 |   |   +---SSoT_Authoring_Rhythm_Patterns.md
 |   |   \---SSoT_Authoring_Tools.md
 |   +---planning
@@ -38,7 +39,9 @@
 |   |   |   +---Roadmap_Melody_Authoring_MVP.md
 |   |   |   \---Roadmap_Rhythm_Authoring_MVP.md
 |   |   +---archive
-|   |   |   \---README.md
+|   |   |   +---README.md
+|   |   |   \---Roadmap_MIDI_Import.md
+|   |   +---Especificacion_Contenido_FaseA.md
 |   |   \---README.md
 |   +---reference
 |   |   +---cross-project
@@ -46,10 +49,13 @@
 |   |   |   |   +---ALWTTT_Melody_Authoring_Pipeline.md
 |   |   |   |   +---Handoff_MGP_BAGGAGE_1.md
 |   |   |   |   +---Handoff_MGP_MIX_1.md
+|   |   |   |   +---Handoff_MGP_POCKET.md
 |   |   |   |   +---README.md
 |   |   |   |   +---SSoT_CompositionCards_TrackStyleBundles.md
 |   |   |   |   +---SSoT_CompositionSystem_INDEX.md
 |   |   |   |   \---SSoT_Runtime_CompositionSession_Bridge.md
+|   |   |   +---MusicLab
+|   |   |   |   \---Handoff_MusicLab_CardHarmony.md
 |   |   |   \---README.md
 |   |   +---package
 |   |   |   +---Documentation_Update_Protocol_Addendum.md
@@ -86,13 +92,16 @@
 |   +---BankDropdownDrawer.cs
 |   +---ChordGenreVocabularyBuilder.cs
 |   +---ChordLLMFieldPlan.cs
+|   +---ChordMidiImporter.cs
 |   +---ChordProgressionEditorImporter.cs
 |   +---ChordProgressionEditorWindow.cs
 |   +---ChordProgressionEditorWindow.LLM.cs
+|   +---ChordProgressionEditorWindow.MidiImport.cs
 |   +---ChordProgressionLLMGenerator.cs
 |   +---ChordProgressionLLMPromptBuilder.cs
 |   +---ChordProgressionLLMResponseHandler.cs
 |   +---CompositionSmokeWindow.cs
+|   +---DrumMidiImporter.cs
 |   +---DrumPatternCatalogueWizard.cs
 |   +---DrumPatternEditorImporter.cs
 |   +---DrumPatternEditorWindow.cs
@@ -104,8 +113,10 @@
 |   +---DrumPatternTextWarning.cs
 |   +---LaneAliasDictionary.cs
 |   +---LaneShortNames.cs
+|   +---MelodyMidiImporter.cs
 |   +---MelodyPatternEditorWindow.cs
 |   +---MidiGenPlay.Editor.asmdef
+|   +---MidiInstrumentCatalogueWizard.cs
 |   +---PatchDropdownDrawer.cs
 |   +---RhythmGenreVocabularyBuilder.cs
 |   +---SimplifiedMelodyGenerator.cs
@@ -154,6 +165,7 @@
 |   |   |   |   +---RhythmCardConfigSO.cs
 |   |   |   |   +---RhythmGenreVocabularySO.cs
 |   |   |   |   +---TrackStyleBundleSO.cs
+|   |   |   |   +---VelocityJitter.cs
 |   |   |   |   \---VoiceLeadingConfig.cs
 |   |   |   +---Factories
 |   |   |   |   \---ComposerFactories.cs
@@ -184,10 +196,14 @@
 |   |   |   |   +---BackingStyles.cs
 |   |   |   |   +---RhythmStyleRegistry.cs
 |   |   |   |   \---RhythmStyles.cs
+|   |   |   +---ChordProgressionRequality.cs
 |   |   |   +---ChordProgressionRuntimeImporter.cs
 |   |   |   +---ChordQualityResolver.cs
 |   |   |   +---CompositionReadback.cs
 |   |   |   +---MidiGenerator.cs
+|   |   |   +---ModulationPlanner.cs
+|   |   |   +---PercussionFallbackTable.cs
+|   |   |   +---PercussionNoteResolver.cs
 |   |   |   +---PhrasePlanner.cs
 |   |   |   +---RhythmGridQuantizer.cs
 |   |   |   +---RomanProgressionParser.cs
@@ -443,20 +459,29 @@
 +---Tests
 |   \---Editor
 |       +---BassTrackComposer_ArticulationTests.cs
+|       +---BassTrackComposer_PocketTests.cs
+|       +---BassTrackComposer_RegisterTests.cs
+|       +---BassTrackComposer_WalkImprovTests.cs
 |       +---ChordMarkerParityTests.cs
+|       +---ChordMidiImporterTests.cs
 |       +---ChordProgressionEditorImporterTests.cs
 |       +---ChordProgressionEditorWindow_V2Tests.cs
 |       +---ChordProgressionEditorWindowWiringTests.cs
+|       +---ChordProgressionImport_MetadataTests.cs
 |       +---ChordProgressionLLMGeneratorTests.cs
 |       +---ChordProgressionLLMPromptBuilderTests.cs
 |       +---ChordProgressionLLMResponseHandler_V2Tests.cs
 |       +---ChordProgressionLLMResponseHandlerTests.cs
+|       +---ChordProgressionRequalityTests.cs
 |       +---ChordProgressionRuntimeImporterTests.cs
 |       +---ChordQualityResolver_V2Tests.cs
 |       +---ChordTrackComposer_ArticulationTests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
 |       +---ChordTrackComposer_InversionPinTests.cs
 |       +---ChordTrackComposer_RandomArticulationTests.cs
+|       +---ChordTrackComposer_TonalityMetadataTests.cs
+|       +---ChordTrackComposer_VelocityJitterTests.cs
+|       +---DrumMidiImporterTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
 |       +---DrumPatternEditorImporterTests.cs
 |       +---DrumPatternLLMGeneratorTests.cs
@@ -466,15 +491,24 @@
 |       +---DrumPatternTextParserTests.cs
 |       +---FakeLLMClient.cs
 |       +---LaneAliasDictionaryTests.cs
+|       +---MelodyMidiImporterTests.cs
 |       +---MelodyTrackComposer_PatternDeterminismTests.cs
 |       +---MidiGenPlay.Tests.Editor.asmdef
+|       +---ModulationPlannerTests.cs
 |       +---MusicTheory_ChordQualityTests.cs
 |       +---PaletteSelectorTests.cs
 |       +---PatternOverrideAndReadbackTests.cs
+|       +---PercussionNoteResolverTests.cs
+|       +---RhythmTrackComposer_OnsetPublicationTests.cs
 |       +---RomanProgressionParserTests.cs
+|       +---SongOrchestrator_DefaultProgressionTests.cs
 |       +---SongOrchestrator_MixGainTests.cs
 |       +---SongOrchestratorKeyingTests.cs
 |       \---SongOrchestratorSeedTests.cs
 +---make-tree-unity.bat
++---MGP-20260729_export.zip
++---mgp-export.bat
++---mgp-export_pk-mirror.txt
++---mgp-export_session-b.txt
 +---package.json
 \---README.md

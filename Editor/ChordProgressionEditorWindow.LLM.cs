@@ -1,5 +1,7 @@
 ﻿#if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -242,6 +244,23 @@ public partial class ChordProgressionEditorWindow
             if (plan.SetDefaultDuration)
                 defaultDurationMeasures = plan.DefaultDurationMeasures;
 
+            // CPE-META-2 (D3=A) — "Allowed tonalities" declared by the payload
+            // are MIRROR state (the toggle flags), so they ride the existing
+            // apply route (toggles → asset.tonalities) with no new machinery.
+            if (plan.SetAllowedTonalities && tonalityFlags != null)
+            {
+                var set = new HashSet<Tonality>(plan.AllowedTonalities);
+                foreach (var key in tonalityFlags.Keys.ToList())
+                    tonalityFlags[key] = set.Contains(key);
+            }
+
+            // CPE-META-2 (D-M2-1=A) — the D2=C trio (policy / color table /
+            // cadence) is DIRECT-BOUND asset state, so it cannot ride the
+            // window mirror. Stage it as one-shot pending metadata: visible in
+            // the Asset Metadata section, written by the next Apply/Save
+            // gesture, cleared after consumption, discardable before it.
+            StageImportedMetadata(plan);
+
             progressionInput = plan.Progression;
             inputMode = InputMode.RomanString;
 
@@ -350,6 +369,9 @@ public partial class ChordProgressionEditorWindow
         timeSignature = TimeSignature.FourFour;
         referenceTonality = Tonality.Ionian;
         defaultDurationMeasures = 1f;
+
+        // CPE-META-2 — a clean slate also discards staged imported metadata.
+        ClearPendingImportedMetadata();
 
         // Clear LLM panel transients so stale warnings/tokens don't linger.
         llmStatus = "";

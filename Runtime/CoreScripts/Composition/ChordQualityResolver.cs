@@ -64,6 +64,49 @@ namespace MidiGenPlay.Composition
             if (c.explicitQuality.HasValue)
                 return c.explicitQuality.Value;
 
+            // 1b) EDITOR-CASE-1 (D-EC-SEM=B): under auto-diatonic modes,
+            // UNAMBIGUOUS case is honored with the precedence
+            // suffix > case > auto — previously the case was silently
+            // discarded ("I – V – iv – i" parsed all-major under auto).
+            // The case fixes the FAMILY; the auto mode fixes the SIZE
+            // ("iv" under Sevenths => Minor7, under Triads => Minor). The
+            // override only fires when the case genuinely CONTRADICTS the
+            // diatonic family: lowercase over a diatonic minor/diminished
+            // degree (Roman convention lowercases both) and uppercase over
+            // a diatonic major degree keep the auto quality, so purely
+            // diatonic strings resolve exactly as before. Mixed case is
+            // ignored here (the editor warns). Parse-time only — saved
+            // assets are untouched.
+            if (autoMode != AutoChordQualityMode.None &&
+                (c.caseHint == RomanCaseHint.Lower ||
+                 c.caseHint == RomanCaseHint.Upper))
+            {
+                var diatonicFamily = GetTriadFamily(
+                    GetDiatonicTriadQuality(referenceTonality, c.degree));
+                bool seventh = autoMode == AutoChordQualityMode.DiatonicSevenths;
+
+                if (c.caseHint == RomanCaseHint.Upper &&
+                    diatonicFamily != TriadFamily.Major)
+                {
+                    // Major-family seventh: Dominant7 on V (functional
+                    // expectation), Major7 elsewhere.
+                    return seventh
+                        ? (c.degree == ScaleDegree.Dominant
+                            ? ChordQuality.Dominant7
+                            : ChordQuality.Major7)
+                        : ChordQuality.Major;
+                }
+
+                if (c.caseHint == RomanCaseHint.Lower &&
+                    diatonicFamily != TriadFamily.Minor &&
+                    diatonicFamily != TriadFamily.Diminished)
+                {
+                    return seventh ? ChordQuality.Minor7 : ChordQuality.Minor;
+                }
+                // Case agrees with the diatonic reading => fall through to
+                // the auto quality below.
+            }
+
             // 2) Otherwise, infer from selected auto mode.
             switch (autoMode)
             {

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 using UnityEngine;
 
 namespace MidiGenPlay.Composition
@@ -15,7 +15,7 @@ namespace MidiGenPlay.Composition
     /// renderOnStart (a trigger, not a render input).
     ///
     /// Assign the same asset to the window (Save/Load buttons) and the runner's
-    /// 'setup' field; both then render byte-identical inputs by construction —
+    /// 'setup' field; both then render byte-identical inputs by construction ï¿½
     /// no more matching ~15 fields across two inspectors by hand.
     ///
     /// Runtime-safe: no UnityEditor. Dev/test tooling only.
@@ -34,6 +34,17 @@ namespace MidiGenPlay.Composition
         [Tooltip("List the Backing entry FIRST: Bassline/Melody read chords " +
                  "from the Backing row's progression (finding C4).")]
         public List<SmokeEntry> entries = new List<SmokeEntry>();
+
+        [Header("Bass solo (MGP-ALWTTT-BASS-SOLO-1)")]
+        [Tooltip("Optional HOST-default progression for BACKING-LESS parts. " +
+                 "Pre-seeded into the shared per-render progression cache so " +
+                 "Bassline/Melody/Harmony rows can sound without a Backing row. " +
+                 "Warn + ignore if a Backing row exists (D-SOLO-GUARD=A: the " +
+                 "Backing track owns the shared harmony). Author it in the " +
+                 "part's time signature (D-SOLO-NORM=A: seeded as-is, no TS " +
+                 "normalization on this path). Null = exact legacy behavior " +
+                 "(backing-less bass renders silence).")]
+        public ChordProgressionData defaultProgression;
 
         [Header("Determinism")]
         public bool overrideSeed = false;

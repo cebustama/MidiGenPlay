@@ -71,6 +71,9 @@ namespace MidiGenPlay.EditorTools
         [SerializeField] private bool overrideSeed = false;
         [SerializeField] private int seed = 12345;
         [SerializeField] private bool stripMetronome = false; // D-SMOKE-MT-5=A
+        // MGP-ALWTTT-BASS-SOLO-1: optional host-default progression for
+        // backing-less parts (see SmokeSetupSO.defaultProgression tooltip).
+        [SerializeField] private ChordProgressionData defaultProgression;
 
         // D-SMOKE-RT-5=A: the shared source of truth. The window keeps its
         // rich inline authoring, but Save/Load round-trips the whole setup to
@@ -157,6 +160,12 @@ namespace MidiGenPlay.EditorTools
                     MidiGenerator.MetronomeChannel + "). The conductor/meta chunk " +
                     "is kept (it has no notes)."),
                 stripMetronome);
+            defaultProgression = (ChordProgressionData)EditorGUILayout.ObjectField(
+                new GUIContent("Default progression",
+                    "MGP-ALWTTT-BASS-SOLO-1: host-default progression, only for " +
+                    "parts WITHOUT a Backing row (warn + ignore otherwise). " +
+                    "Author it in the part's time signature."),
+                defaultProgression, typeof(ChordProgressionData), false);
 
             EditorGUILayout.Space(10);
 
@@ -508,6 +517,7 @@ namespace MidiGenPlay.EditorTools
             setup.overrideSeed = overrideSeed;
             setup.seed = seed;
             setup.stripMetronome = stripMetronome;
+            setup.defaultProgression = defaultProgression;
             EditorUtility.SetDirty(setup);
             AssetDatabase.SaveAssets();
             Debug.Log($"[CompositionSmokeWindow] Saved {setup.entries.Count} " +
@@ -524,6 +534,7 @@ namespace MidiGenPlay.EditorTools
             overrideSeed = setup.overrideSeed;
             seed = setup.seed;
             stripMetronome = setup.stripMetronome;
+            defaultProgression = setup.defaultProgression;
         }
 
         private static SmokePartContext CloneContext(SmokePartContext c)
@@ -571,7 +582,8 @@ namespace MidiGenPlay.EditorTools
                     partIndex: 0,
                     bpmOverride: partContext.bpm,
                     instrumentOverrides: null,
-                    seedOverride: overrideSeed ? seed : (int?)null);
+                    seedOverride: overrideSeed ? seed : (int?)null,
+                    defaultProgression: defaultProgression);
                 file = render?.merged;
             }
             catch (System.Exception ex)

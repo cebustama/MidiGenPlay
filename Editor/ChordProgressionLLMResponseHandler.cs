@@ -80,12 +80,25 @@ namespace MidiGenPlay.Authoring
             /// <summary>The Roman-numeral progression string. Populated for Full and ProgressionOnly.</summary>
             public readonly string progression;
 
+            // -- CPE-META-2 (D3=A): optional asset metadata declared by the
+            //    payload's setup card (kind == Full only). Presence flags gate
+            //    application: absent means "unspoken", never "default".
+            public readonly bool hasQualityRenderPolicy;
+            public readonly ChordProgressionData.QualityRenderPolicy qualityRenderPolicy;
+            public readonly bool hasUseColorTable;
+            public readonly bool useColorTable;
+            public readonly bool hasCadence;
+            public readonly ChordProgressionData.CadenceType cadence;
+            public readonly bool hasAllowedTonalities;
+            public readonly IReadOnlyList<Tonality> allowedTonalities;
+
             /// <summary>Human-readable warning/info lines for the editor warning panel.</summary>
             public readonly IReadOnlyList<string> displayWarnings;
 
             public readonly int inputTokens;
             public readonly int outputTokens;
 
+            /// <summary>Pre-CPE-META-2 ctor (compat): no metadata declared.</summary>
             public Outcome(
                 OutcomeKind kind,
                 TimeSignature timeSignature,
@@ -96,6 +109,31 @@ namespace MidiGenPlay.Authoring
                 IReadOnlyList<string> displayWarnings,
                 int inputTokens,
                 int outputTokens)
+                : this(kind, timeSignature, measures, defaultDurationMeasures,
+                       referenceTonality, progression, displayWarnings,
+                       inputTokens, outputTokens,
+                       false, default, false, false, false, default, false, null)
+            {
+            }
+
+            public Outcome(
+                OutcomeKind kind,
+                TimeSignature timeSignature,
+                int measures,
+                float defaultDurationMeasures,
+                Tonality referenceTonality,
+                string progression,
+                IReadOnlyList<string> displayWarnings,
+                int inputTokens,
+                int outputTokens,
+                bool hasQualityRenderPolicy,
+                ChordProgressionData.QualityRenderPolicy qualityRenderPolicy,
+                bool hasUseColorTable,
+                bool useColorTable,
+                bool hasCadence,
+                ChordProgressionData.CadenceType cadence,
+                bool hasAllowedTonalities,
+                IReadOnlyList<Tonality> allowedTonalities)
             {
                 this.kind = kind;
                 this.timeSignature = timeSignature;
@@ -106,6 +144,14 @@ namespace MidiGenPlay.Authoring
                 this.displayWarnings = displayWarnings ?? Array.Empty<string>();
                 this.inputTokens = inputTokens;
                 this.outputTokens = outputTokens;
+                this.hasQualityRenderPolicy = hasQualityRenderPolicy;
+                this.qualityRenderPolicy = qualityRenderPolicy;
+                this.hasUseColorTable = hasUseColorTable;
+                this.useColorTable = useColorTable;
+                this.hasCadence = hasCadence;
+                this.cadence = cadence;
+                this.hasAllowedTonalities = hasAllowedTonalities;
+                this.allowedTonalities = allowedTonalities ?? Array.Empty<Tonality>();
             }
 
             public bool Success => kind != OutcomeKind.Failed;
@@ -211,7 +257,12 @@ namespace MidiGenPlay.Authoring
                         import.timeSignature, import.measures,
                         import.defaultDurationMeasures, import.referenceTonality,
                         import.progression, warnings,
-                        inputTokens, outputTokens);
+                        inputTokens, outputTokens,
+                        // CPE-META-2: metadata pass-through (Full only).
+                        import.hasQualityRenderPolicy, import.qualityRenderPolicy,
+                        import.hasUseColorTable, import.useColorTable,
+                        import.hasCadence, import.cadence,
+                        import.hasAllowedTonalities, import.allowedTonalities);
 
                 case ChordProgressionEditorImporter.ImportMode.ProgressionOnly:
                     return new Outcome(

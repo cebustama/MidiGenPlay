@@ -249,6 +249,20 @@ namespace MidiGenPlay.Composition
             // Ask A: pattern path — source/name/palette captured at resolution.
             ReportChoice(resolvedSource);
 
+            // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): publish the resolved
+            // pattern's audible onsets for downstream consumers (bass
+            // SlapPocket). GRID PATH ONLY in v1 — procedural and legacy paths
+            // publish nothing, which is the documented degrade trigger on the
+            // consumer side. Runs on the already TS-normalized `data`, so the
+            // published beats are Part-meter truth. Skipped entirely when no
+            // sink is installed (direct composer calls / tests without ctx).
+            if (hasGrid && ctx?.SetRhythmOnsetsForPartMusician != null)
+            {
+                var onsets = ExtractResolvedOnsets(
+                    kit, data, part.TimeSignature, part.Measures);
+                ctx.SetRhythmOnsetsForPartMusician(part, cfg.MusicianId, onsets);
+            }
+
             var file = hasGrid
                 ? ComposeFromGrid(kit, data, bpm, part.TimeSignature, part.Measures, channel, LogEnabled)
                 : ComposeFromLegacy(kit, data, bpm, part.TimeSignature, part.Measures, channel, LogEnabled);
@@ -518,6 +532,86 @@ namespace MidiGenPlay.Composition
             StampBankAndPatch(file, kit, channel);
             ForceAllChannel(file, channel);
             return file;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): the publication seam. Pure
+        /// mirror of <see cref="ComposeFromGrid"/>'s step→beat math over the
+        /// TS-NORMALIZED pattern, with three deliberate deltas, all
+        /// contract-level:
+        /// - TRUNCATION: onsets at or beyond the part end (`sAbs >=
+        ///   partTotalSteps`) are dropped. ComposeFromGrid's ceil-repeat may
+        ///   emit past the part boundary (silenced later by AllSoundOff); the
+        ///   published channel is the part's musical surface and must not lead
+        ///   a consumer to place hits beyond it.
+        /// - AUDIBILITY FILTER: only lanes that RESOLVE on the kit are
+        ///   published (same PERC-FALLBACK-1 resolution as composition,
+        ///   silent — the compose loop already emits the substitution logs;
+        ///   double-logging here would be noise). The published instrument is
+        ///   the SEMANTIC authored lane, pre-substitution, so consumers
+        ///   classify kick/snare independently of what concrete note sounds.
+        /// - ORDERING: sorted by (beat, instrument) so the payload is
+        ///   deterministic and consumer-friendly regardless of lane order.
+        /// Velocity is the resolved, clamped 1..127 step velocity — identical
+        /// to what ComposeFromGrid emits for the same step.
+        /// Internal test seam (InternalsVisibleTo MidiGenPlay.Tests.Editor).
+        /// </summary>
+        public static List<MidiGenerator.RhythmOnset> ExtractResolvedOnsets(
+            MIDIPercussionInstrumentSO kit,
+            DrumPatternData data,
+            MusicTheory.MusicTheory.TimeSignature ts,
+            int partMeasures)
+        {
+            var result = new List<MidiGenerator.RhythmOnset>();
+            if (kit == null || data == null) return result;
+
+            int beatsPerBar;
+            try { beatsPerBar = TimeSignatureProperties[ts].BeatsPerMeasure; }
+            catch { return result; }
+
+            int stepsPerBeat = Mathf.Max(1, data.subdivisions);
+            int stepsPerMeasure = beatsPerBar * stepsPerBeat;
+
+            int patternMeasures = Mathf.Max(1, data.Measures);
+            int patternTotalSteps = patternMeasures * stepsPerMeasure;
+            int partTotalSteps = Mathf.Max(1, partMeasures) * stepsPerMeasure;
+            int repeats = Mathf.Max(1,
+                Mathf.CeilToInt((float)partTotalSteps / patternTotalSteps));
+
+            var lanes = data.SnapshotAsStepVelocities();
+
+            for (int r = 0; r < repeats; r++)
+            {
+                int stepOffset = r * patternTotalSteps;
+
+                foreach (var lane in lanes)
+                {
+                    // Audibility filter — resolution outcome only, no logs.
+                    if (!TryResolveForCompose(kit, lane.instrument,
+                            logSubstitutions: false, out _))
+                        continue;
+
+                    foreach (var (stepIndex, velocity) in lane.steps)
+                    {
+                        int sAbs = stepOffset + stepIndex;
+                        if (sAbs >= partTotalSteps) continue; // truncation
+
+                        result.Add(new MidiGenerator.RhythmOnset
+                        {
+                            instrument = lane.instrument,
+                            beat = (double)sAbs / stepsPerBeat,
+                            velocity = Mathf.Clamp(velocity, 1, 127),
+                        });
+                    }
+                }
+            }
+
+            result.Sort((a, b) =>
+            {
+                int c = a.beat.CompareTo(b.beat);
+                return c != 0 ? c : ((int)a.instrument).CompareTo((int)b.instrument);
+            });
+            return result;
         }
 
         private static MidiFile ComposeFromGrid(

@@ -147,6 +147,108 @@ under a combined-hint scenario; dedicated D2a sticky-per-position test.
 
 ---
 
+## RUNTIME-REQUALITY — diatonic re-qualification at render time — DONE (2026-07-26)
+
+`ChordProgressionData.qualityRenderPolicy` (append-only:
+`AsAuthored = 0` default / `DiatonicToPart = 1` / `DiatonicToPartFunctional = 2`)
+declares how an asset's qualities behave when the PART's tonality differs from
+the tonality the progression was authored against. This is the arc's first
+change that touches how an authored quality SOUNDS rather than which qualities
+exist — and it is deliberately shaped so the alphabet itself is untouched.
+
+Decisions:
+- **D-RQ-SURF=A** — the policy lives on the ASSET, not on a card or a render
+  parameter. Default is inert, so no existing asset or render changes.
+- **D-RQ-SITE** — DATA-level, applied to the runtime clone at TWO publication
+  boundaries: the backing composer's clone step (after the §2.2 tonality
+  alignment, so the FINAL tonality is used) and
+  `SongOrchestrator.TrySeedDefaultProgression`. Not composer-local: backing,
+  bass and melody each derive chord pitch classes independently from the shared
+  progression, so a composer-local branch would make them diverge.
+- **D-RQ-BORROW=A** — borrowed events (`isDiatonic = false`) are never touched;
+  a ♭VI stays a ♭VI with its accidental.
+- **D-RQ-MAP=A** — core alphabet only and size-preserving: triads re-map via the
+  diatonic triad of (tonality, degree), sevenths via the diatonic seventh.
+  `Sus2`, `Sus4`, `Major6`, `Minor6`, `Dominant7sus4` and the three ninths PASS
+  THROUGH — they have no clean modal reading and their colour is authored
+  intent. `Major` is never promoted to `Dominant7`. **This is exactly the
+  explicit-suffix-only principle of D-CQA1.1 / D-CQB1.1 read from the render
+  side:** the extended qualities did not participate in diatonic inference, and
+  they do not participate in diatonic RE-inference either.
+- **D-RQ-FUNC=A / D-RQ-FUNC-SCOPE=A** — the Functional variant keeps an authored
+  `Major`/`Dominant7` on the DOMINANT degree, re-marking it borrowed on the
+  clone, in modes whose diatonic v would lose the leading tone. The
+  harmonic-minor practice of raising the dominant's third surgically rather than
+  swapping the scale. Pick `Functional` for cadence-driven material, plain
+  `DiatonicToPart` for pure modal colour.
+- **D-RQ-LOCRIAN=A** — documented no-op for both opt-in policies: the tonic
+  triad is itself diminished and every functional reading collapses.
+
+Purity: `ChordProgressionRequality.ApplyDiatonicRequality(prog, tonality)` draws
+no rng, clones only if something changes, never mutates the asset, returns the
+same reference on a no-op, and is idempotent.
+
+19 EditMode tests; smoke gates 6'/7'/6b. Authority:
+`authoring/SSoT_Authoring_Chord_Progressions.md` §4.1 (policy semantics),
+`runtime/SSoT_Composer_Backing_Track.md` §3 (application sites + F-NORM-DROP).
+
+---
+
+## B1 — HARMONY-PURE-1 — CLOSED (2026-07-27)
+
+A batch of **pure or opt-in** harmony work: impact radius zero by construction
+— every item is either a pure helper the host invokes, or a flag that defaults
+to today's behaviour. Nothing here consumes `ctx.rng`.
+
+- **REQUALITY-2 — colour table.** Extend the mapping beyond the core alphabet
+  where a modal reading IS clean: `6` → `m7`; `m6` only in Dorian; the ninths
+  according to a flag; `sus2` → `sus4` in Phrygian. Plus the substitution
+  `ii°` → `iv` on long or accented events. Every one of these is a deliberate
+  exception to D-RQ-MAP=A's pass-through rule and must be argued individually.
+- **SECDOM-1 — `appliedTarget` per event.** Secondary dominants as a data
+  PRIMITIVE rather than a spelling convention. Note the CQ-A1-OBJ2 finding still
+  stands: slash notation (`V/3`) collides with the response-handler guard and
+  overloads secondary-dominant notation — so this is a field, not a suffix.
+- **CADENCE-META — cadence metadata per progression.** Consumed by the host for
+  the replace/reskin gate; the engine does not act on it in this batch.
+- **MOD-1 — pure modulation helpers.** Dominant of the destination; pivot chord
+  by diatonic intersection ranked subdominant-first; common tone. Pure functions,
+  host-invoked; no composer branch.
+- **EDITOR-CASE-1 — numeral case vs auto-diatonic in
+  `ChordProgressionEditorWindow`.** `inferFromCase` is `(autoDiatonicMode ==
+  None)` at all THREE call sites, so with Auto-Diatonic ON the numeral CASE is
+  discarded silently: `I – V – iv – i` parses as all-major against the
+  reference tonality. Proposed precedence
+  **`[suffix] > [unambiguous case] > [auto-diatonic]`**, plus a warning when
+  case is discarded. Consistent with D-CQA1.2 (suffix outranks case) — it only
+  inserts case ABOVE the inference, never above the suffix. No effect on
+  already-saved assets; editor-only. Found during RUNTIME-REQUALITY
+  verification, 2026-07-26.
+
+**Outcome (2026-07-27).** DoD met: all five fronts implemented, EditMode tests
+green, three smoke scenarios PASS (byte-parity non-regression, colour table,
+secondary dominants with a negative check). Impact radius zero VERIFIED, not
+merely argued.
+
+Findings recorded during the batch:
+
+- **F-CTOR-STRUCT** (minor, fixed): adding a field to `ParsedChord` breaks its
+  explicit constructor (CS0171). Every new field of that struct needs an
+  optional constructor parameter.
+- **F-SUFFIX-CASEBLIND** (documentation): the v1 alphabet's `7` suffix is
+  case-blind, so "iv7" is a `Dominant7`. Not a bug; documented in the authoring
+  SSoT.
+- **F-GRID-COPY-DROP** (pre-existing, fixed): the editor grid's two
+  field-by-field copies dropped `isDiatonic` and `degreeAccidental`. Permanent
+  mitigation: a reflection canary.
+
+Deferred QoL (not opened): a "New Setup SO" button in the Composition Smoke
+Window; secondary-dominant UI in the grid inspector; the `CadenceType`
+"Suggest" button.
+
+B2 — TONFILTER-1 becomes the active batch in the sequence; its entry lives on
+`planning/active/Roadmap_Composition_Expressivity.md`.
+
 ## Future work (recorded, not scheduled)
 
 - Added-tone qualities without a seventh (`add9`, `6/9`) — currently forbidden;

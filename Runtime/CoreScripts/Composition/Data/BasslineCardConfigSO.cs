@@ -1,3 +1,4 @@
+﻿using Melanchall.DryWetMidi.Standards;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -5,11 +6,11 @@ namespace MidiGenPlay.Composition
 {
     /// <summary>
     /// Bassline authoring bundle (CA-F2, SD-F2-4=A). Fills the TrackStyleBundles
-    /// �4.1 "Bassline (TBD)" row. Resolved by BassTrackComposer from the track's
+    /// �4.1 "Bassline (TBD)" row. Resolved by BassTrackComposer from the track's
     /// Style slot, mirroring the ChordTrackComposer / BackingCardConfigSO pattern.
     ///
     /// SD-F2-5=A: the bass articulation is fully independent of the backing
-    /// card � a bass track with no BasslineCardConfigSO in its Style slot always
+    /// card � a bass track with no BasslineCardConfigSO in its Style slot always
     /// renders Block, regardless of what the backing track selects.
     ///
     /// See runtime/SSoT_Composer_Bass_Track.md.
@@ -45,7 +46,7 @@ namespace MidiGenPlay.Composition
                  "when Chord Expression = Random. Empty = uniform over the six " +
                  "Tier-1 figures. NOTE for a monophonic line: ArpeggioUp and " +
                  "ArpeggioDown are indistinguishable (SD-F2-2=A), so the uniform " +
-                 "pool gives the repeated-note pulse double weight � use this " +
+                 "pool gives the repeated-note pulse double weight � use this " +
                  "list to rebalance.")]
         public List<ChordExpressionWeight> randomFigureWeights =
             new List<ChordExpressionWeight>();
@@ -64,16 +65,96 @@ namespace MidiGenPlay.Composition
         {
             RepeatedNote = 0,   // SD-F2-2=A legacy: pulse on the selected note
             ChordToneWalk = 1,  // BASS-WALK-1: cycle root/3rd/5th
+            ImprovisedWalk = 2, // B3 WALK-2: seeded walking line w/ approach notes
         }
 
-        [Tooltip("BASS-WALK-1. How ArpeggioUp/Down read a monophonic line. " +
-         "RepeatedNote (default) = legacy pulse on the selected note, " +
-         "bit-identical to CA-V1 output. ChordToneWalk = cycle " +
-         "root/3rd/5th stacked ascending from the drawn bass octave � " +
-         "note this also makes Up and Down distinguishable again, " +
-         "removing the pool double-weight noted for RepeatedNote. " +
-         "Ignored by all non-arpeggio figures.")]
+        [Tooltip("BASS-WALK-1 / B3 WALK-2. How ArpeggioUp/Down read a " +
+         "monophonic line. RepeatedNote (default) = legacy pulse on the " +
+         "selected note, bit-identical to CA-V1 output. ChordToneWalk = " +
+         "cycle root/3rd/5th stacked ascending from the drawn bass octave. " +
+         "ImprovisedWalk = a seeded walking line with bar-to-bar variation: " +
+         "root anchor, chord-tone middles near the previous note, and a " +
+         "chromatic/whole-step approach note into the NEXT chord's root " +
+         "(wrapping to the first event) — rhythm, accents and jitter are " +
+         "exactly the arpeggio's; ArpeggioDown biases contour ties downward. " +
+         "Variation comes from a dedicated seed substream (same seed = same " +
+         "line). Ignored by all non-arpeggio figures and bypassed on " +
+         "pocketed events.")]
         public BassArpeggioToneMode arpeggioToneMode = BassArpeggioToneMode.RepeatedNote;
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-POCKET-1 (D-PKT-WHAT=SlapPocket). Opt-in coupling of
+        /// the bass line to the resolved Rhythm pattern. Append-only; values
+        /// serialized, never renumbered.
+        /// </summary>
+        public enum PocketCouplingMode
+        {
+            Off = 0,        // decoupled: figures/walk as before, bit-identical
+            SlapPocket = 1, // kick→slap (selected note), snare→pop (+12)
+        }
+
+        [Header("Pocket Coupling (MGP-ALWTTT-BASS-POCKET-1)")]
+        [Tooltip("Opt-in coupling to the Rhythm track's resolved pattern. " +
+                 "Off (default) = decoupled, bit-identical to previous output. " +
+                 "SlapPocket = per chord event, if the drummer's resolved GRID " +
+                 "pattern has kick/snare onsets inside the event window, the " +
+                 "bass replaces its figure there with slap hits on the kick " +
+                 "onsets (the event's selected note) and pop hits on the snare " +
+                 "onsets (same note one octave up), at the drum step's " +
+                 "velocity, short percussive gate. Windows without onsets — " +
+                 "and renders without a published source (no Rhythm track in " +
+                 "the part, Rhythm composed AFTER the bass in track-list " +
+                 "order, or a procedural/legacy rhythm path) — fall back to " +
+                 "the decoupled figure: warn at most, never an error, never " +
+                 "silence. The slap/pop TIMBRE comes from the bass patch " +
+                 "(e.g. GM Slap Bass 1/2 on the MIDIInstrumentSO) — this mode " +
+                 "shapes timing, register and dynamics only.")]
+        public PocketCouplingMode pocketMode = PocketCouplingMode.Off;
+
+        [Tooltip("MGP-ALWTTT-BASS-POCKET-2 (D-PKT-VEL2=B). Additive velocity " +
+                 "offset for SLAP hits, applied to the drum step's resolved " +
+                 "velocity before the final 1..127 clamp. 0 (default) = exact " +
+                 "POCKET-1 dynamics (byte-identical). Use to rebalance the bass " +
+                 "against a soft- or hot-authored drum pattern without touching " +
+                 "the pattern itself. Inert when pocketMode = Off or when the " +
+                 "event window falls back to the decoupled figure.")]
+        [Range(-64, 64)]
+        public int pocketSlapBoost = 0;
+
+        [Tooltip("MGP-ALWTTT-BASS-POCKET-2 (D-PKT-VEL2=B). Additive velocity " +
+                 "offset for POP hits (same clamp rule as pocketSlapBoost). " +
+                 "0 (default) = byte-identical to POCKET-1. Independent of the " +
+                 "slap boost — pops read weaker than slaps at equal drum " +
+                 "velocity, so a positive pop-only boost is the typical fix.")]
+        [Range(-64, 64)]
+        public int pocketPopBoost = 0;
+
+        [Tooltip("MGP-ALWTTT-BASS-POCKET-2 (D-PKT-LANES2=C). Off (default) = " +
+                 "the built-in v1 trigger families (slap: AcousticBassDrum, " +
+                 "BassDrum1; pop: AcousticSnare, ElectricSnare; SideStick " +
+                 "excluded) — byte-identical to POCKET-1, and the state every " +
+                 "pre-POCKET-2 asset deserializes into. On = the two lane " +
+                 "lists below REPLACE the families entirely: an empty list " +
+                 "disables that trigger class (e.g. pop-only pocket), and a " +
+                 "lane present in BOTH lists classifies as pop (consistent " +
+                 "with the same-beat pop-wins rule).")]
+        public bool pocketCustomLanes = false;
+
+        [Tooltip("MGP-ALWTTT-BASS-POCKET-2. Semantic lanes that trigger SLAP " +
+                 "hits when Custom Lanes is on (matched pre kit resolution, " +
+                 "immune to PERC-FALLBACK-1 substitutions). Ignored when " +
+                 "Custom Lanes is off. Empty + Custom Lanes on = no slap " +
+                 "triggers.")]
+        public List<GeneralMidiPercussion> pocketSlapLanes =
+            new List<GeneralMidiPercussion>();
+
+        [Tooltip("MGP-ALWTTT-BASS-POCKET-2. Semantic lanes that trigger POP " +
+                 "hits when Custom Lanes is on. Typical Latin addition: " +
+                 "SideStick, so a rim-click backbeat drives the pop. Ignored " +
+                 "when Custom Lanes is off. Empty + Custom Lanes on = no pop " +
+                 "triggers.")]
+        public List<GeneralMidiPercussion> pocketPopLanes =
+            new List<GeneralMidiPercussion>();
 
         private void Reset()
         {

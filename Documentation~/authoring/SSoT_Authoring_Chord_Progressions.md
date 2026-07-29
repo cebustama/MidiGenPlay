@@ -139,6 +139,49 @@ Two IMPORT-QOL-1 conveniences complete the import path:
   fine-grained import; the previous two-decimal format silently produced a
   string the quantizer could not resolve.
 
+### Asset metadata authoring (CPE-META-1, CPE-META-2)
+
+**Asset-level fields (CPE-META-1, D1=A, 2026-07-29).** The window exposes the
+asset-level metadata fields — `qualityRenderPolicy`, `useColorTable`,
+`cadence` — in a collapsible "Asset Metadata" section, plus read-only
+`DisplayName` and `originalInput` (with its `[MIDI: …]` suffix legible as
+provenance). Write semantics (D2=C): the section binds DIRECTLY to the bound
+target asset — every change is Undo-recorded and dirtied on the asset
+immediately, exactly like the Song References section. The Roman/Grid apply
+pipelines never read or write these fields, so re-applying a progression can
+never clobber hand-authored metadata; conversely, the section never triggers a
+parse/apply. `useColorTable` is disabled in the UI while the policy is
+`AsAuthored` (where it is a render-time no-op), and an ML-8b advisory (warn,
+never block) flags `cadence = Authentic` over a pure `DiatonicToPart` policy.
+
+**Per-event opt-in fields (CPE-META-1, D1=C, same batch).** The Grid tab's
+"Selected Chord Event" panel edits `isDiatonic` and the SECDOM-1 pair
+(`hasAppliedTarget` / `appliedTarget`) alongside the existing event fields,
+with a non-blocking validity advisory that mirrors the render-time SECDOM rules
+(Reference Tonality as proxy for the triad check). These flow through the
+normal grid commit → apply path; no new write route.
+
+**Metadata in the import payload (CPE-META-2, D3=A, 2026-07-29).** The setup
+card accepts four OPTIONAL lines — `Quality render policy:`, `Use color
+table:`, `Cadence:`, and `Allowed tonalities:` (comma-separated `Tonality`
+enum names). Absence is silent and backward compatible; a present-but-invalid
+value emits the `InvalidMetadataField` warning and is ignored — the import mode
+is never degraded by metadata, and the tonality list is all-or-nothing (one bad
+name discards the whole list rather than silently narrowing the filter). On
+import, declared allowed tonalities set the window's tonality toggles (mirror
+state; they ride the normal apply route), while the direct-bound trio
+(policy / color table / cadence) is STAGED one-shot: a banner in the Asset
+Metadata section announces it, the next Apply/Save writes it onto the asset
+being written and clears the staging, and a Discard button drops it. Re-applies
+after consumption never touch metadata, preserving the CPE-META-1 (D2=C)
+no-clobber guarantee. The runtime payload path
+(`ChordProgressionRuntimeImporter.TryParsePayload`) stamps the same declared
+metadata on its in-memory instance (D-M2-3=A: one grammar, one behavior); a
+declared tonality list replaces the TONFILTER-1 single-entry provenance
+default. The LLM prompt requests only the descriptive fields — Cadence and
+Allowed tonalities (D-M2-4=A); policy and color table remain human choices,
+accepted on import when hand-written.
+
 ## 4. Progression asset semantics
 
 `ChordProgressionData` is the package-owned asset for authored chord-event content.
@@ -194,6 +237,50 @@ five-voice chords: drop-2 is triad-oriented (effectively inert for ninths), and
 a very tall five-voice stack near an instrument's range edge can have voices
 collapsed by the range clamp. Neither affects ≤4-voice chords.
 
+**Render policy: diatonic re-qualification (RUNTIME-REQUALITY, D-RQ-SURF=A).**
+`ChordProgressionData.qualityRenderPolicy` declares how an asset's qualities
+behave when the PART's tonality differs from the tonality the progression was
+authored against. Append-only enum, serialized ordinals:
+
+- `AsAuthored = 0` (default) — qualities render exactly as stored. Every
+  pre-existing asset deserializes into this, so the feature is inert until
+  opted into, and no existing render changes by one byte.
+- `DiatonicToPart = 1` — at render time, events flagged `isDiatonic`
+  re-resolve their quality to the diatonic chord of the part's tonality on the
+  same degree (an asset authored `I – IV – V` renders `i – iv – v` in an
+  Aeolian part), preserving triad-vs-seventh size.
+- `DiatonicToPartFunctional = 2` — as above, PLUS the common-practice dominant
+  exception (D-RQ-FUNC=A / D-RQ-FUNC-SCOPE=A): a Dominant-degree event authored
+  `Major` or `Dominant7` KEEPS its authored quality — and is marked borrowed
+  (`isDiatonic = false`) on the clone — in modes whose diatonic v would lose the
+  leading tone. This is the harmonic-minor practice of raising the dominant's
+  third surgically rather than swapping the whole scale. Pick `Functional` for
+  cadence-driven material and plain `DiatonicToPart` for pure modal color.
+
+Scope rules:
+- **Borrowed chords are never touched (D-RQ-BORROW=A).** `isDiatonic = false`
+  events keep their authored quality and `degreeAccidental`; a ♭VI stays a ♭VI.
+- **Core alphabet only, size-preserving (D-RQ-MAP=A).** The four triad
+  qualities re-map via the diatonic triad of (tonality, degree); the five
+  seventh qualities via the diatonic seventh. `Sus2`, `Sus4`, `Major6`,
+  `Minor6`, `Dominant7sus4` and the three ninths PASS THROUGH unchanged — they
+  have no clean modal reading and their color is authored intent. `Major` is
+  never promoted to `Dominant7`.
+- **Locrian is a documented no-op (D-RQ-LOCRIAN=A)** for both opt-in policies:
+  the tonic triad is itself diminished and every functional reading collapses.
+- **Determinism and asset safety.** `ChordProgressionRequality.
+  ApplyDiatonicRequality(prog, tonality)` is a pure function: zero rng draws,
+  clone-if-changed (the asset instance is NEVER mutated), same-reference return
+  when nothing would change, and idempotent (re-applying is a no-op, because
+  re-mapped events are diatonic-stable and the protected dominant re-enters as
+  borrowed and is skipped).
+
+The transform is applied to the shared DATA, not inside a composer: backing,
+bass and melody each compute chord pitch classes independently from the shared
+progression's per-event quality, so a composer-local branch would make them
+diverge. See `runtime/SSoT_Composer_Backing_Track.md` §3 for the two
+application sites.
+
 ### 4.2 Runtime consumption of the grammar (MGP-ALWTTT-DBG-4)
 
 The setup-card + fenced-Roman grammar defined by this document is now
@@ -212,6 +299,173 @@ runtime-side and the editor response handler delegates to it).
 Grammar semantics note, now test-pinned: a bare `7` suffix is literal
 `Dominant7` regardless of Roman case (`ii7` = Supertonic + Dominant7; a minor
 seventh requires `m7`).
+
+### 4.3 Asset and event opt-in fields (B1 HARMONY-PURE-1, B2 TONFILTER-1)
+
+Fields on `ChordProgressionData` and `ChordEvent` that are opt-in by
+construction: every one of them leaves pre-existing assets byte-identical
+until it is explicitly set.
+
+**`useColorTable : bool` (default `false`) — REQUALITY-2 (D-CT-GATE=A).**
+Opt-in, orthogonal to the policy: effective only under a `DiatonicToPart*`
+policy. It enables the lab's color table over the render clone, AFTER the core
+remap: sixths by mode (Aeolian/Phrygian: `6`/`m6` → `m7`; Dorian: `6` → `m6`),
+`sus2` → `sus4` in Phrygian, `9`/`Maj9` → `m9` on minorized degrees (with the
+functional exception: a `V9` under Functional keeps its quality and is marked
+borrowed, mirroring D-RQ-FUNC), and the degree substitution `ii(dim)` → `iv`
+(D-CT-DIM=A) on LONG events (≥ 2 beats, `ColorDiminishedMinBeats`) or ACCENTED
+ones (bar downbeat), preserving size (triad→triad, seventh→seventh), with
+accidental 0 and `isDiatonic = true`. The substitution applies to the
+POST-remap state even when the remap changed nothing (a sustained authored
+`ii°` also substitutes under the table); `vii°` is out of scope by decision.
+Assets already opted into requality stay byte-identical unless the flag is
+explicitly enabled.
+
+**`cadence : CadenceType` (default `None`) — CADENCE-META (D-CAD-AUTH=A).**
+Manually authored enum `{None=0, Authentic, Plagal, Half, Modal}`,
+append-only. Pure metadata: composers ignore it; consuming games may gate
+replace/reskin decisions on it. The editor's "Suggest" button is future QoL,
+not implemented.
+
+**`hasAppliedTarget : bool` + `appliedTarget : ScaleDegree` — SECDOM-1
+(D-SD-ENC=A / D-SD-OWN=A).** The secondary-dominant primitive, per event. The
+event stores a RELATION ("I am the dominant of that degree"), not a chord, so
+it survives transposition and mode changes — which is exactly what a shared
+progression demands. The FIELD is the opt-in: resolution runs at render time
+regardless of the policy (`AsAuthored` included) and regardless of the
+tonality (Locrian included).
+
+With the flag set, the render IGNORES the authored degree/accidental/quality
+and rewrites them on the clone: root = perfect fifth above the root of the
+target degree IN THE CURRENT MODE, expressed as (degree, accidental) — for
+valid targets the accidental is always 0, since the degree with a diminished
+fifth is exactly the diminished-triad degree that validity excludes —,
+quality `Dominant7`, `isDiatonic = false`. Validity (when it fails the
+authored event renders untouched, silently): the target's diatonic triad is
+major or minor; the next event by `startStep` (with wrap, so turnarounds are
+legal) is the target with accidental 0 and is not itself a secondary
+dominant; duration ≤ the target's.
+
+**Authoring.** The Roman string has NO syntax for this; the fields are set in
+the asset inspector AFTER the events have been generated (a fresh Apply of the
+string rebuilds them and loses the flags). Since CPE-META-1 (§3) the fields are
+editable in the Grid tab's "Selected Chord Event" panel, with a non-blocking
+validity advisory; the Roman string still has no syntax for them.
+
+**`tonalities` — descriptive reference metadata** (the list of modes the
+author conceived the progression for). Editor: informational toggles;
+catalogue wizard: an editor-only navigation filter. No runtime effect on the
+override, palette and runtime-importer paths since TONFILTER-1: there it does
+not filter selection, does not revert the part's tonality, and consumes no rng.
+The supported way to sound right outside the reference tonality is
+`qualityRenderPolicy` (§4.1).
+
+**Exception on record — F-B2-LIBRARY.** One legacy runtime path still READS
+this list as a filter: `ChordTrackComposer.PickTemplateForPart`, reachable only
+from the procedural library branch (`ctx.Settings.progressionLibrary != null`),
+discards candidate templates whose allowed list — the library entry's
+`compatibleTonalities` when non-empty, otherwise this field — excludes the
+part's tonality (`ChordTrackComposer.cs:1626–1635`); B2 left that path
+deliberately out of scope, so on an asset reached through a progression library
+`tonalities` is NOT inert. Runtime side of the same exception:
+`runtime/SSoT_Composer_Backing_Track.md` §2.2.
+
+### 4.4 Roman case precedence (EDITOR-CASE-1)
+
+**EDITOR-CASE-1 (D-EC-SEM=B).** Precedence: explicit suffix > unambiguous
+case > auto. With Auto-Diatonic active the numeral's case is no longer
+discarded: the case fixes the FAMILY and the auto mode fixes the SIZE ("iv"
+under Sevenths ⇒ `m7`, under Triads ⇒ `m`). The override only fires when the
+case CONTRADICTS the diatonic family: lowercase on a diatonic minor OR
+diminished degree (Roman convention also writes diminished degrees in
+lowercase) and uppercase on a major degree both keep the auto quality — so
+purely diatonic strings resolve exactly as they did before. A contradictory
+uppercase under Sevenths yields `Dominant7` on V and `Major7` elsewhere; a
+contradictory lowercase yields `Minor7`. Mixed case ("Iv") is discarded with
+a warning (the only warning case). Parse-time only: saved assets do not
+change. The `None` mode keeps its legacy semantics (case → explicit quality).
+Alphabet note: the bare `7` suffix is case-blind and always `Dominant7`
+("iv7" is iv with a Dom7; "ivm7" is the m7 spelling).
+
+### 4.5 Known hazards / fixes
+
+Two pre-existing hazards of the F-NORM-DROP family were fixed in passing in
+the editor: the grid's selection copy omitted `isDiatonic`, and the grid's
+round-trip copy omitted `isDiatonic` AND `degreeAccidental` (accidentals were
+lost when saving from the grid). Both sites now copy all 9 fields, secondary
+dominants included, and a reflection canary
+(`ChordEvent_FieldSurface_MatchesEveryFieldByFieldCopySite`) breaks if the
+field surface changes without every copy site being updated.
+
+### 4.6 Modulation planning primitive (B1 MOD-1, `ModulationPlanner`)
+
+`MidiGenPlay.Composition.ModulationPlanner` is a **pure, host-facing harmony
+primitive**: given a source key and a target key (each a tonic pitch class plus
+a `Tonality`) and an `int seed`, `Plan(...)` returns a `ModulationPlan`
+describing the raw material needed to stage a modulation. It is homed in this
+document because it emits `ChordProgressionData`-shaped material (degree +
+accidental + `ChordQuality`) and sits alongside the rest of the B1 opt-in
+surface (§4.3); it is **not** a composer feature.
+
+**It returns a PLAN, not a progression.** The package deliberately produces no
+events, no bars and no placement: WHEN the modulation happens, how long the
+pivot is held and how the dominant is voiced are game decisions. The host
+assembles the plan into a progression and injects it through the existing
+`patternOverride` surface (runtime contract:
+`runtime/SSoT_Runtime_Generation_Orchestration.md` §5; the per-render override
+precedence is step 0 of the backing SSoT §2.2). **Zero composer edits** — this
+is the HARMONY-PURE-1 invariant, and it is why no composer consults the planner.
+
+**Output (three parts).**
+
+1. **Functional dominant of the target.** `dominantRootPitchClass` is the pitch
+   class a perfect fifth above the target tonic; `dominantQuality` is always
+   `Dominant7` (functional cadence practice, not a diatonic derivation). The
+   same chord is also expressed against the target mode's own scale as
+   `dominantDegreeInTarget` (always `ScaleDegree.Dominant`) plus
+   `dominantAccidentalInTarget`, which is `0` in every diatonic mode except
+   Locrian, where it is `+1` (raising the diminished fifth to a perfect one).
+   That pair drops straight into a `ChordEvent` without further conversion.
+2. **Pivot candidates.** `pivots` is the intersection of the two keys' diatonic
+   triads, matched on **root pitch class AND triad quality** — a triad that
+   shares a root but not a quality is not a pivot. Each `PivotCandidate` carries
+   the root pitch class, the shared quality, its degree in the SOURCE key, its
+   degree in the TARGET key, and `subdominantInTarget`.
+3. **Common tones.** `commonTonePitchClasses` is the pitch-class intersection of
+   the two scales, ascending and de-duplicated.
+
+**Ranking (D-MOD-OUT=A).** Candidates are ordered by function in the TARGET,
+not in the source: the subdominant band (`Supertonic` / `Subdominant`,
+i.e. ii / IV) comes first, everything else after — the common-practice
+pivot-as-pre-dominant placement, so the caller can take `pivots[0]` and get a
+musically sensible pivot without reading the struct. Inside a band, order is a
+**seeded** deterministic tiebreak: `TieHash(seed, rootPitchClass,
+degreeInTarget)`, FNV-1a, with degree-in-target as a final total-order safety
+net. The seed therefore makes in-band order an explicit function of the caller's
+input rather than of discovery order — two hosts with different seeds get the
+same candidate SET and the same bands, in a different intra-band order.
+
+**Purity and determinism.** `Plan` is a pure function of its arguments: same
+arguments ⇒ same plan, down to list order. **Zero rng draws** — no
+`UnityEngine.Random`, no `System.Random`, no stream anywhere; the seed is only
+the key of an FNV-1a hash (the same "key of a pure mix, never a `System.Random`
+seed" idiom as `ResolveWalkSeed`). Nothing the planner does can perturb any
+composer's draw count or order. Lists are freshly allocated per call; callers
+may take ownership. Tonics outside `0..11` are wrapped rather than rejected.
+
+**Callers.** None inside the package — `SongOrchestrator` never touches it. The
+consumer is the host (in ALWTTT, a `PartEffect` such as `ModulationEffect`,
+namespace `ALWTTT.Cards`, out of tree and never governed here). Distinct from
+the **directional modulation hint** of `runtime/SSoT_Composer_Backing_Track.md`
+§6, which is a one-shot `PartConfig` transient shaping the first chord's
+register: §6 changes HOW a chord is voiced, MOD-1 chooses WHICH chords to use.
+The two are independent and may be combined by the host.
+
+Test surface: `Tests/Editor/ModulationPlannerTests.cs` (8 tests: the four
+textbook C→G pivots, the subdominant band ordering, the D7/accidental-0
+dominant, the six shared pitch classes, same-seed plan identity down to list
+order, different-seed same-set/same-bands, the Locrian `+1` accidental, and the
+Aeolian→relative-major pair sharing all seven triads).
 
 ## 5. Palette semantics
 
@@ -246,3 +500,17 @@ Update this SSoT when:
 - the editor window changes how authored data is interpreted or saved.
 - the MIDI import path changes segmentation, matching, or reduction semantics
   (`ChordMidiImporter`, Batch M3).
+- the quality render policy changes (§4.1): new enum members, the borrowed-chord
+  rule, the core-alphabet mapping table, the Functional dominant exception, or
+  the Locrian no-op.
+- the F-B2-LIBRARY exception changes (§4.3): the `PickTemplateForPart` library
+  filter is retired, gated, or extended — mirror the runtime side in
+  `runtime/SSoT_Composer_Backing_Track.md` §2.2.
+- the modulation planner changes (§4.6, MOD-1): the plan's output shape, the
+  pivot matching rule (root + quality), the D-MOD-OUT=A ranking or its FNV-1a
+  seeded tiebreak, the purity / zero-draws property, or the arrival of an
+  in-package caller (which would move the home out of this document).
+- the setup-card metadata grammar changes (§3, CPE-META-2): the optional
+  `Quality render policy` / `Use color table` / `Cadence` / `Allowed tonalities`
+  lines, their presence-gated parsing, the `InvalidMetadataField` warning, or
+  the one-shot staging that carries the direct-bound trio onto the asset.

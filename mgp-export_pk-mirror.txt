@@ -1,0 +1,43 @@
+# ============================================================
+# Set: pk-mirror  -- full refresh of the MidiGenPlay mirror
+#                    held in a consuming project's PK (ALWTTT).
+# Everything in session-b, plus the resident reference set.
+# ============================================================
+
+# --- everything from session-b
+Documentation~/planning/Especificacion_Contenido_FaseA.md
+Documentation~/planning/Handoff_Contenido_FaseB_ALWTTT.md
+Documentation~/authoring/SSoT_Authoring_Chord_Progressions.md
+Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md
+Documentation~/runtime/SSoT_Composer_Backing_Track.md
+Documentation~/runtime/SSoT_Composer_Bass_Track.md
+Documentation~/CURRENT_STATE.md
+Documentation~/SSoT_INDEX.md
+Runtime/CoreScripts/Composition/RomanProgressionParser.cs
+Editor/DrumPatternTextParser.cs
+Runtime/CoreScripts/Data/ChordProgressionData.cs
+Runtime/CoreScripts/ScriptableObjects/MIDIInstrumentSO.cs
+
+# --- governed contracts and orchestration surface
+Documentation~/SSoT_CONTRACTS.md
+Documentation~/runtime/SSoT_Runtime_Generation_Orchestration.md
+Documentation~/authoring/SSoT_Authoring_Tools.md
+
+# --- cross-project reference (consumer-facing; not package truth)
+Documentation~/reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md
+Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_BAGGAGE_1.md
+Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_POCKET.md
+Documentation~/reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md
+
+# --- card / palette surfaces written by ALWTTT (name mismatch = failed import)
+Runtime/CoreScripts/Composition/Data/BasslineCardConfigSO.cs
+Runtime/CoreScripts/Composition/Data/BackingCardConfigSO.cs
+Runtime/CoreScripts/Composition/Data/RhythmCardConfigSO.cs
+Runtime/CoreScripts/Composition/Data/ChordExpressionType.cs
+Runtime/CoreScripts/Composition/Data/ChordProgressionPaletteSO.cs
+Runtime/CoreScripts/Composition/Data/DrumPatternPaletteSO.cs
+
+# --- import / resolution seams
+Runtime/CoreScripts/Composition/ChordProgressionRuntimeImporter.cs
+Runtime/CoreScripts/Composition/ChordQualityResolver.cs
+Runtime/CoreScripts/Data/DrumPatternData.cs

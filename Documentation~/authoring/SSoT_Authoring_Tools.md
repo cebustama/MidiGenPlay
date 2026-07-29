@@ -215,7 +215,19 @@ Deprecation should only happen after `DrumPatternEditorWindow` is validated in p
 
 The package also contains smaller editor/tooling components such as:
 
-- dropdown drawers
+- dropdown drawers — the soundfont / bank / patch dropdowns on
+  `MIDIInstrumentSO` (`SoundFontDropdownDrawer`, `BankDropdownDrawer`,
+  `PatchDropdownDrawer`). Rewritten by INST-WIZ-1 (D-W2=B) to be
+  **multi-edit-correct and silent-write-free**: writes are gated behind
+  `EditorGUI.BeginChangeCheck` (never on repaint), every write — including the
+  dependent `BankName`/`PatchName` resets and the `PatchName`+`PatchIndex` pair
+  — goes through `SerializedProperty` so it applies coherently to all selected
+  targets with a single undo, mixed selections render `showMixedValue`, and a
+  list source that is ambiguous across the selection (mixed soundfont or bank)
+  disables the popup rather than guessing. A current value that is not in the
+  list renders as no selection and is **never** silently rewritten. This closes
+  a data-loss defect in which drawing the inspector for a multi-selection
+  copied the first asset's patch onto every selected asset.
 - asset-specific custom editors
 - repository/store abstractions for pattern/config assets
 - pure-function authoring helpers (e.g. `MidiGenPlay.Authoring.DrumPatternTextParser`)
@@ -256,6 +268,45 @@ is `authoring/SSoT_Authoring_Melody_Composition.md` §5 "MIDI file import (Batch
 > Asset-reset caveat (mirrors §7): the Phase-1 `MelodyPatternData` redesign
 > changed the serialized note shape, so pre-existing melody `.assets` deserialize
 > their note data as empty on first load and must be re-authored via the wizard.
+
+### E. Catalogue tools (browse-only and management variants)
+
+Catalogue tools own **discover → filter → inspect → select**. They are a
+different shape from the Category-A editors: there is no working copy and no
+normalize/preview stage, because they operate on whole assets rather than on
+authored musical data.
+
+Two variants exist, and the distinction is contractual:
+
+- **Browse-only** — `DrumPatternCatalogueWizard`, `ChordProgressionCatalogueWizard`.
+  These never mutate assets. Selecting a row pings/selects it for the normal
+  Inspector.
+- **Catalogue + management** — `MidiInstrumentCatalogueWizard` (INST-WIZ-1,
+  D-W1=A). Adds whole-asset lifecycle operations (create, duplicate, rename,
+  delete) and field editing.
+
+**Why the management variant does not duplicate the §2 loop.** Instrument assets
+are flat configuration with nothing derived to preview, so a working-copy
+normalize→preview→apply stage would add ceremony without adding safety. Instead:
+
+- **Editing is delegated, single-target.** The window embeds the asset's own
+  inspector (`Editor.CreateEditor`) for exactly ONE asset at a time. This reuses
+  the existing dropdown drawers rather than reimplementing them, and it makes the
+  multi-object-editing hazard structurally unreachable from this window.
+- **Lifecycle operations are explicit and confirmed.** Create/duplicate/rename
+  go through `AssetDatabase`; delete is behind a confirmation dialog. Failures
+  (for example an immutable package install) are reported in the window's status
+  line, never swallowed.
+- **The §1 no-silent-writes invariant is preserved**, not weakened: the window
+  writes only what the user edits, and the drawers it hosts were fixed in the
+  same batch (§3.C).
+
+**Export.** `MidiInstrumentCatalogueWizard` can export the current filtered set
+to CSV (file or clipboard). The column set is the union of every *visible
+serialized property* across the exported assets, so the export stays complete
+without the window knowing the field names — this is the supported way to answer
+catalogue-wide questions (consumer integration data, `PatchName`/`PatchIndex`
+hygiene, `volume01` authoring state) instead of opening assets one by one.
 
 ## 4. Package-owned vs cross-project-owned tools
 
@@ -366,3 +417,7 @@ Update this SSoT when:
 - the runtime consumption of per-step velocity is closed (update asset-truth vs runtime-consumption gap note)
 - the package adds a new test assembly (cross-reference
   `reference/package/Tests_Authoring_HowTo.md`)
+- a catalogue tool changes variant (browse-only ↔ management) or the management
+  variant's editing/lifecycle contract changes (§3.E)
+- the `MIDIInstrumentSO` dropdown drawers change their write discipline or
+  multi-edit behavior (§3.C)

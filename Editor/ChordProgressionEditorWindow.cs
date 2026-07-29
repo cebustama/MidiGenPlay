@@ -1,6 +1,7 @@
 ﻿#if UNITY_EDITOR
 using Melanchall.DryWetMidi.MusicTheory;
 using MidiGenPlay;
+using MidiGenPlay.Authoring;
 using MidiGenPlay.Composition;
 using MidiGenPlay.Services;
 using System;
@@ -100,6 +101,71 @@ public partial class ChordProgressionEditorWindow : EditorWindow
     // IMPORT-QOL-1 item 4 (D-QOL1-6=B): collapsed by default AND serialized so
     // the state persists across domain reloads like the other foldouts.
     [SerializeField] private bool showAllowedTonalities = false;
+
+    // CPE-META-1 (D2=C) — foldout state for the direct-bound Asset Metadata
+    // section. Collapsed by default and serialized like the other foldouts.
+    [SerializeField] private bool assetMetadataFoldout = false;
+
+    // CPE-META-2 (D3=A, D-M2-1=A) — ONE-SHOT pending imported metadata.
+    // The D2=C trio (policy / color table / cadence) is direct-bound asset
+    // state, so a payload import cannot write it silently and must not park
+    // it in mirror state (that would recreate the D2=A clobber). Instead the
+    // import STAGES it here; the next Apply/Save gesture consumes it onto the
+    // asset it writes and clears it, so subsequent applies never touch
+    // metadata again. Serialized so a domain reload doesn't drop a staged
+    // import; discardable from the Asset Metadata section.
+    [SerializeField] private bool pendingMetaPolicyPresent;
+    [SerializeField] private ChordProgressionData.QualityRenderPolicy pendingMetaPolicy;
+    [SerializeField] private bool pendingMetaColorPresent;
+    [SerializeField] private bool pendingMetaColor;
+    [SerializeField] private bool pendingMetaCadencePresent;
+    [SerializeField] private ChordProgressionData.CadenceType pendingMetaCadence;
+
+    private bool HasPendingImportedMetadata =>
+        pendingMetaPolicyPresent || pendingMetaColorPresent || pendingMetaCadencePresent;
+
+    /// <summary>CPE-META-2 — stage the plan's declared metadata as pending.</summary>
+    private void StageImportedMetadata(ChordLLMFieldPlan plan)
+    {
+        // A new import replaces any previous staging wholesale (per-field:
+        // an undeclared field clears its slot — "unspoken" is not "keep").
+        pendingMetaPolicyPresent = plan.SetQualityRenderPolicy;
+        pendingMetaPolicy = plan.QualityRenderPolicy;
+        pendingMetaColorPresent = plan.SetUseColorTable;
+        pendingMetaColor = plan.UseColorTable;
+        pendingMetaCadencePresent = plan.SetCadence;
+        pendingMetaCadence = plan.Cadence;
+    }
+
+    /// <summary>CPE-META-2 — drop staged metadata without writing it.</summary>
+    private void ClearPendingImportedMetadata()
+    {
+        pendingMetaPolicyPresent = false;
+        pendingMetaColorPresent = false;
+        pendingMetaCadencePresent = false;
+    }
+
+    /// <summary>
+    /// CPE-META-2 (D-M2-1=A) — write staged metadata onto the asset being
+    /// written by the current Apply/Save gesture, then clear the staging
+    /// (one-shot). Call AFTER Undo.RecordObject for that asset and BEFORE the
+    /// store save. No-op when nothing is staged, so hand-authored metadata on
+    /// re-applies stays untouched — the D2=C guarantee.
+    /// </summary>
+    private void ConsumePendingImportedMetadata(ChordProgressionData asset)
+    {
+        if (asset == null || !HasPendingImportedMetadata)
+            return;
+
+        if (pendingMetaPolicyPresent)
+            asset.qualityRenderPolicy = pendingMetaPolicy;
+        if (pendingMetaColorPresent)
+            asset.useColorTable = pendingMetaColor;
+        if (pendingMetaCadencePresent)
+            asset.cadence = pendingMetaCadence;
+
+        ClearPendingImportedMetadata();
+    }
     private GUIStyle gridPreviewStyle;
     private GUIStyle chordBlockLabelStyle;
     private ChordProgressionData lastLoadedAsset;
@@ -242,6 +308,13 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             }
             EditorGUI.indentLevel--;
         }
+
+        EditorGUILayout.Space();
+
+        // CPE-META-1 (D1=A, D2=C) — asset-level metadata, direct-bound to the
+        // target asset with songReferences write semantics (Undo + SetDirty
+        // per change; the Roman/Grid apply pipelines never touch these).
+        DrawAssetMetadataSection();
 
         EditorGUILayout.Space();
 
@@ -608,6 +681,227 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         DrawGridSelectionInspector(totalSteps);
     }
 
+    /// <summary>
+    /// CPE-META-1 (D1=A, D2=C). Asset-level metadata that previously could
+    /// only be authored in the Inspector: qualityRenderPolicy, useColorTable,
+    /// cadence, plus read-only DisplayName / originalInput provenance.
+    ///
+    /// Write semantics (D2=C — the songReferences precedent): the section
+    /// binds DIRECTLY to the target asset. Every field change is Undo-recorded
+    /// and SetDirty on the asset immediately; the Roman/Grid apply pipelines
+    /// never read or write these fields, so a re-apply can never clobber
+    /// hand-authored metadata. Load-on-bind is automatic by construction —
+    /// the section always renders the asset's current serialized values.
+    /// </summary>
+    private void DrawAssetMetadataSection()
+    {
+        assetMetadataFoldout = EditorGUILayout.Foldout(
+            assetMetadataFoldout, "Asset Metadata (policy / cadence)", true);
+
+        // CPE-META-2 — the pending banner renders regardless of the foldout
+        // state: a staged import that writes on the next Apply/Save must
+        // never be invisible.
+        if (HasPendingImportedMetadata)
+            DrawPendingImportedMetadataBanner();
+
+        if (!assetMetadataFoldout)
+            return;
+
+        if (targetAsset == null)
+        {
+            EditorGUILayout.HelpBox(
+                "Bind or create a Target Asset to edit its metadata.",
+                MessageType.Info);
+            return;
+        }
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            // --- Render policy ------------------------------------------
+            EditorGUI.BeginChangeCheck();
+            var newPolicy = (ChordProgressionData.QualityRenderPolicy)
+                EditorGUILayout.EnumPopup(
+                    new GUIContent("Quality Render Policy",
+                        "RUNTIME-REQUALITY. How chord qualities render when " +
+                        "the Part tonality differs from the authored intent. " +
+                        "AsAuthored: exactly as stored. DiatonicToPart: " +
+                        "diatonic events re-resolve to the Part tonality " +
+                        "(pure modal reading). DiatonicToPartFunctional: " +
+                        "same, plus the common-practice dominant exception. " +
+                        "Full semantics on the asset field tooltip."),
+                    targetAsset.qualityRenderPolicy);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(targetAsset, "Edit Quality Render Policy");
+                targetAsset.qualityRenderPolicy = newPolicy;
+                EditorUtility.SetDirty(targetAsset);
+            }
+
+            // --- Color table (gated: no-op under AsAuthored) -------------
+            bool colorTableEffective =
+                targetAsset.qualityRenderPolicy
+                    != ChordProgressionData.QualityRenderPolicy.AsAuthored;
+
+            using (new EditorGUI.DisabledScope(!colorTableEffective))
+            {
+                EditorGUI.BeginChangeCheck();
+                bool newUseColorTable = EditorGUILayout.Toggle(
+                    new GUIContent("Use Color Table",
+                        "REQUALITY-2 color table (opt-in). Only effective " +
+                        "when the render policy is DiatonicToPart / " +
+                        "Functional — disabled here under AsAuthored."),
+                    targetAsset.useColorTable);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(targetAsset, "Edit Use Color Table");
+                    targetAsset.useColorTable = newUseColorTable;
+                    EditorUtility.SetDirty(targetAsset);
+                }
+            }
+
+            // A pre-existing asset may carry useColorTable=true with an
+            // AsAuthored policy (a silent no-op at render). Surface it.
+            if (!colorTableEffective && targetAsset.useColorTable)
+            {
+                EditorGUILayout.HelpBox(
+                    "Use Color Table is enabled but the render policy is " +
+                    "AsAuthored, so it has no effect at render time.",
+                    MessageType.Info);
+            }
+
+            // --- Cadence metadata ---------------------------------------
+            EditorGUI.BeginChangeCheck();
+            var newCadence = (ChordProgressionData.CadenceType)
+                EditorGUILayout.EnumPopup(
+                    new GUIContent("Cadence",
+                        "CADENCE-META. Hand-authored cadence class — " +
+                        "metadata only: runtime composers ignore it; " +
+                        "consuming games may gate replace/reskin logic on " +
+                        "it. Leave None if unclassified."),
+                    targetAsset.cadence);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(targetAsset, "Edit Cadence Metadata");
+                targetAsset.cadence = newCadence;
+                EditorUtility.SetDirty(targetAsset);
+            }
+
+            // ML-8b advisory (non-blocking): an Authentic cadence tag over a
+            // PURE DiatonicToPart policy is the combination the content spec
+            // forbids — the pure modal reading has no guaranteed leading-tone
+            // dominant to cadence with. Functional is exempt: its dominant
+            // exception IS the cadential reading. Metadata stays
+            // hand-authored, so warn, never block.
+            if (targetAsset.cadence ==
+                    ChordProgressionData.CadenceType.Authentic &&
+                targetAsset.qualityRenderPolicy ==
+                    ChordProgressionData.QualityRenderPolicy.DiatonicToPart)
+            {
+                EditorGUILayout.HelpBox(
+                    "ML-8b: 'Authentic' cadence metadata over a pure " +
+                    "DiatonicToPart policy — the pure modal reading has no " +
+                    "guaranteed leading-tone dominant. Consider " +
+                    "DiatonicToPartFunctional, or a different cadence class.",
+                    MessageType.Warning);
+            }
+
+            // --- Read-only: display name + input provenance -------------
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUILayout.TextField(
+                    new GUIContent("Display Name",
+                        "Auto-generated by UpdateDisplayNameAuto() on every " +
+                        "apply/save — not hand-editable here."),
+                    targetAsset.DisplayName);
+
+                EditorGUILayout.LabelField("Original Input (read-only)");
+                EditorGUILayout.TextArea(
+                    string.IsNullOrEmpty(targetAsset.originalInput)
+                        ? "(empty)"
+                        : targetAsset.originalInput,
+                    GUILayout.MinHeight(
+                        EditorGUIUtility.singleLineHeight * 2f));
+            }
+
+            // IMPORT-QOL-1 item 6 — the "  [MIDI: <file>]" suffix is asset
+            // provenance, not Roman grammar. Make it legible as such.
+            bool hasMidiProvenance =
+                !string.IsNullOrEmpty(targetAsset.originalInput) &&
+                targetAsset.originalInput.Contains(
+                    MidiProvenancePrefix.Trim());
+
+            if (hasMidiProvenance)
+            {
+                EditorGUILayout.LabelField(
+                    "Provenance: imported from a MIDI file (suffix above).",
+                    EditorStyles.miniLabel);
+            }
+        }
+    }
+
+    /// <summary>
+    /// CPE-META-2 — banner for staged imported metadata: lists what will be
+    /// written by the next Apply/Save, surfaces the ML-8b combination on the
+    /// EFFECTIVE post-write values (pending value, else the bound asset's
+    /// current value), and offers Discard. Advisory only; never blocks.
+    /// </summary>
+    private void DrawPendingImportedMetadataBanner()
+    {
+        var parts = new List<string>();
+        if (pendingMetaPolicyPresent)
+            parts.Add($"Policy = {pendingMetaPolicy}");
+        if (pendingMetaColorPresent)
+            parts.Add($"Color table = {(pendingMetaColor ? "on" : "off")}");
+        if (pendingMetaCadencePresent)
+            parts.Add($"Cadence = {pendingMetaCadence}");
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            EditorGUILayout.HelpBox(
+                "Imported metadata staged (one-shot): " +
+                string.Join(", ", parts) +
+                ". Written to the asset by the next Apply To Target Asset / " +
+                "Save As New Asset, then cleared. Hand edits in this section " +
+                "for the same fields would be overwritten by that write.",
+                MessageType.Info);
+
+            // ML-8b on the EFFECTIVE combination after the pending write.
+            var effectivePolicy = pendingMetaPolicyPresent
+                ? pendingMetaPolicy
+                : (targetAsset != null
+                    ? targetAsset.qualityRenderPolicy
+                    : ChordProgressionData.QualityRenderPolicy.AsAuthored);
+            var effectiveCadence = pendingMetaCadencePresent
+                ? pendingMetaCadence
+                : (targetAsset != null
+                    ? targetAsset.cadence
+                    : ChordProgressionData.CadenceType.None);
+
+            if (effectiveCadence == ChordProgressionData.CadenceType.Authentic &&
+                effectivePolicy ==
+                    ChordProgressionData.QualityRenderPolicy.DiatonicToPart)
+            {
+                EditorGUILayout.HelpBox(
+                    "ML-8b: applying this staging yields 'Authentic' cadence " +
+                    "over a pure DiatonicToPart policy — the combination the " +
+                    "content spec forbids. Consider discarding or adjusting " +
+                    "after the write.",
+                    MessageType.Warning);
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Discard imported metadata",
+                        GUILayout.Width(190)))
+                {
+                    ClearPendingImportedMetadata();
+                    Repaint();
+                }
+            }
+        }
+    }
+
     private void DrawSongReferencesSection()
     {
         if (targetAsset == null)
@@ -694,6 +988,12 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 quality = src.quality,
                 velocity = src.velocity,
                 degreeAccidental = src.degreeAccidental,
+                // F-NORM-DROP family: field-by-field copies must carry EVERY
+                // ChordEvent field or edits silently reset them (isDiatonic
+                // was already being dropped here before HARMONY-PURE-1).
+                isDiatonic = src.isDiatonic,
+                hasAppliedTarget = src.hasAppliedTarget,
+                appliedTarget = src.appliedTarget,
             };
             gridSelectedIndex = idx;
             gridHasSelection = true;
@@ -778,6 +1078,43 @@ public partial class ChordProgressionEditorWindow : EditorWindow
 
             gridEditingEvent.velocity =
                 EditorGUILayout.IntSlider("Velocity", gridEditingEvent.velocity, 1, 127);
+
+            // CPE-META-1 (D1=C) — per-event opt-in fields that previously
+            // required the Inspector. Edits flow through the same working
+            // copy + OK/commit path as every other event field (F-NORM-DROP:
+            // the copies in HandleGridMouse already carry all fields).
+            gridEditingEvent.isDiatonic = EditorGUILayout.Toggle(
+                new GUIContent("Is Diatonic",
+                    "True if this chord's quality matches the diatonic " +
+                    "harmony for the reference tonality; false marks it " +
+                    "borrowed (D-RQ-BORROW: borrowed events keep their " +
+                    "authored quality and accidental under DiatonicToPart* " +
+                    "policies). Note: the Roman apply path recomputes this " +
+                    "flag; grid applies keep what you set here."),
+                gridEditingEvent.isDiatonic);
+
+            gridEditingEvent.hasAppliedTarget = EditorGUILayout.Toggle(
+                new GUIContent("Has Applied Target (SECDOM-1)",
+                    "If enabled, this event renders as the secondary " +
+                    "dominant (V7/x) of the target degree — root a perfect " +
+                    "5th above the target's root in the current mode, " +
+                    "quality Dominant7, marked borrowed. Authored " +
+                    "degree/quality are ignored while enabled (kept as " +
+                    "documentation/fallback)."),
+                gridEditingEvent.hasAppliedTarget);
+
+            if (gridEditingEvent.hasAppliedTarget)
+            {
+                gridEditingEvent.appliedTarget =
+                    (ScaleDegree)EditorGUILayout.EnumPopup(
+                        new GUIContent("Applied Target",
+                            "Target degree for the secondary dominant. " +
+                            "Valid targets have a major or minor diatonic " +
+                            "triad in the render tonality."),
+                        gridEditingEvent.appliedTarget);
+
+                DrawSecdomAdvisory();
+            }
         }
 
         using (new EditorGUILayout.HorizontalScope())
@@ -808,6 +1145,78 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 gridEditingEvent = null;
                 Repaint();
             }
+        }
+    }
+
+    /// <summary>
+    /// CPE-META-1 (D1=C) — non-blocking SECDOM-1 validity precheck for the
+    /// event being edited. Mirrors the render-time validity rules (target's
+    /// diatonic triad is major/minor; the next event by startStep — wrapping
+    /// — is the target degree with no accidental; this event lasts no longer
+    /// than the target) so an author learns NOW that an invalid setup will
+    /// silently render its authored values. Advisory only: the render
+    /// tonality is decided at render time, so the window's Reference
+    /// Tonality is used as a proxy for the triad check.
+    /// </summary>
+    private void DrawSecdomAdvisory()
+    {
+        var ev = gridEditingEvent;
+        var problems = new List<string>();
+
+        // Triad check (proxy: reference tonality).
+        var targetTriad =
+            GetDiatonicTriadQuality(referenceTonality, ev.appliedTarget);
+        var family = ChordQualityResolver.GetTriadFamily(targetTriad);
+        if (family != TriadFamily.Major && family != TriadFamily.Minor)
+        {
+            problems.Add(
+                $"the target degree's diatonic triad in {referenceTonality} " +
+                "is neither major nor minor");
+        }
+
+        // Next-event check (by startStep, wrapping) against the grid list,
+        // excluding the event currently being edited.
+        var others = gridEvents
+            .Where((e, i) => i != gridSelectedIndex)
+            .OrderBy(e => e.startStep)
+            .ToList();
+
+        if (others.Count == 0)
+        {
+            problems.Add("there is no following event to resolve into");
+        }
+        else
+        {
+            var next = others.FirstOrDefault(e => e.startStep > ev.startStep)
+                       ?? others[0]; // wrap to the first event
+            if (next.degree != ev.appliedTarget || next.degreeAccidental != 0)
+            {
+                problems.Add(
+                    "the next event is not the target degree " +
+                    "(with no accidental)");
+            }
+            if (ev.lengthSteps > next.lengthSteps)
+            {
+                problems.Add(
+                    "this event lasts longer than the target event");
+            }
+        }
+
+        if (problems.Count > 0)
+        {
+            EditorGUILayout.HelpBox(
+                "SECDOM-1 validity (advisory — final check runs at render): " +
+                string.Join("; ", problems) +
+                ". Invalid setups render their authored values untouched.",
+                MessageType.Warning);
+        }
+        else
+        {
+            EditorGUILayout.HelpBox(
+                $"Renders as V7/{ev.appliedTarget} (checked against " +
+                $"{referenceTonality}; final validity is decided at render " +
+                "in the Part tonality).",
+                MessageType.Info);
         }
     }
 
@@ -936,6 +1345,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             return;
         }
 
+        // EDITOR-CASE-1: surface discarded (mixed) case.
+        WarnMixedCaseTokens(chords);
+
         // Update both the linear text preview and the colored grid preview
         UpdatePreview(chords);
 
@@ -980,6 +1392,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 "No chords were parsed from the input.", "OK");
             return;
         }
+
+        // EDITOR-CASE-1: surface discarded (mixed) case.
+        WarnMixedCaseTokens(chords);
 
         // Decide which TimeSignature we are using for this progression.
         //    - If there is already a target asset, respect its TS by default.
@@ -1089,6 +1504,10 @@ public partial class ChordProgressionEditorWindow : EditorWindow
             currentStep += chordSteps;
         }
 
+        // CPE-META-2 (D-M2-1=A) — consume any staged imported metadata as
+        // part of this explicit write gesture (one-shot; no-op otherwise).
+        ConsumePendingImportedMetadata(targetAsset);
+
         targetAsset.UpdateDisplayNameAuto();
 
         // Keep grid view in sync with the asset we just wrote
@@ -1170,6 +1589,10 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         string romanFromGrid = BuildRomanStringFromGrid(cleaned);
         progressionInput = romanFromGrid;   // keep UI in sync (parseable)
         targetAsset.originalInput = WithMidiProvenance(romanFromGrid);
+
+        // CPE-META-2 (D-M2-1=A) — one-shot staged-metadata consumption.
+        ConsumePendingImportedMetadata(targetAsset);
+
         targetAsset.UpdateDisplayNameAuto();
 
         // PATTERN-PERSIST-1 — store owns SetDirty + SaveAssets + Refresh + cache refresh.
@@ -1487,6 +1910,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 return;
             }
 
+            // EDITOR-CASE-1: surface discarded (mixed) case.
+            WarnMixedCaseTokens(chords);
+
             // For a new asset, use the window's timeSignature field
             TimeSignature effectiveTs = timeSignature;
             var tsInfo = TimeSignatureProperties[effectiveTs];
@@ -1577,6 +2003,9 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 currentStep += steps;
             }
 
+            // CPE-META-2 (D-M2-1=A) — one-shot staged-metadata consumption.
+            ConsumePendingImportedMetadata(newAsset);
+
             newAsset.UpdateDisplayNameAuto();
 
             // Point the window to the new asset and sync grid
@@ -1643,6 +2072,10 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         string romanFromGrid2 = BuildRomanStringFromGrid(cleanedEvents);
         progressionInput = romanFromGrid2;
         assetFromGrid.originalInput = WithMidiProvenance(romanFromGrid2);
+
+        // CPE-META-2 (D-M2-1=A) — one-shot staged-metadata consumption.
+        ConsumePendingImportedMetadata(assetFromGrid);
+
         assetFromGrid.UpdateDisplayNameAuto();
 
         // Make the window edit this new asset
@@ -1765,6 +2198,13 @@ public partial class ChordProgressionEditorWindow : EditorWindow
                 copy.degree = e.degree;
                 copy.quality = e.quality;
                 copy.velocity = Mathf.Clamp(e.velocity, 0, 127);
+                // F-NORM-DROP family: this round-trip copy was dropping
+                // degreeAccidental AND isDiatonic (accidentals silently
+                // stripped on grid save). Carry every field, secdom included.
+                copy.degreeAccidental = e.degreeAccidental;
+                copy.isDiatonic = e.isDiatonic;
+                copy.hasAppliedTarget = e.hasAppliedTarget;
+                copy.appliedTarget = e.appliedTarget;
                 return copy;
             })
             .OrderBy(e => e.startStep)
@@ -1932,6 +2372,26 @@ public partial class ChordProgressionEditorWindow : EditorWindow
         return string.Join(" – ", tokens);
     }
 
+
+    // EDITOR-CASE-1. Mixed-case Roman cores ("Iv") are ambiguous: the case
+    // is discarded and the auto-diatonic (or literal) reading applies. Warn
+    // once per parse so the author knows their intent was not honored.
+    // Suffix-qualified tokens are exempt — the suffix already won.
+    private void WarnMixedCaseTokens(List<ParsedChord> chords)
+    {
+        if (chords == null) return;
+        for (int i = 0; i < chords.Count; i++)
+        {
+            var pc = chords[i];
+            if (pc.isRest || pc.explicitQuality.HasValue) continue;
+            if (pc.caseHint != RomanCaseHint.Mixed) continue;
+            Debug.LogWarning(
+                $"[ChordProgressionEditor] Token #{i + 1} has MIXED case in " +
+                "its Roman numeral — case was ignored and the " +
+                "auto-diatonic/default quality was used. Use consistent " +
+                "case (\"IV\" / \"iv\") or an explicit suffix.");
+        }
+    }
 
     // Maps the editor-facing AutoDiatonicMode to the runtime AutoChordQualityMode.
     private AutoChordQualityMode GetAutoChordQualityMode()

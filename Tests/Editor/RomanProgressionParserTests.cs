@@ -142,6 +142,63 @@ namespace MidiGenPlay.Tests.Editor
             Assert.IsTrue(parser.TryParse("I6/9", 1f, false, out var c69, out _));
             Assert.IsNull(c69[0].explicitQuality);
         }
+
+        // -------------------------------------------------------------
+        // EDITOR-CASE-1 — caseHint capture
+        // -------------------------------------------------------------
+
+        [Test]
+        public void CaseHint_CapturedForEveryToken_RegardlessOfMode()
+        {
+            // inferTriadFromCase = false (auto-diatonic path): the case is
+            // no longer converted to an explicit quality, but the hint must
+            // travel on ParsedChord so the resolver can honor it.
+            var chords = Parse("I – v – Iv", inferTriadFromCase: false);
+
+            Assert.AreEqual(RomanCaseHint.Upper, chords[0].caseHint);
+            Assert.AreEqual(RomanCaseHint.Lower, chords[1].caseHint);
+            Assert.AreEqual(RomanCaseHint.Mixed, chords[2].caseHint);
+
+            Assert.IsNull(chords[0].explicitQuality,
+                "Auto path: case must NOT become an explicit quality.");
+            Assert.IsNull(chords[1].explicitQuality);
+            Assert.IsNull(chords[2].explicitQuality);
+        }
+
+        [Test]
+        public void CaseHint_NoneMode_LegacyBehaviorUnchanged()
+        {
+            // inferTriadFromCase = true (AutoDiatonicMode.None): case is
+            // still promoted to an explicit triad, exactly as before —
+            // AND the hint is populated on top.
+            var chords = Parse("ii – V", inferTriadFromCase: true);
+
+            Assert.AreEqual(ChordQuality.Minor, chords[0].explicitQuality);
+            Assert.AreEqual(RomanCaseHint.Lower, chords[0].caseHint);
+            Assert.AreEqual(ChordQuality.Major, chords[1].explicitQuality);
+            Assert.AreEqual(RomanCaseHint.Upper, chords[1].caseHint);
+        }
+
+        [Test]
+        public void CaseHint_SuffixStillWins_HintStaysInformational()
+        {
+            // "iv7" carries both a lower case and an explicit suffix. The
+            // suffix alphabet is CASE-BLIND and authoritative: bare "7" is
+            // Dominant7 regardless of the numeral's case ("ivm7" is the m7
+            // spelling). The hint is captured but stays informational.
+            var chords = Parse("iv7", inferTriadFromCase: false);
+
+            Assert.AreEqual(ChordQuality.Dominant7, chords[0].explicitQuality);
+            Assert.AreEqual(RomanCaseHint.Lower, chords[0].caseHint);
+        }
+
+        [Test]
+        public void CaseHint_Rests_AreNone()
+        {
+            var chords = Parse("I – R", inferTriadFromCase: false);
+            Assert.IsTrue(chords[1].isRest);
+            Assert.AreEqual(RomanCaseHint.None, chords[1].caseHint);
+        }
     }
 }
 #endif

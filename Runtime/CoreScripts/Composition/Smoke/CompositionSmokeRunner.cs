@@ -158,7 +158,8 @@ namespace MidiGenPlay.Composition
                     partIndex: 0,
                     bpmOverride: effectiveCtx.bpm,
                     instrumentOverrides: null,
-                    seedOverride: setup.overrideSeed ? setup.seed : (int?)null);
+                    seedOverride: setup.overrideSeed ? setup.seed : (int?)null,
+                    defaultProgression: setup.defaultProgression);
                 file = render?.merged;
             }
             catch (System.Exception ex)

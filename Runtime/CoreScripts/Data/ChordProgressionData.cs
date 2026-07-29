@@ -30,10 +30,145 @@ namespace MidiGenPlay
             [Range(-1, 1)]
             [Tooltip("Accidental on the scale degree root: -1 = flat (♭), 0 = natural, +1 = sharp (♯).")]
             public int degreeAccidental = 0;
+
+            // ---- SECDOM-1 (HARMONY-PURE-1) -------------------------------
+            // Secondary-dominant primitive. The FIELD is the opt-in: no
+            // existing asset has it, so the zero-impact guarantee holds by
+            // construction and resolution runs regardless of
+            // qualityRenderPolicy (even AsAuthored).
+            //
+            // D-SD-ENC=A  bool + ScaleDegree pair (Unity can't serialize
+            //             nullables; a -1 sentinel int would be inspector-
+            //             hostile).
+            // D-SD-OWN=A  when hasAppliedTarget is true, render IGNORES the
+            //             authored degree/degreeAccidental/quality and
+            //             rewrites the event on the runtime clone: root = a
+            //             perfect 5th above the target degree's root IN THE
+            //             CURRENT MODE (accidental computed), quality =
+            //             Dominant7, isDiatonic = false. Authored values are
+            //             documentation/fallback if the flag is turned off.
+            // Validity (checked at render; invalid => authored values render
+            // untouched): target's diatonic triad in the current tonality is
+            // Major or Minor; the NEXT event (by startStep, wrapping) has
+            // degree == appliedTarget with no accidental; this event's
+            // lengthSteps <= the target event's lengthSteps.
+            [Tooltip("SECDOM-1. If enabled, this event renders as the " +
+                     "secondary dominant (V7/x) of the target degree: root a " +
+                     "perfect 5th above the target's root in the current " +
+                     "mode, quality Dominant7, marked borrowed. Authored " +
+                     "degree/quality are ignored while enabled. The event " +
+                     "must sit immediately before the target and last no " +
+                     "longer than it.")]
+            public bool hasAppliedTarget = false;
+
+            [Tooltip("SECDOM-1. Target degree for the secondary dominant " +
+                     "(only used when Has Applied Target is on). Valid " +
+                     "targets are degrees whose diatonic triad in the " +
+                     "render tonality is major or minor.")]
+            public ScaleDegree appliedTarget = ScaleDegree.Tonic;
         }
 
         [Tooltip("Events in step units (startStep/lengthSteps).")]
         public List<ChordEvent> events = new List<ChordEvent>();
+
+        /// <summary>
+        /// RUNTIME-REQUALITY (D-RQ-SURF=A). How this progression's chord
+        /// qualities render when the Part tonality differs from the authored
+        /// intent. Append-only; values serialized, never renumbered.
+        /// </summary>
+        public enum QualityRenderPolicy
+        {
+            AsAuthored = 0,     // qualities render exactly as stored (legacy default)
+            DiatonicToPart = 1, // diatonic events re-resolve to the Part tonality
+            // REQUALITY-FUNC (D-RQ-FUNC=A): DiatonicToPart PLUS the
+            // common-practice dominant exception — a Dominant-degree event
+            // authored Major/Dominant7 keeps its authored quality (and is
+            // marked borrowed) instead of losing its leading tone in modes
+            // whose diatonic v is not major. "Functional" = common-practice
+            // cadential reading; plain DiatonicToPart = pure modal reading.
+            DiatonicToPartFunctional = 2,
+        }
+
+        [Header("Render Policy")]
+        [Tooltip("RUNTIME-REQUALITY. AsAuthored (default): chord qualities " +
+                 "render exactly as stored — every pre-existing asset " +
+                 "deserializes into this and is byte-identical. DiatonicToPart: " +
+                 "at render time, events marked isDiatonic re-resolve their " +
+                 "quality to the diatonic chord of the PART's tonality on the " +
+                 "same degree (I–IV–V in a minor part renders i–iv–v), " +
+                 "preserving triad-vs-seventh size (D-RQ-MAP=A: only the four " +
+                 "triad and five seventh qualities re-map; Sus/6th/9th colors " +
+                 "pass through). Borrowed chords (isDiatonic=false) always " +
+                 "keep their authored quality and accidental (D-RQ-BORROW=A). " +
+                 "Applied to the runtime clone only — the asset is never " +
+                 "mutated. Pure and deterministic: zero rng draws. " +
+                 "DiatonicToPartFunctional: same as DiatonicToPart, plus the " +
+                 "common-practice dominant exception (REQUALITY-FUNC): a V " +
+                 "authored Major or Dominant7 KEEPS its authored quality — " +
+                 "marked as borrowed (isDiatonic=false) — in modes whose " +
+                 "diatonic v loses the leading tone (harmonic-minor practice: " +
+                 "the surgical raise of the dominant's third). Pick Functional " +
+                 "for cadence-driven material, plain DiatonicToPart for pure " +
+                 "modal color. Locrian is a documented no-op for both " +
+                 "(degenerate tonic).")]
+        public QualityRenderPolicy qualityRenderPolicy = QualityRenderPolicy.AsAuthored;
+
+        /// <summary>
+        /// REQUALITY-2 (D-CT-GATE=A). Opt-in for the musical-lab COLOR TABLE,
+        /// orthogonal to the policy so assets already opted into
+        /// DiatonicToPart/Functional keep their exact pre-B1 render (the
+        /// zero-impact guarantee is by construction, not by audit). Only
+        /// effective when qualityRenderPolicy != AsAuthored. Rules (applied to
+        /// diatonic events, AFTER the core remap, on the runtime clone only):
+        ///  - Sixths: Aeolian/Phrygian part => Major6/Minor6 -> Minor7 (no
+        ///    natural 6th to color with); Dorian part => Major6 -> Minor6
+        ///    (Dorian's own color keeps the 6th, fixes the third).
+        ///  - Sus: Phrygian part => Sus2 -> Sus4 (the b2 kills the M2 color).
+        ///  - Ninths: on minorized degrees (diatonic triad of the part
+        ///    tonality is minor) Dominant9/Major9 -> Minor9; EXCEPT a
+        ///    Dominant9 on V under the Functional policy, which keeps its
+        ///    authored quality and is marked borrowed (same practice as the
+        ///    core dominant exception).
+        ///  - Degree substitution ii(dim) -> iv (D-CT-DIM=A): when the core
+        ///    remap leaves a diminished-family quality on the Supertonic of a
+        ///    LONG (>= 2 beats) or ACCENTED (starts on a measure downbeat)
+        ///    diatonic event, the event re-renders as the Subdominant with
+        ///    the size-preserving diatonic quality (accidental reset to 0).
+        ///    Short, unaccented passing ii(dim) is kept — common practice.
+        /// </summary>
+        [Tooltip("REQUALITY-2 color table (opt-in; needs a DiatonicToPart* " +
+                 "policy). Adds the musical-lab color rules on top of the " +
+                 "core remap: sixths re-colored per mode (6->m7 in " +
+                 "Aeolian/Phrygian, 6->m6 in Dorian), sus2->sus4 in " +
+                 "Phrygian, 9/Maj9->m9 on minorized degrees (V9 protected " +
+                 "under Functional), and ii(dim)->iv substitution on long or " +
+                 "accented events. Applied to the runtime clone only; " +
+                 "existing opted-in assets are untouched unless this is " +
+                 "explicitly enabled.")]
+        public bool useColorTable = false;
+
+        /// <summary>
+        /// CADENCE-META (D-CAD-AUTH=A). Hand-authored cadence classification
+        /// of this progression. Pure metadata: the package stores it, the
+        /// consuming game's replace/reskin gate reads it. None (default) is
+        /// the no-op value every pre-existing asset deserializes into.
+        /// Append-only; values serialized, never renumbered.
+        /// </summary>
+        public enum CadenceType
+        {
+            None = 0,
+            Authentic = 1,
+            Plagal = 2,
+            Half = 3,
+            Modal = 4,
+        }
+
+        [Header("Cadence Metadata")]
+        [Tooltip("CADENCE-META. Hand-authored cadence class of this " +
+                 "progression (metadata only — runtime composers ignore it; " +
+                 "consuming games may gate replace/reskin logic on it). " +
+                 "Leave None if unclassified.")]
+        public CadenceType cadence = CadenceType.None;
 
         [Header("Tonality Filter")]
         [Tooltip("If empty, this progression can be used in any tonality. " +

@@ -120,6 +120,21 @@ namespace MidiGenPlay.Composition
             dst.subdivisions = dstSub;
 
             dst.originalInput = srcProg.originalInput;
+
+            // RUNTIME-REQUALITY (F-NORM-DROP fix): the TS/subdivision
+            // reprojection builds dst field-by-field rather than cloning, so
+            // EVERY new ChordProgressionData field must be copied here or it
+            // silently reverts to its default on the runtime clone. Dropping
+            // qualityRenderPolicy made requality a no-op for any progression
+            // that needed normalization (i.e. almost all of them: authoring
+            // writes sub x1, the composer wants x4).
+            dst.qualityRenderPolicy = srcProg.qualityRenderPolicy;
+
+            // HARMONY-PURE-1 additions to the copy list (same F-NORM-DROP
+            // hazard): the color-table opt-in and the cadence metadata.
+            dst.useColorTable = srcProg.useColorTable;
+            dst.cadence = srcProg.cadence;
+
             dst.songReferences = srcProg.songReferences != null
                 ? new List<string>(srcProg.songReferences)
                 : new List<string>();
@@ -177,7 +192,12 @@ namespace MidiGenPlay.Composition
                     quality = se.quality,
                     velocity = se.velocity,
                     isDiatonic = se.isDiatonic,
-                    degreeAccidental = se.degreeAccidental
+                    degreeAccidental = se.degreeAccidental,
+                    // SECDOM-1 (F-NORM-DROP): the secondary-dominant opt-in
+                    // must survive the field-by-field reprojection or the
+                    // primitive silently dies on any normalized progression.
+                    hasAppliedTarget = se.hasAppliedTarget,
+                    appliedTarget = se.appliedTarget
                 });
             }
 
@@ -376,23 +396,40 @@ namespace MidiGenPlay.Composition
                 }
             }
 
-            // 2b) If the progression constrains tonalities, align the part's mode to it.
-            if (prog != null && prog.tonalities != null && prog.tonalities.Count > 0)
+            // 2b) TONFILTER-1 (D-B2-1=C): the part's tonality is card
+            // authority and is NEVER reverted by the progression asset.
+            // ChordProgressionData.tonalities is descriptive metadata
+            // (authoring reference / import provenance), not a runtime
+            // veto. The pre-B2 alignment here consumed one ctx.rng draw
+            // and overrode part.Tonality whenever the asset's list
+            // excluded it — defeating both card authority and
+            // RUNTIME-REQUALITY (which runs in 2c against the FINAL part
+            // tonality and exists precisely to adapt out-of-reference
+            // assets). Removing it removes that draw ONLY on renders
+            // where the revert used to fire; all other rng streams are
+            // unchanged (SEED-1 goldens are the detector).
+            //
+            // Conflict signal (D-B2-2=B): when the asset's authored
+            // tonalities exclude the part tonality AND the asset renders
+            // AsAuthored (no requality adaptation), say so — via readback
+            // (testable) and a logGenerator-gated warning — instead of
+            // failing silently through a filter. Pure: zero rng draws.
+            if (prog != null && prog.tonalities != null && prog.tonalities.Count > 0 &&
+                !prog.tonalities.Contains(part.Tonality) &&
+                prog.qualityRenderPolicy ==
+                    ChordProgressionData.QualityRenderPolicy.AsAuthored)
             {
-                var chosenTonality = PickTonalityFromProgression(part, prog, ctx);
+                resolvedChoice.tonalityMismatch = true;
 
-                if (chosenTonality.HasValue && chosenTonality.Value != part.Tonality)
+                if (_settings?.logGenerator == true)
                 {
-                    if (_settings?.logGenerator == true)
-                    {
-                        Debug.Log(
-                            $"<color=cyan>[ChordTrackComposer]</color> " +
-                            $"Overriding part tonality for '{part.Name}': " +
-                            $"{part.Tonality} → {chosenTonality.Value} " +
-                            $"(root={part.RootNote}) based on progression '{prog.DisplayName}'.");
-                    }
-
-                    part.Tonality = chosenTonality.Value;
+                    Debug.LogWarning(
+                        $"[ChordTrackComposer] Progression '{prog.DisplayName}' was " +
+                        $"authored for [{string.Join(", ", prog.tonalities)}] but part " +
+                        $"'{part.Name}' is {part.Tonality}; rendering AsAuthored in the " +
+                        $"part's tonality (card wins). Consider " +
+                        $"qualityRenderPolicy=DiatonicToPart on the asset if it should " +
+                        $"adapt diatonically.");
                 }
             }
 
@@ -406,6 +443,28 @@ namespace MidiGenPlay.Composition
                     Debug.Log($"[ChordTrackComposer] PRE-NORM progTS={prog.TimeSignature} sub={prog.subdivisions} partTS={part.TimeSignature}");
 
                 var runtimeProg = NormalizeProgressionForPartIfNeeded(part, prog);
+
+                // RUNTIME-REQUALITY (D-RQ-SITE): diatonic re-resolution for
+                // opt-in assets (qualityRenderPolicy == DiatonicToPart), applied
+                // to the runtime clone AFTER step 2b so the FINAL part tonality
+                // (including any tonality-filter alignment) is used, and INSIDE
+                // the same clone/publication step as TS normalization so the
+                // don't-overwrite publication guard below still compares against
+                // the ORIGINAL prog and every shared-channel consumer (bass,
+                // melody) sees the requalified data. AsAuthored (default) is a
+                // same-reference no-op. Pure: zero rng draws.
+                var requalified = ChordProgressionRequality.ApplyDiatonicRequality(
+                    runtimeProg, part.Tonality);
+                if (!ReferenceEquals(requalified, runtimeProg) &&
+                    _settings?.logGenerator == true)
+                {
+                    Debug.Log(
+                        $"<color=cyan>[ChordTrackComposer]</color> RUNTIME-REQUALITY " +
+                        $"applied for part='{part.Name}' (tonality={part.Tonality}, " +
+                        $"progression='{requalified.DisplayName}').");
+                }
+                runtimeProg = requalified;
+
                 bool changed = !ReferenceEquals(runtimeProg, prog);
 
                 // Upgrade cache only if it is empty or points to the same (un-normalized) progression.
@@ -1785,26 +1844,6 @@ namespace MidiGenPlay.Composition
             return Mathf.Max(1, count);
         }
 
-
-        private static Tonality? PickTonalityFromProgression(
-            SongConfig.PartConfig part,
-            ChordProgressionData prog,
-            MidiGenerator.GenContext ctx)
-        {
-            if (prog == null || prog.tonalities == null || prog.tonalities.Count == 0)
-                return null;
-
-            var allowed = prog.tonalities;
-
-            // If the part already has a compatible mode, keep it – cards can pre-set it.
-            if (allowed.Contains(part.Tonality))
-                return part.Tonality;
-
-            // Otherwise pick one from the allowed list.
-            var rng = ctx?.rng ?? new System.Random();
-            int idx = rng.Next(allowed.Count);
-            return allowed[idx];
-        }
 
         // ---------------------------------------------------------------------
         // Modulation directional first-chord override

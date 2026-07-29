@@ -2,6 +2,7 @@
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
+using Melanchall.DryWetMidi.Standards;
 using MidiGenPlay.Composition;
 using System;
 using System.Collections.Generic;
@@ -126,6 +127,41 @@ namespace MidiGenPlay
                 SetMelodyForPartMusician;
             public Func<SongConfig.PartConfig, string>
                 GetFirstMelodyMusicianIdForPart;
+            // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): per-part rhythm onset
+            // channel. The rhythm composer PUBLISHES the onsets of its resolved
+            // grid pattern (post-normalization, post-repeat, truncated to the
+            // part end, RESOLVED lanes only — what actually sounds on the kit);
+            // downstream composers (bass SlapPocket) CONSUME them. Same
+            // per-part cache molde as the progression/melody delegates above;
+            // orchestration-owned state, never a session bridge. Multi-drummer:
+            // publication is keyed by musicianId and the getter returns the
+            // FIRST non-empty publication in composition (track-list) order —
+            // deterministic by construction (list-backed, not dictionary
+            // enumeration). Procedural and legacy rhythm paths publish nothing
+            // in v1, so consumers must treat null/empty as "no source" and
+            // degrade. Null outside the orchestrator entry points (direct
+            // test/tooling calls) — consumers must null-check the delegates.
+            public Func<SongConfig.PartConfig, List<RhythmOnset>>
+                GetRhythmOnsetsForPart;
+            public Action<SongConfig.PartConfig, string, List<RhythmOnset>>
+                SetRhythmOnsetsForPartMusician;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): one audible drum hit of the
+        /// resolved rhythm pattern, in SEMANTIC lane terms (the authored
+        /// <see cref="GeneralMidiPercussion"/>, PRE kit resolution — consumers
+        /// classify kick/snare on the semantic lane, immune to PERC-FALLBACK-1
+        /// substitutions). <see cref="beat"/> is part-relative in Part beatSpan
+        /// units (commensurable with the chord-event windows every composer
+        /// derives from the Part TS); <see cref="velocity"/> is the resolved,
+        /// clamped 1..127 step velocity (StepState sentinel already applied).
+        /// </summary>
+        public struct RhythmOnset
+        {
+            public GeneralMidiPercussion instrument;
+            public double beat;
+            public int velocity;
         }
 
         #region Melody

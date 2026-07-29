@@ -70,6 +70,15 @@ namespace MidiGenPlay.Composition
 
             /// <summary>A required setup-card field was missing or invalid.</summary>
             MissingSetupField,
+
+            /// <summary>
+            /// CPE-META-2 (D3=A). An OPTIONAL metadata field was present in the
+            /// setup card but its value could not be parsed. The field is
+            /// treated as absent (never applied wrong); the import mode is NOT
+            /// degraded — metadata are not load-bearing mechanical fields.
+            /// Append-only enum: never renumber.
+            /// </summary>
+            InvalidMetadataField,
         }
 
         /// <summary>One importer-side warning.</summary>
@@ -107,8 +116,25 @@ namespace MidiGenPlay.Composition
             /// <summary>The single Roman-numeral progression string. Populated whenever a block was found.</summary>
             public readonly string progression;
 
+            // -- CPE-META-2 (D3=A): OPTIONAL asset metadata declared by the
+            //    setup card. Presence flags gate application — an absent field
+            //    must never be applied (it is NOT "default", it is "unspoken").
+            //    Only populated when mode == Full.
+            public readonly bool hasQualityRenderPolicy;
+            public readonly ChordProgressionData.QualityRenderPolicy qualityRenderPolicy;
+            public readonly bool hasUseColorTable;
+            public readonly bool useColorTable;
+            public readonly bool hasCadence;
+            public readonly ChordProgressionData.CadenceType cadence;
+            public readonly bool hasAllowedTonalities;
+            public readonly IReadOnlyList<Tonality> allowedTonalities;
+
             public readonly IReadOnlyList<ImportWarning> warnings;
 
+            /// <summary>
+            /// Pre-CPE-META-2 constructor, preserved verbatim for source
+            /// compatibility: produces a result with NO metadata declared.
+            /// </summary>
             public PayloadResult(
                 ImportMode mode,
                 TimeSignature timeSignature,
@@ -117,6 +143,28 @@ namespace MidiGenPlay.Composition
                 Tonality referenceTonality,
                 string progression,
                 IReadOnlyList<ImportWarning> warnings)
+                : this(mode, timeSignature, measures, defaultDurationMeasures,
+                       referenceTonality, progression, warnings,
+                       false, default, false, false, false, default, false, null)
+            {
+            }
+
+            public PayloadResult(
+                ImportMode mode,
+                TimeSignature timeSignature,
+                int measures,
+                float defaultDurationMeasures,
+                Tonality referenceTonality,
+                string progression,
+                IReadOnlyList<ImportWarning> warnings,
+                bool hasQualityRenderPolicy,
+                ChordProgressionData.QualityRenderPolicy qualityRenderPolicy,
+                bool hasUseColorTable,
+                bool useColorTable,
+                bool hasCadence,
+                ChordProgressionData.CadenceType cadence,
+                bool hasAllowedTonalities,
+                IReadOnlyList<Tonality> allowedTonalities)
             {
                 this.mode = mode;
                 this.timeSignature = timeSignature;
@@ -125,6 +173,14 @@ namespace MidiGenPlay.Composition
                 this.referenceTonality = referenceTonality;
                 this.progression = progression ?? string.Empty;
                 this.warnings = warnings ?? Array.Empty<ImportWarning>();
+                this.hasQualityRenderPolicy = hasQualityRenderPolicy;
+                this.qualityRenderPolicy = qualityRenderPolicy;
+                this.hasUseColorTable = hasUseColorTable;
+                this.useColorTable = useColorTable;
+                this.hasCadence = hasCadence;
+                this.cadence = cadence;
+                this.hasAllowedTonalities = hasAllowedTonalities;
+                this.allowedTonalities = allowedTonalities ?? Array.Empty<Tonality>();
             }
         }
 
@@ -186,8 +242,157 @@ namespace MidiGenPlay.Composition
                     default, 0, 0f, default, progression, warnings);
             }
 
+            // ---- 3. Optional asset metadata (CPE-META-2 / D3=A) ----
+            // Backward compatible by construction: every pre-existing payload
+            // has none of these lines, so every presence flag stays false and
+            // the result is field-identical to the pre-batch shape.
+            ParseOptionalMetadata(cardRegion, warnings,
+                out bool hasPolicy,
+                out ChordProgressionData.QualityRenderPolicy policy,
+                out bool hasColor, out bool color,
+                out bool hasCadence, out ChordProgressionData.CadenceType cadence,
+                out bool hasTons, out List<Tonality> tons);
+
             return new PayloadResult(ImportMode.Full,
-                ts, measures, dur, tonality, progression, warnings);
+                ts, measures, dur, tonality, progression, warnings,
+                hasPolicy, policy, hasColor, color,
+                hasCadence, cadence, hasTons, tons);
+        }
+
+        // -------------------------------------------------------------------
+        // CPE-META-2 (D3=A) — optional metadata field parsing
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Parse the four OPTIONAL metadata lines out of the setup card:
+        /// "Quality render policy: &lt;enum&gt;", "Use color table: &lt;bool&gt;",
+        /// "Cadence: &lt;enum&gt;", "Allowed tonalities: &lt;comma list&gt;".
+        /// Tri-state per field: absent (flag false, silent), valid (flag true),
+        /// present-but-invalid (flag false + <see cref="ImportWarningKind.InvalidMetadataField"/>
+        /// warning — never applied wrong, never degrades the import mode).
+        /// </summary>
+        private static void ParseOptionalMetadata(
+            string card,
+            List<ImportWarning> warnings,
+            out bool hasPolicy, out ChordProgressionData.QualityRenderPolicy policy,
+            out bool hasColor, out bool color,
+            out bool hasCadence, out ChordProgressionData.CadenceType cadence,
+            out bool hasTonalities, out List<Tonality> tonalities)
+        {
+            policy = default; color = false; cadence = default; tonalities = null;
+
+            hasPolicy = TryParseOptionalEnum(card, "Quality render policy",
+                warnings, out policy);
+            hasColor = TryParseOptionalBool(card, "Use color table",
+                warnings, out color);
+            hasCadence = TryParseOptionalEnum(card, "Cadence",
+                warnings, out cadence);
+            hasTonalities = TryParseOptionalTonalityList(card, "Allowed tonalities",
+                warnings, out tonalities);
+        }
+
+        /// <summary>Line-anchored label presence, independent of value validity.</summary>
+        private static bool FieldLinePresent(string card, string label)
+        {
+            var rx = new Regex(
+                LabelAnchor + Regex.Escape(label) + @"[^:\n]*:",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return rx.IsMatch(card);
+        }
+
+        private static bool TryParseOptionalEnum<T>(
+            string card, string label, List<ImportWarning> warnings, out T value)
+            where T : struct, Enum
+        {
+            if (TryParseEnumField(card, label, out value))
+                return true;
+            value = default;
+            if (FieldLinePresent(card, label))
+                warnings.Add(new ImportWarning(ImportWarningKind.InvalidMetadataField,
+                    $"\"{label}\" is present but not a valid {typeof(T).Name} " +
+                    "enum name; the field was ignored (not applied)."));
+            return false;
+        }
+
+        private static bool TryParseOptionalBool(
+            string card, string label, List<ImportWarning> warnings, out bool value)
+        {
+            value = false;
+            var rx = new Regex(
+                LabelAnchor + Regex.Escape(label) +
+                @"[^:\n]*:\s*(?<val>[A-Za-z01]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            var m = rx.Match(card);
+            if (m.Success)
+            {
+                switch (m.Groups["val"].Value.ToLowerInvariant())
+                {
+                    case "true":
+                    case "yes":
+                    case "on":
+                    case "1":
+                        value = true; return true;
+                    case "false":
+                    case "no":
+                    case "off":
+                    case "0":
+                        value = false; return true;
+                }
+            }
+            if (FieldLinePresent(card, label))
+                warnings.Add(new ImportWarning(ImportWarningKind.InvalidMetadataField,
+                    $"\"{label}\" is present but not a recognizable boolean " +
+                    "(true/false/yes/no/on/off/1/0); the field was ignored."));
+            return false;
+        }
+
+        private static bool TryParseOptionalTonalityList(
+            string card, string label, List<ImportWarning> warnings,
+            out List<Tonality> value)
+        {
+            value = null;
+            var rx = new Regex(
+                LabelAnchor + Regex.Escape(label) + @"[^:\n]*:\s*(?<val>[^\r\n]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            var m = rx.Match(card);
+            if (!m.Success)
+                return false; // absent — silent
+
+            string raw = m.Groups["val"].Value.Trim();
+            var parts = raw.Split(new[] { ',', ';' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            var parsed = new List<Tonality>();
+            foreach (var p in parts)
+            {
+                string token = p.Trim();
+                if (token.Length == 0) continue;
+                if (!Enum.TryParse(token, ignoreCase: true, out Tonality t) ||
+                    !Enum.IsDefined(typeof(Tonality), t))
+                {
+                    warnings.Add(new ImportWarning(
+                        ImportWarningKind.InvalidMetadataField,
+                        $"\"{label}\" contains \"{token}\", which is not a " +
+                        "valid Tonality enum name; the whole list was ignored " +
+                        "(all-or-nothing — a partial filter would silently " +
+                        "narrow the asset)."));
+                    return false;
+                }
+                if (!parsed.Contains(t)) parsed.Add(t);
+            }
+
+            if (parsed.Count == 0)
+            {
+                warnings.Add(new ImportWarning(
+                    ImportWarningKind.InvalidMetadataField,
+                    $"\"{label}\" is present but empty; the field was ignored " +
+                    "(an empty tonalities list means \"any\" — declare it by " +
+                    "omitting the line, not by leaving it blank)."));
+                return false;
+            }
+
+            value = parsed;
+            return true;
         }
 
         // -------------------------------------------------------------------
@@ -425,6 +630,31 @@ namespace MidiGenPlay.Composition
                         out data,
                         out romanWarnings);
                     warnings.AddRange(romanWarnings);
+
+                    // CPE-META-2 (D-M2-3=A): the ONE grammar means one
+                    // behavior — metadata declared by the card is stamped on
+                    // the runtime-built instance too, so the same payload
+                    // means the same thing in the editor and in the Ask D
+                    // runtime path. Declared "Allowed tonalities" REPLACES the
+                    // TONFILTER-1 single-entry provenance default (a declared
+                    // list is stronger authored truth than derived
+                    // provenance). Absent fields leave the serialized
+                    // defaults — identical to the pre-batch instance.
+                    if (ok && data != null)
+                    {
+                        if (import.hasQualityRenderPolicy)
+                            data.qualityRenderPolicy = import.qualityRenderPolicy;
+                        if (import.hasUseColorTable)
+                            data.useColorTable = import.useColorTable;
+                        if (import.hasCadence)
+                            data.cadence = import.cadence;
+                        if (import.hasAllowedTonalities)
+                        {
+                            data.tonalities.Clear();
+                            for (int i = 0; i < import.allowedTonalities.Count; i++)
+                                data.tonalities.Add(import.allowedTonalities[i]);
+                        }
+                    }
                     return ok;
 
                 case ImportMode.ProgressionOnly:
@@ -457,8 +687,11 @@ namespace MidiGenPlay.Composition
         /// explicit "(x)", in measures.</param>
         /// <param name="referenceTonality">Reference tonality: drives diatonic
         /// quality inference and becomes the single entry of the asset's
-        /// <c>tonalities</c> filter. RootNote is NOT needed — the data is
-        /// degree-relative.</param>
+        /// <c>tonalities</c> metadata (TONFILTER-1, D-B2-3=A: descriptive
+        /// provenance — which mode the Roman reading was resolved against —
+        /// NOT a runtime filter; the part's tonality is card authority and
+        /// out-of-reference use adapts via qualityRenderPolicy). RootNote is
+        /// NOT needed — the data is degree-relative.</param>
         /// <param name="data">The built, never-persisted instance
         /// (<see cref="HideFlags.DontSave"/>); null on failure.</param>
         /// <param name="warnings">Human-readable warnings (may be non-empty on

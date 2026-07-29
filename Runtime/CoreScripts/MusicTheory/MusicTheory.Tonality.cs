@@ -1,4 +1,4 @@
-using Melanchall.DryWetMidi.MusicTheory;
+﻿using Melanchall.DryWetMidi.MusicTheory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,35 +22,35 @@ namespace MidiGenPlay.MusicTheory
         private static readonly Dictionary<Tonality, Interval[]> TonalityIntervals = new()
         {
             { Tonality.Ionian, new[]
-            { Interval.Two, Interval.Two, Interval.One, 
+            { Interval.Two, Interval.Two, Interval.One,
                 Interval.Two, Interval.Two, Interval.Two, Interval.One } },
 
-            { Tonality.Dorian, new[] 
-            { Interval.Two, Interval.One, Interval.Two, Interval.Two, 
+            { Tonality.Dorian, new[]
+            { Interval.Two, Interval.One, Interval.Two, Interval.Two,
                 Interval.Two, Interval.One, Interval.Two } },
 
-            { Tonality.Phrygian, new[] 
-            { Interval.One, Interval.Two, Interval.Two, Interval.Two, 
+            { Tonality.Phrygian, new[]
+            { Interval.One, Interval.Two, Interval.Two, Interval.Two,
                 Interval.One, Interval.Two, Interval.Two } },
 
-            { Tonality.Lydian, new[] 
-            { Interval.Two, Interval.Two, Interval.Two, Interval.One, 
+            { Tonality.Lydian, new[]
+            { Interval.Two, Interval.Two, Interval.Two, Interval.One,
                 Interval.Two, Interval.Two, Interval.One } },
 
-            { Tonality.Mixolydian, new[] 
-            { Interval.Two, Interval.Two, Interval.One, Interval.Two, 
+            { Tonality.Mixolydian, new[]
+            { Interval.Two, Interval.Two, Interval.One, Interval.Two,
                 Interval.Two, Interval.One, Interval.Two } },
 
-            { Tonality.Aeolian, new[] 
-            { Interval.Two, Interval.One, Interval.Two, Interval.Two, 
+            { Tonality.Aeolian, new[]
+            { Interval.Two, Interval.One, Interval.Two, Interval.Two,
                 Interval.One, Interval.Two, Interval.Two } },
 
-            { Tonality.Locrian, new[] 
-            { Interval.One, Interval.Two, Interval.Two, Interval.One, 
+            { Tonality.Locrian, new[]
+            { Interval.One, Interval.Two, Interval.Two, Interval.One,
                 Interval.Two, Interval.Two, Interval.Two } },
         };
 
-        // ------ Sets (kept here so they�re easy to tweak) ------
+        // ------ Sets (kept here so they�re easy to tweak) ------
 
         private static readonly Tonality[] MajorishModes =
         {
@@ -61,6 +61,28 @@ namespace MidiGenPlay.MusicTheory
         {
             Tonality.Dorian, Tonality.Phrygian, Tonality.Aeolian, Tonality.Locrian
         };
+
+        /// <summary>
+        /// HARMONY-PURE-1 helper. Semitone offset of each scale degree
+        /// (index 0..6 = Tonic..LeadingTone) above the tonic for a mode,
+        /// derived from TonalityIntervals so there is a single source of
+        /// truth for mode shapes. Returns a fresh array (callers may not
+        /// mutate shared state). Pure — no rng, no engine calls.
+        /// </summary>
+        public static int[] GetDegreeSemitoneOffsets(Tonality tonality)
+        {
+            if (!TonalityIntervals.TryGetValue(tonality, out var intervals))
+                intervals = TonalityIntervals[Tonality.Ionian];
+
+            var offsets = new int[7];
+            int acc = 0;
+            for (int i = 0; i < 7; i++)
+            {
+                offsets[i] = acc;
+                acc += intervals[i].HalfSteps;
+            }
+            return offsets;
+        }
 
         public static bool IsMajorish(Tonality t) => MajorishModes.Contains(t);
         public static bool IsMinorish(Tonality t) => MinorishModes.Contains(t);
@@ -149,4 +171,3 @@ namespace MidiGenPlay.MusicTheory
         // https://melanchall.github.io/drywetmidi/api/Melanchall.DryWetMidi.MusicTheory.ScaleIntervals.html
     }
 }
-
