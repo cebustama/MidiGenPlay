@@ -47,6 +47,34 @@ namespace MidiGenPlay.Composition
     /// disabled; a lane in both lists is pop). All shaping lives inside
     /// BuildPocketPlan — the degrade path and the rng discipline are
     /// untouched by construction.
+    /// MGP-ALWTTT-BASS-SLAPFIG-1 (D-SFIG-SURF=A): pocketMode=SelfPocket — an
+    /// AUTONOMOUS slap/pop figure over the shared progression. The card's own
+    /// cycled Slap/Pop/Rest pattern (meter-anchored grid) is the hit source;
+    /// planning is a pure function (BuildSelfPocketPlan: zero rng, zero
+    /// cross-track reads — never wakes the ALWTTT boundary §8.4 hash duty).
+    /// Rendering reuses the ENTIRE SlapPocket pipeline downstream of the plan:
+    /// PocketHit segments, pop +12 with the D-REG-2=B ceiling fold, the
+    /// D-PKT-GATE=A gate, per-hit jitter refold. Velocity base is the chord
+    /// EVENT's authored velocity (vs the drum step's in SlapPocket) with the
+    /// same additive boosts. Off and SlapPocket are byte-identical to
+    /// pre-SLAPFIG output by construction (entry-branch only).
+    /// MGP-ALWTTT-BASS-SLAPFIG-2 (D-SF2-VOCAB=C / D-SF2-PITCH=A / D-SF2-VEL=B
+    /// / D-SF2-GATE=B / D-SF2-SWING=A): the SelfPocket articulation vocabulary.
+    /// SelfPocketStep gains Ghost / GhostPop / HammerOn / PullOff (append-only;
+    /// v1-only patterns render byte-identical). The plan stays PITCH-FREE:
+    /// PocketHit carries an articulation CLASS, and every class's pitch is a
+    /// pure call-site law — Slap/Ghost on the selected note, Pop/GhostPop
+    /// through ResolvePopNote, HammerOn/PullOff at selected + card-declared
+    /// semitone offset through ResolveOffsetNote (ceiling/floor folded).
+    /// Velocity (D-SF2-VEL=B): Slap/Pop keep the v1 additive-boost law
+    /// verbatim; new classes are a fixed multiplicative FACTOR of the event
+    /// velocity (no boosts) so dynamics separate by proportion instead of
+    /// flattening against the 127 clamp. Gate (D-SF2-GATE=B): ghost classes
+    /// get a card-authored click-length ceiling; everything else keeps
+    /// PocketMaxGateBeats. Swing (D-SF2-SWING=A): doctrine pinned — if it ever
+    /// exists it is a CARD field, never read from the drummer — implementation
+    /// deferred. Zero new ctx.rng draws; the planner stays pure; SlapPocket
+    /// and Off are byte-identical to pre-SLAPFIG-2 output by construction.
     /// B3 BASS-REG-1 (D-REG-1=C / D-REG-2=B / D-REG-3=B / D-REG-4=B): the bass
     /// now honours MIDIInstrumentSO.octaveMax. The §2 band narrows to TWO
     /// octaves (authored octaveMin..octaveMin+1; the -1 in code is the
@@ -193,9 +221,66 @@ namespace MidiGenPlay.Composition
             IReadOnlyList<GeneralMidiPercussion> pocketSlapLanes = null;
             IReadOnlyList<GeneralMidiPercussion> pocketPopLanes = null;
 
+            // MGP-ALWTTT-BASS-SLAPFIG-1 (D-SFIG-SURF=A): SelfPocket source —
+            // resolved once at entry, exactly the SlapPocket discipline. The
+            // plan is a pure function of card + meter + progression event:
+            // ZERO rng draws, ZERO cross-track reads (this mode never calls
+            // GetRhythmOnsetsForPart, so it cannot wake the ALWTTT boundary
+            // §8.4 consumer-side hash duty — the explicit design win of the
+            // ask). SlapPocket and SelfPocket are mutually exclusive by the
+            // enum; the per-event branch keys on which source field is
+            // non-null, so Off keeps both null and the loop body stays
+            // draw-for-draw AND value-for-value the decoupled path.
+            IReadOnlyList<SelfPocketStep> selfPocketPattern = null;
+            var selfPocketSubdivision = SelfPocketSubdivision.Beat;
+
+            // SLAPFIG-2 (D-SF2-PITCH=A): card-declared semitone offsets for
+            // the HammerOn/PullOff pitch law. Read only when SelfPocket is
+            // requested; consumed only by hits of those classes.
+            int hammerOffsetSemitones = 2;
+            int pullOffsetSemitones = -2;
+
+            // SLAPFIG-2b: per-class velocity factors and ghost gate ceiling,
+            // authored on the card. Defaults to the shipped tuning when no
+            // card is present.
+            var selfPocketTuning = SelfPocketTuning.Default;
+
             List<MidiGenerator.RhythmOnset> pocketOnsets = null;
-            bool pocketRequested = bassStyle != null &&
-                bassStyle.pocketMode == PocketCouplingMode.SlapPocket;
+            var pocketMode = bassStyle != null
+                ? bassStyle.pocketMode : PocketCouplingMode.Off;
+            bool pocketRequested = pocketMode == PocketCouplingMode.SlapPocket;
+            bool selfPocketRequested = pocketMode == PocketCouplingMode.SelfPocket;
+            if (selfPocketRequested)
+            {
+                pocketSlapBoost = bassStyle.pocketSlapBoost;
+                pocketPopBoost = bassStyle.pocketPopBoost;
+                selfPocketSubdivision = bassStyle.selfPocketSubdivision;
+                hammerOffsetSemitones = bassStyle.hammerOffsetSemitones;
+                pullOffsetSemitones = bassStyle.pullOffsetSemitones;
+                selfPocketTuning = SelfPocketTuning.FromCard(bassStyle);
+
+                var pat = bassStyle.selfPocketPattern;
+                bool hasHit = false;
+                if (pat != null)
+                {
+                    for (int k = 0; k < pat.Count; k++)
+                    {
+                        if (pat[k] != SelfPocketStep.Rest) { hasHit = true; break; }
+                    }
+                }
+
+                if (hasHit)
+                {
+                    selfPocketPattern = pat;
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        $"[BassTrackComposer] pocketMode=SelfPocket but " +
+                        $"selfPocketPattern is empty or all-Rest on card " +
+                        $"'{bassStyle.name}'. Rendering the decoupled figure.");
+                }
+            }
             if (pocketRequested)
             {
                 pocketSlapBoost = bassStyle.pocketSlapBoost;
@@ -324,11 +409,21 @@ namespace MidiGenPlay.Composition
                 // and reads no rng (same structural argument as D-WALK-RNG=A).
                 _segments.Clear();
 
+                // SLAPFIG-1: the SelfPocket plan is the SlapPocket plan with
+                // an internal source — same PocketHit list, same emission
+                // branch, same jitter refold, same ResolvePopNote fold. Runs
+                // AFTER both §2 selection draws and reads no rng, exactly the
+                // POCKET-1 structural argument.
                 List<PocketHit> pocketPlan = pocketOnsets != null
                     ? BuildPocketPlan(pocketOnsets, startBeats, lenBeats,
                         pocketSlapBoost, pocketPopBoost,
                         pocketSlapLanes, pocketPopLanes)
-                    : null;
+                    : selfPocketPattern != null
+                        ? BuildSelfPocketPlan(startBeats, lenBeats,
+                            selfPocketSubdivision, selfPocketPattern,
+                            ce.velocity, pocketSlapBoost, pocketPopBoost,
+                            selfPocketTuning)
+                        : null;
 
                 if (pocketPlan != null && pocketPlan.Count > 0)
                 {
@@ -344,12 +439,38 @@ namespace MidiGenPlay.Composition
                     // back onto the selected note otherwise. Pop identity
                     // (classification, popBoost, pop-wins, gate) untouched —
                     // BuildPocketPlan never sees the fold.
+                    // SLAPFIG-2 (D-SF2-PITCH=A): every class's pitch is a pure
+                    // call-site law over the SELECTED note. Slap/Ghost sound
+                    // on it; Pop/GhostPop in the pop domain (ResolvePopNote,
+                    // fold intact); HammerOn/PullOff at the card-declared
+                    // offset (ResolveOffsetNote, ceiling/floor folded).
+                    // SlapPocket plans only Slap/Pop, so its pitch mapping is
+                    // byte-identical to the pre-SLAPFIG-2 pop ternary.
                     var popNote = ResolvePopNote(pc, oct, registerCeiling);
                     for (int k = 0; k < pocketPlan.Count; k++)
                     {
                         var h = pocketPlan[k];
+                        NoteTheory hitNote;
+                        switch (h.articulation)
+                        {
+                            case SelfPocketStep.Pop:
+                            case SelfPocketStep.GhostPop:
+                                hitNote = popNote;
+                                break;
+                            case SelfPocketStep.HammerOn:
+                                hitNote = ResolveOffsetNote(
+                                    pc, oct, hammerOffsetSemitones, registerCeiling);
+                                break;
+                            case SelfPocketStep.PullOff:
+                                hitNote = ResolveOffsetNote(
+                                    pc, oct, pullOffsetSemitones, registerCeiling);
+                                break;
+                            default: // Slap, Ghost
+                                hitNote = note;
+                                break;
+                        }
                         _segments.Add(new EmitSegment(
-                            new[] { h.pop ? popNote : note },
+                            new[] { hitNote },
                             h.startBeats, h.lenBeats,
                             ChordExpressionType.Block, effectiveRate,
                             h.velocity, evJitter.ForEvent(k)));
@@ -480,6 +601,17 @@ namespace MidiGenPlay.Composition
                                     ? $"custom(slap:{pocketSlapLanes.Count}," +
                                       $"pop:{pocketPopLanes.Count})"
                                     : "v1-families")
+                              : "") +
+                          (selfPocketRequested
+                              ? $" | SLAPFIG-1 SelfPocket pattern=" +
+                                (selfPocketPattern != null
+                                    ? $"{selfPocketPattern.Count} steps " +
+                                      $"({selfPocketSubdivision})"
+                                    : "EMPTY(decoupled)") +
+                                $" boosts=({pocketSlapBoost:+0;-0;0}," +
+                                $"{pocketPopBoost:+0;-0;0})" +
+                                $" | SLAPFIG-2 offsets=(H{hammerOffsetSemitones:+0;-0;0}," +
+                                $"P{pullOffsetSemitones:+0;-0;0})"
                               : ""));
             }
 
@@ -527,15 +659,44 @@ namespace MidiGenPlay.Composition
             public readonly double startBeats;
             public readonly double lenBeats;
             public readonly int velocity;
+
+            /// <summary>True when this hit sounds in the POP PITCH DOMAIN
+            /// (+12 with the D-REG-2=B ceiling fold): Pop and — since
+            /// SLAPFIG-2 — GhostPop. Kept for the SlapPocket pins and for
+            /// pitch-domain queries; the emission branch itself keys on
+            /// <see cref="articulation"/>.</summary>
             public readonly bool pop;
 
+            /// <summary>SLAPFIG-2 (D-SF2-VOCAB=C): the articulation class of
+            /// this hit. SlapPocket only ever produces Slap/Pop (the 4-arg
+            /// constructor); SelfPocket may produce any non-Rest member.
+            /// Never Rest.</summary>
+            public readonly BasslineCardConfigSO.SelfPocketStep articulation;
+
+            /// <summary>v1 constructor (SlapPocket, and the pre-SLAPFIG-2
+            /// test surface): maps the pop flag onto the Slap/Pop classes.
+            /// Byte-compatible with every existing call site.</summary>
             public PocketHit(double startBeats, double lenBeats,
                 int velocity, bool pop)
+                : this(startBeats, lenBeats, velocity,
+                       pop ? BasslineCardConfigSO.SelfPocketStep.Pop
+                           : BasslineCardConfigSO.SelfPocketStep.Slap)
+            {
+            }
+
+            /// <summary>SLAPFIG-2 constructor: full articulation class. The
+            /// pop flag derives from the class's pitch domain (Pop and
+            /// GhostPop sound +12-folded).</summary>
+            public PocketHit(double startBeats, double lenBeats,
+                int velocity, BasslineCardConfigSO.SelfPocketStep articulation)
             {
                 this.startBeats = startBeats;
                 this.lenBeats = lenBeats;
                 this.velocity = velocity;
-                this.pop = pop;
+                this.articulation = articulation;
+                this.pop =
+                    articulation == BasslineCardConfigSO.SelfPocketStep.Pop ||
+                    articulation == BasslineCardConfigSO.SelfPocketStep.GhostPop;
             }
         }
 
@@ -543,6 +704,122 @@ namespace MidiGenPlay.Composition
         /// beats. Hit length = min(gap to next planned hit, remaining event
         /// window, this ceiling).</summary>
         public const double PocketMaxGateBeats = 0.5;
+
+        /// <summary>
+        /// SLAPFIG-2b: the per-class NUMBERS for the SelfPocket articulation
+        /// laws, fed from the card (<see cref="BasslineCardConfigSO"/>) and
+        /// defaulted to the shipped tuning. The LAWS themselves do not move:
+        /// D-SF2-VEL=B stays "a factor of the event velocity, never an
+        /// additive boost", D-SF2-GATE=B stays "ghosts get a click ceiling,
+        /// everything else keeps PocketMaxGateBeats". Only the constants are
+        /// authorable — the ear at the gig, not the catalogue, gets the last
+        /// word on how loud a ghost is.
+        ///
+        /// Slap and Pop have no entry on purpose: they keep the v1 additive
+        /// boost law verbatim, which is what makes v1-only patterns
+        /// byte-identical to SLAPFIG-1.
+        /// </summary>
+        public readonly struct SelfPocketTuning
+        {
+            public readonly float ghost;
+            public readonly float ghostPop;
+            public readonly float hammerOn;
+            public readonly float pullOff;
+            public readonly double ghostGateBeats;
+
+            public SelfPocketTuning(float ghost, float ghostPop,
+                float hammerOn, float pullOff, double ghostGateBeats)
+            {
+                this.ghost = ghost;
+                this.ghostPop = ghostPop;
+                this.hammerOn = hammerOn;
+                this.pullOff = pullOff;
+                this.ghostGateBeats = ghostGateBeats;
+            }
+
+            /// <summary>Shipped tuning — mirrors the card field defaults.
+            /// Used when no card is supplied (tests, and any future call site
+            /// that plans without a card).</summary>
+            public static SelfPocketTuning Default =>
+                new SelfPocketTuning(0.60f, 0.50f, 0.60f, 0.55f, 0.10);
+
+            public static SelfPocketTuning FromCard(BasslineCardConfigSO card)
+                => card == null
+                    ? Default
+                    : new SelfPocketTuning(
+                        card.ghostVelocityFactor,
+                        card.ghostPopVelocityFactor,
+                        card.hammerOnVelocityFactor,
+                        card.pullOffVelocityFactor,
+                        card.ghostGateBeats);
+        }
+
+        /// <summary>
+        /// SLAPFIG-2 (D-SF2-VEL=B): the SelfPocket per-class velocity law, as
+        /// a pure seam. Slap/Pop: clamp(eventVelocity + class boost, 1..127)
+        /// — the D-SFIG-VEL=A law verbatim (byte-identity for v1 patterns).
+        /// Ghost/GhostPop/HammerOn/PullOff: clamp(round(eventVelocity *
+        /// class factor), 1..127) — no boosts, proportions preserved under
+        /// hot-authored events (the gig's (+64,+64) saturation finding).
+        /// Rest (never planned) and unknown future members fall through to
+        /// the slap law defensively.
+        /// </summary>
+        public static int ResolveSelfPocketVelocity(
+            BasslineCardConfigSO.SelfPocketStep step,
+            int eventVelocity, int slapBoost, int popBoost,
+            SelfPocketTuning tuning)
+        {
+            switch (step)
+            {
+                case BasslineCardConfigSO.SelfPocketStep.Pop:
+                    return Mathf.Clamp(eventVelocity + popBoost, 1, 127);
+                case BasslineCardConfigSO.SelfPocketStep.Ghost:
+                    return Mathf.Clamp(
+                        Mathf.RoundToInt(eventVelocity * tuning.ghost), 1, 127);
+                case BasslineCardConfigSO.SelfPocketStep.GhostPop:
+                    return Mathf.Clamp(
+                        Mathf.RoundToInt(eventVelocity * tuning.ghostPop), 1, 127);
+                case BasslineCardConfigSO.SelfPocketStep.HammerOn:
+                    return Mathf.Clamp(
+                        Mathf.RoundToInt(eventVelocity * tuning.hammerOn), 1, 127);
+                case BasslineCardConfigSO.SelfPocketStep.PullOff:
+                    return Mathf.Clamp(
+                        Mathf.RoundToInt(eventVelocity * tuning.pullOff), 1, 127);
+                default: // Slap, and any defensive fall-through
+                    return Mathf.Clamp(eventVelocity + slapBoost, 1, 127);
+            }
+        }
+
+        /// <summary>SLAPFIG-2 (D-SF2-GATE=B): the per-class gate ceiling, as
+        /// a pure seam. Ghost classes get the click ceiling; everything else
+        /// keeps the POCKET-1 ceiling (byte-identity for v1 patterns).</summary>
+        public static double ResolveSelfPocketGateCeiling(
+            BasslineCardConfigSO.SelfPocketStep step, SelfPocketTuning tuning)
+            => step == BasslineCardConfigSO.SelfPocketStep.Ghost ||
+               step == BasslineCardConfigSO.SelfPocketStep.GhostPop
+                ? tuning.ghostGateBeats
+                : PocketMaxGateBeats;
+
+        /// <summary>
+        /// SLAPFIG-2 (D-SF2-PITCH=A): offset-note resolution for HammerOn /
+        /// PullOff, as a pure seam (the ResolvePopNote idiom). The hit sounds
+        /// at the SELECTED note + a card-declared semitone offset — the plan
+        /// stays pitch-free and memoryless; relative-to-previous-hit fidelity
+        /// is a declared loss (catalogue §B.5), revisit by ear. Register: -12
+        /// while above the ceiling (the D-W2-REG per-note fold); a result
+        /// below the MIDI floor folds UP an octave (never clamp-distorts the
+        /// interval), then hard-clamps as a last resort.
+        /// </summary>
+        public static NoteTheory ResolveOffsetNote(
+            NoteName pc, int oct, int offsetSemitones, int ceiling)
+        {
+            int n = NoteTheory.Get(pc, oct).NoteNumber + offsetSemitones;
+            while (n > ceiling && n - 12 >= 0) n -= 12;
+            if (n < 0) n += 12;
+            if (n < 0) n = 0;
+            if (n > 127) n = 127;
+            return NoteTheory.Get((SevenBitNumber)n);
+        }
 
         /// <summary>Kick family for SlapPocket classification (semantic lane,
         /// pre kit resolution).</summary>
@@ -670,6 +947,100 @@ namespace MidiGenPlay.Composition
                     Math.Min(gapEnd - acc[i].beat, end - acc[i].beat),
                     PocketMaxGateBeats);
                 hits.Add(new PocketHit(acc[i].beat, len, acc[i].vel, acc[i].pop));
+            }
+            return hits;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-SLAPFIG-1 (D-SFIG-SURF=A / D-SFIG-PAT=A /
+        /// D-SFIG-VEL=A): pure per-event SELF pocket planner — the autonomous
+        /// counterpart of <see cref="BuildPocketPlan"/>. Deterministic by
+        /// construction: zero rng, zero cross-track reads.
+        ///
+        /// Grid (D-SFIG-PAT=A): candidate hits at multiples of the
+        /// subdivision step (Beat = 1.0, HalfBeat = 0.5) in PART beats,
+        /// anchored to the METER (part beat 0) and intersected with the event
+        /// window [eventStart, eventStart + eventLen) — inclusive start,
+        /// exclusive end, the BuildPocketPlan convention. The cycled pattern
+        /// is indexed by the ABSOLUTE grid index (% pattern length), so the
+        /// figure keeps phase across chord changes — the same absolute-beat
+        /// footing SlapPocket's published onsets stand on. Rest = skip.
+        /// The small epsilons absorb FP noise from non-power-of-two
+        /// subdivision grids (e.g. triplet stepsPerBeat), where the event's
+        /// beat bounds are not exactly representable.
+        ///
+        /// Velocity (D-SFIG-VEL=A, extended by SLAPFIG-2 D-SF2-VEL=B): base
+        /// is the chord EVENT's authored velocity (the decoupled path's
+        /// base). Slap/Pop: + slapBoost / popBoost, clamped 1..127 — the v1
+        /// additive law verbatim. Ghost/GhostPop/HammerOn/PullOff: a fixed
+        /// per-class FACTOR of the event velocity, no boosts (see
+        /// <see cref="ResolveSelfPocketVelocity"/>).
+        ///
+        /// Lengths: min(gap to next planned hit, remaining window, per-class
+        /// ceiling) — <see cref="PocketMaxGateBeats"/> for everything except
+        /// the ghost classes, which take the card's ghostGateBeats
+        /// (SLAPFIG-2 D-SF2-GATE=B; v1 patterns keep D-PKT-GATE=A exactly).
+        ///
+        /// Empty result (window shorter than one grid step, or the cycle
+        /// lands only on Rest inside the window) = "figure applies" — the
+        /// caller's per-event fallback, identical to an empty SlapPocket
+        /// plan. Pop pitch (+12) and the D-REG-2=B ceiling fold stay at the
+        /// call site (ResolvePopNote), untouched.
+        /// </summary>
+        public static List<PocketHit> BuildSelfPocketPlan(
+            double eventStartBeats,
+            double eventLenBeats,
+            SelfPocketSubdivision subdivision,
+            IReadOnlyList<SelfPocketStep> pattern,
+            int eventVelocity,
+            int slapBoost = 0,
+            int popBoost = 0,
+            SelfPocketTuning? tuning = null)
+        {
+            var hits = new List<PocketHit>();
+            if (pattern == null || pattern.Count == 0 || eventLenBeats <= 0)
+                return hits;
+
+            var tun = tuning ?? SelfPocketTuning.Default;
+
+            // SLAPFIG-2b: QuarterBeat = sixteenths. Unknown future members
+            // fall through to Beat rather than throwing.
+            double step =
+                subdivision == SelfPocketSubdivision.QuarterBeat ? 0.25 :
+                subdivision == SelfPocketSubdivision.HalfBeat ? 0.5 : 1.0;
+            double end = eventStartBeats + eventLenBeats;
+
+            // First absolute grid index at or after the event start.
+            int g = (int)Math.Ceiling(eventStartBeats / step - 1e-9);
+            if (g < 0) g = 0;
+
+            // SLAPFIG-2: the accumulator carries the articulation CLASS; the
+            // velocity is the per-class law (Slap/Pop = v1 additive boosts
+            // verbatim; new classes = fixed factor, no boosts — D-SF2-VEL=B).
+            var acc = new List<(double beat, SelfPocketStep art, int vel)>();
+            for (; ; g++)
+            {
+                double beat = g * step;
+                if (beat >= end - 1e-9) break; // exclusive end
+
+                var s = pattern[g % pattern.Count];
+                if (s == SelfPocketStep.Rest) continue;
+
+                int vel = ResolveSelfPocketVelocity(
+                    s, eventVelocity, slapBoost, popBoost, tun);
+                acc.Add((beat, s, vel));
+            }
+
+            for (int i = 0; i < acc.Count; i++)
+            {
+                double gapEnd = (i + 1 < acc.Count) ? acc[i + 1].beat : end;
+                // SLAPFIG-2 (D-SF2-GATE=B): per-class ceiling — ghosts are
+                // clicks; everything else keeps the POCKET-1 ceiling. Same
+                // min(gap, window, ceiling) law otherwise.
+                double len = Math.Min(
+                    Math.Min(gapEnd - acc[i].beat, end - acc[i].beat),
+                    ResolveSelfPocketGateCeiling(acc[i].art, tun));
+                hits.Add(new PocketHit(acc[i].beat, len, acc[i].vel, acc[i].art));
             }
             return hits;
         }

@@ -19,4 +19,5 @@ MonoBehaviour:
   PatchName: 38 - Synth Bass 1
   PatchIndex: 38
   octaveMin: 2
-  octaveMax: 4
+  octaveMax: 3
+  volume01: 1

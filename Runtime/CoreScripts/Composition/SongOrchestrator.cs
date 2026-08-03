@@ -32,6 +32,19 @@ namespace MidiGenPlay.Composition
         // Orchestrator-stamped (this is applied by GenerateOne, not resolved
         // by a composer, so it does NOT belong on ResolvedTrackChoice).
         public Dictionary<MusicianTrackKey, int> appliedCc7ByTrack = new();
+        // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-RB): which source WON the
+        // per-render SHARED progression, so the host can key caches on "the
+        // host default determined the harmonic output" instead of the (now
+        // invalid) !hasBacking proxy. Stamped by the orchestrator at the end
+        // of GenerateSinglePart (StampSharedProgressionReadback):
+        // RenderOverride / CardOverride / CardPalette / TrackParameters /
+        // Procedural come straight from the Backing track's readback;
+        // HostDefault means the seeded defaultProgression won (with or
+        // without an articulation-only Backing row); None means no shared
+        // harmony was resolved this render (consumers used a private Pattern
+        // or rendered nothing). Composers never report HostDefault.
+        public ResolvedSource sharedProgressionSource = ResolvedSource.None;
+        public string sharedProgressionAssetName;
         public long partTicks;
         public int bpm;
     }
@@ -264,42 +277,53 @@ namespace MidiGenPlay.Composition
                             CreateGetRhythmOnsetsForPart(rhythmOnsetsByPart)
                     };
 
-                    // TODO: PASS 0: generate chord progressions
+                    // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-MECH=A / D-ORD-SCOPE=A):
+                    // same pass contract as GenerateSinglePart — the Backing
+                    // track(s) COMPOSE first so the shared harmony is resolved
+                    // and published before any consumer, while the track-LIST
+                    // order (channels, seeds, per-role publication order)
+                    // stays untouched and the byte layout is preserved by the
+                    // deferred index-ordered merge. See the single-part site
+                    // for the full rationale.
+                    var trackFiles = new MidiFile[part.Tracks.Count];
 
-                    // PASS 1: generate all except Harmony (so Harmony can read Melody/Lead)
-                    for (int i = 0; i < part.Tracks.Count; i++)
+                    void RunPass(Func<TrackRole, bool> rolePredicate)
                     {
-                        var cfg = part.Tracks[i];
-                        if (cfg.Role == TrackRole.Harmony) continue;
+                        for (int i = 0; i < part.Tracks.Count; i++)
+                        {
+                            var cfg = part.Tracks[i];
+                            if (!rolePredicate(cfg.Role)) continue;
 
-                        // Deterministically seed a RNG for THIS track in THIS rep
-                        // (derived from the caller-supplied base seed when present).
-                        var trackSeed = ResolveTrackSeedSong(
-                            baseSeed, entry.PartIndex, rep, cfg.Role, cfg.MusicianId);
+                            // Deterministically seed a RNG for THIS track in
+                            // THIS rep (derived from the caller-supplied base
+                            // seed when present). Keyed on (role, musicianId)
+                            // — never on compose order.
+                            var trackSeed = ResolveTrackSeedSong(
+                                baseSeed, entry.PartIndex, rep, cfg.Role, cfg.MusicianId);
 
-                        var trackRng = new System.Random(trackSeed);
+                            var trackRng = new System.Random(trackSeed);
 
-                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
-                            partTicks, cursorTicks, ctx, producedByRole, trackRng,
-                            trackSeed);
-
+                            trackFiles[i] = GenerateOne(part, cfg, channelMap[i],
+                                bpm, partTicks, cursorTicks, ctx, producedByRole,
+                                trackRng, trackSeed);
+                        }
                     }
 
-                    // PASS 2: Harmony
-                    for (int i = 0; i < part.Tracks.Count; i++)
-                    {
-                        var cfg = part.Tracks[i];
-                        if (cfg.Role != TrackRole.Harmony) continue;
+                    // PASS 0: Backing — the shared-harmony publisher.
+                    RunPass(role => role == TrackRole.Backing);
+                    // PASS 1: everything except Backing and Harmony.
+                    RunPass(role => role != TrackRole.Backing
+                                 && role != TrackRole.Harmony);
+                    // PASS 2: Harmony (reads Melody via the caches).
+                    RunPass(role => role == TrackRole.Harmony);
 
-                        var trackSeed = ResolveTrackSeedSong(
-                            baseSeed, entry.PartIndex, rep, cfg.Role, cfg.MusicianId);
-
-                        var trackRng = new System.Random(trackSeed);
-
-                        GenerateOne(fullSong, part, cfg, channelMap[i], bpm,
-                            partTicks, cursorTicks, ctx, producedByRole, trackRng,
-                            trackSeed);
-                    }
+                    // Deferred merge in track-LIST index order: the chunk
+                    // sequence is byte-identical to the pre-ORDER-1 layout
+                    // whenever per-track content is unchanged, regardless of
+                    // compose order.
+                    for (int i = 0; i < trackFiles.Length; i++)
+                        if (trackFiles[i] != null)
+                            MergeInto(fullSong, trackFiles[i]);
 
                     // Boundary event at exact end (safety)
                     long endTick = cursorTicks + partTicks;
@@ -378,12 +402,19 @@ namespace MidiGenPlay.Composition
             var progressionByPart = new Dictionary<SongConfig.PartConfig, ChordProgressionData>();
 
             // MGP-ALWTTT-BASS-SOLO-1 (D-SOLO-SRC=A / D-SOLO-SURF=A2): host-supplied
-            // default progression for BACKING-LESS parts, pre-seeded into the
-            // shared cache before the track loop so every harmony consumer
-            // (Bassline, Melody, Harmony) sees it via GetProgressionForPart.
-            // Warn + ignore when a Backing track exists (D-SOLO-GUARD=A). Pure
-            // dictionary write: zero rng draws (D-SOLO-DET); null => byte-identical.
-            TrySeedDefaultProgression(part, defaultProgression, progressionByPart);
+            // default progression, pre-seeded into the shared cache before the
+            // track passes so every harmony consumer (Bassline, Melody,
+            // Harmony) sees it via GetProgressionForPart.
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-GUARD=A): the guard is no longer
+            // "any Backing present" but a STATIC harmony-source sniff — an
+            // articulation-only Backing card (no override, no valid palette
+            // entry, no authored Pattern, no per-render override) does NOT
+            // displace the default; the Backing composer consumes the seeded
+            // default via its shared-cache step instead of going procedural.
+            // Still a pure dictionary write: zero rng draws (D-SOLO-DET);
+            // null => byte-identical.
+            var seedResult = TrySeedDefaultProgression(
+                part, defaultProgression, progressionByPart, patternOverrides);
             var melodyByPartAndMusician = new Dictionary<SongConfig.PartConfig, Dictionary<string, List<MidiGenerator.GuideNote>>>();
             var producedByRole = new Dictionary<TrackRole, MidiFile>();
             // MGP-ALWTTT-BASS-POCKET-1 (D-PKT-SRC=B): rhythm onset channel,
@@ -477,6 +508,11 @@ namespace MidiGenPlay.Composition
 
             var render = new PartRender { merged = full, partTicks = partTicks, bpm = bpm };
 
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-MECH=A): per-track compose slots,
+            // merged AFTER all passes in track-LIST index order — compose
+            // order and byte layout are decoupled.
+            var trackFiles = new MidiFile[part.Tracks.Count];
+
             // Local helper: run one generation “pass” controlled by a role predicate
             void GeneratePass(Func<TrackRole, bool> rolePredicate)
             {
@@ -548,7 +584,7 @@ namespace MidiGenPlay.Composition
                     var trackSeed = ResolveTrackSeedPart(baseSeed, partIndex, cfg.Role, cfg.MusicianId);
                     var trackRng = new System.Random(trackSeed);
 
-                    GenerateOne(full, part, cfg, channelMap[i], bpm,
+                    trackFiles[i] = GenerateOne(part, cfg, channelMap[i], bpm,
                         partTicks, cursorTicks: 0, ctx, producedByRole, trackRng,
                         trackSeed, patternOverride, CollectResolved,
                         mixGain,
@@ -562,11 +598,32 @@ namespace MidiGenPlay.Composition
                 }
             }
 
-            // PASS 1: everything except Harmony
-            GeneratePass(role => role != TrackRole.Harmony);
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-MECH=A): PASS 0 — the Backing
+            // track(s) compose FIRST, unconditionally, so the shared harmony
+            // (render override / card pick / seeded default / authored
+            // Pattern / procedural) is resolved, TS-normalized, requalified
+            // and PUBLISHED before any consumer (Bassline, Melody) composes.
+            // Track-LIST order stays untouched — channels, ChannelRoles and
+            // the per-track seeds never depended on compose order — and the
+            // byte layout is preserved by the deferred index-ordered merge
+            // below. This closes F-BASS-ORDER-1 (bass-before-backing play
+            // order rendered permanent silence) by construction.
+            GeneratePass(role => role == TrackRole.Backing);
+
+            // PASS 1: everything except Backing and Harmony
+            GeneratePass(role => role != TrackRole.Backing
+                              && role != TrackRole.Harmony);
 
             // PASS 2: only Harmony
             GeneratePass(role => role == TrackRole.Harmony);
+
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-MECH=A): deferred merge in
+            // track-LIST index order — the merged chunk sequence [meta,
+            // metro, track0..N] is byte-identical to the pre-ORDER-1 layout
+            // whenever per-track content is unchanged, regardless of compose
+            // order.
+            for (int i = 0; i < trackFiles.Length; i++)
+                if (trackFiles[i] != null) MergeInto(full, trackFiles[i]);
 
             // Safety boundary at exact end of the part
             long endTick = partTicks; // cursorTicks = 0 in single-part
@@ -594,11 +651,19 @@ namespace MidiGenPlay.Composition
             metaMgr.Dispose();
             if (_settings?.logGenerator == true) LogTrackEnds(full, $"Part[{partIndex}]");
 
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-RB): stamp which source won the
+            // shared progression this render.
+            StampSharedProgressionReadback(render, part, seedResult, defaultProgression);
+
             return render;
         }
 
-        private void GenerateOne(
-            MidiFile fullSong,
+        // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-MECH=A): composes, trims, tags,
+        // gains and SHIFTS one track, then RETURNS it — the physical merge is
+        // deferred to the caller, which merges all slots in track-LIST index
+        // order after the passes. Null return = nothing composed (missing
+        // factory / null composer), slot stays empty.
+        private MidiFile GenerateOne(
             SongConfig.PartConfig part,
             SongConfig.PartConfig.TrackConfig cfg,
             int channel,
@@ -623,7 +688,7 @@ namespace MidiGenPlay.Composition
             if (!_factories.TryGetValue(cfg.Role, out var factory))
             {
                 Debug.LogWarning($"{LogTag} No composer factory for role {cfg.Role}");
-                return;
+                return null;
             }
 
             // Ask the factory to build the right composer for THIS track
@@ -631,7 +696,7 @@ namespace MidiGenPlay.Composition
             if (composer == null)
             {
                 Debug.LogWarning($"{LogTag} Factory returned null composer for role {cfg.Role}");
-                return;
+                return null;
             }
 
             if (_settings?.logGenerator == true)
@@ -703,18 +768,25 @@ namespace MidiGenPlay.Composition
             }
 
             ShiftFile(trackFile, cursorTicks);
-            MergeInto(fullSong, trackFile);
 
+            // ORDER-1: publication for cross-track reads happens at COMPOSE
+            // time (unchanged position relative to this track's own compose);
+            // the physical MergeInto is deferred to the caller's index-ordered
+            // merge, so chunk order follows the track LIST, not compose order.
             producedByRole[cfg.Role] = trackFile;
 
             if (_settings?.logGenerator == true)
             {
                 var (tracks, notes, last) = Inspect(trackFile);
+                // Log text kept verbatim for log-tooling compatibility; since
+                // ORDER-1 the physical merge happens after the passes.
                 Debug.Log(
                     $"{LogTag} Merged [{cfg.Role}] ch={channel} inst='{InstName(cfg)}' " +
                     $"pattern='{PatternName(cfg)}' tracks={tracks} notes={notes} " +
                     $"lastTickAbsolute={last} cursorTicks={cursorTicks} lenTicks={partTicks}");
             }
+
+            return trackFile;
         }
 
         // ---------- Helpers (assembly concerns) ----------
@@ -1026,6 +1098,11 @@ namespace MidiGenPlay.Composition
             NotSupplied,            // no default passed — byte-identical legacy path
             Seeded,                 // part has no Backing track; cache pre-seeded
             IgnoredBackingPresent,  // D-SOLO-GUARD=A: Backing owns harmony — warn+ignore
+            // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-GUARD=A): a Backing track exists
+            // but carries NO harmony source (articulation-only card) — the
+            // default IS seeded and the Backing composer consumes it via its
+            // shared-cache step. Appended member; earlier values unchanged.
+            SeededBackingArticulationOnly,
         }
 
         /// <summary>
@@ -1063,6 +1140,11 @@ namespace MidiGenPlay.Composition
             ChordProgressionData defaultProgression,
             Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart)
         {
+            // PRE-ORDER-1 seam, kept verbatim for BC (test-pinned): the guard
+            // here is the ORIGINAL binary "any Backing present => warn +
+            // ignore" (D-SOLO-GUARD=A). The orchestrator itself now calls the
+            // 4-parameter overload below, whose guard is the ORDER-1
+            // harmony-source sniff (D-ORD-GUARD=A).
             if (defaultProgression == null)
                 return DefaultProgressionSeedResult.NotSupplied;
 
@@ -1078,6 +1160,89 @@ namespace MidiGenPlay.Composition
                 return DefaultProgressionSeedResult.IgnoredBackingPresent;
             }
 
+            SeedDefaultCore(part, defaultProgression, progressionByPart);
+            return DefaultProgressionSeedResult.Seeded;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-ORDER-1 (D-ORD-GUARD=A). The ORDER-1 seeding seam
+        /// the orchestrator actually calls: same seeding core as the legacy
+        /// overload, but the guard is a STATIC harmony-source sniff
+        /// (<see cref="BackingTrackCarriesHarmonySource"/>) instead of mere
+        /// Backing presence — an articulation-only Backing card (future
+        /// bossa/ska/power-chord bundles without palette/override) must NOT
+        /// displace the host default. When the default is seeded under such a
+        /// Backing row, the Backing composer consumes it via its shared-cache
+        /// step (and TS-normalizes/requalifies it in place of the raw
+        /// D-SOLO-NORM=A hazard — a strict improvement, on record).
+        ///
+        /// Recorded edge (presence-based sniff): a palette that LOOKS valid
+        /// here (≥ 1 non-null, weight &gt; 0 entry — mirroring
+        /// PickRandomProgression's filter) can still fail its TS-aware pick at
+        /// compose time; the Backing then degrades to procedural and the
+        /// (suppressed) default does NOT resurge. Not silence — documented
+        /// gap, matching the pre-ORDER-1 "palette pick failed" semantics.
+        ///
+        /// Determinism: pure — zero rng draws (D-SOLO-DET unchanged), the
+        /// sniff reads only serialized asset/override state.
+        /// </summary>
+        public static DefaultProgressionSeedResult TrySeedDefaultProgression(
+            SongConfig.PartConfig part,
+            ChordProgressionData defaultProgression,
+            Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart,
+            IReadOnlyDictionary<MusicianTrackKey, PatternDataSO> patternOverrides)
+        {
+            if (defaultProgression == null)
+                return DefaultProgressionSeedResult.NotSupplied;
+
+            bool hasBacking = false;
+            bool backingCarriesHarmony = false;
+            if (part?.Tracks != null)
+            {
+                foreach (var t in part.Tracks)
+                {
+                    if (t == null || t.Role != TrackRole.Backing) continue;
+                    hasBacking = true;
+
+                    PatternDataSO ovr = null;
+                    if (patternOverrides != null && patternOverrides.TryGetValue(
+                            new MusicianTrackKey(t.MusicianId, TrackRole.Backing),
+                            out var po))
+                        ovr = po;
+
+                    if (BackingTrackCarriesHarmonySource(t, ovr))
+                    {
+                        backingCarriesHarmony = true;
+                        break;
+                    }
+                }
+            }
+
+            if (backingCarriesHarmony)
+            {
+                Debug.LogWarning(
+                    $"[SongOrchestrator] defaultProgression ('{defaultProgression.name}') " +
+                    $"supplied but part '{part.Name}' has a Backing track carrying its " +
+                    $"own harmony source (card override/palette, authored Pattern, or " +
+                    $"per-render override) — that source owns the shared harmony " +
+                    $"(D-ORD-GUARD=A). To impose a progression on such a part, use the " +
+                    $"per-render patternOverride on the Backing track instead. Ignoring.");
+                return DefaultProgressionSeedResult.IgnoredBackingPresent;
+            }
+
+            SeedDefaultCore(part, defaultProgression, progressionByPart);
+            return hasBacking
+                ? DefaultProgressionSeedResult.SeededBackingArticulationOnly
+                : DefaultProgressionSeedResult.Seeded;
+        }
+
+        /// <summary>Shared seeding core of both TrySeedDefaultProgression
+        /// overloads — the exact pre-ORDER-1 clone + requality + cache write.</summary>
+        private static void SeedDefaultCore(
+            SongConfig.PartConfig part,
+            ChordProgressionData defaultProgression,
+            Dictionary<SongConfig.PartConfig, ChordProgressionData> progressionByPart)
+        {
             // RUNTIME-REQUALITY (D-RQ-SITE, site 2): in the backing-less path
             // no ChordTrackComposer runs, so the diatonic re-resolution for
             // opt-in assets happens here, against the part's tonality at seed
@@ -1085,6 +1250,11 @@ namespace MidiGenPlay.Composition
             // plain clone below runs, exactly the pre-REQUALITY behavior.
             // When requality DID clone, that clone is already a fresh runtime
             // instance — reuse it (single clone, no double Instantiate).
+            // ORDER-1 note: when the default is seeded under an
+            // articulation-only Backing (SeededBackingArticulationOnly), the
+            // Backing composer's own 2c step re-applies requality to the
+            // cached clone — idempotent on content (diatonic re-resolution of
+            // an already-diatonic result), at worst one extra clone.
             var requalified = ChordProgressionRequality.ApplyDiatonicRequality(
                 defaultProgression, part.Tonality);
             var clone = ReferenceEquals(requalified, defaultProgression)
@@ -1092,7 +1262,110 @@ namespace MidiGenPlay.Composition
                 : requalified;
             clone.name = defaultProgression.name; // keep readback identity (no "(Clone)")
             progressionByPart[part] = clone;
-            return DefaultProgressionSeedResult.Seeded;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-ORDER-1 (D-ORD-GUARD=A): STATIC, draw-free
+        /// harmony-source sniff on ONE Backing track config. True when the
+        /// track would resolve harmony from any source ABOVE the host default
+        /// in the shared-progression precedence:
+        /// per-render override (step 0) &gt; card progressionOverride &gt;
+        /// card palette (≥ 1 valid entry: non-null progression, weight &gt; 0
+        /// — the exact PickRandomProgression filter) &gt; authored
+        /// TrackParameters.Pattern. False = articulation-only Backing: the
+        /// host default may seed under it. Pure; reads no rng, mutates
+        /// nothing. Public test seam (house convention).
+        /// </summary>
+        public static bool BackingTrackCarriesHarmonySource(
+            SongConfig.PartConfig.TrackConfig backingCfg,
+            PatternDataSO renderOverrideForThisTrack)
+        {
+            if (renderOverrideForThisTrack is ChordProgressionData) return true;
+            if (backingCfg == null) return false;
+            if (backingCfg.Parameters?.Pattern is ChordProgressionData) return true;
+
+            var card = backingCfg.Parameters?.Style as BackingCardConfigSO;
+            if (card == null) return false;
+            if (card.progressionOverride != null) return true;
+
+            var entries = card.progressionPalette != null
+                ? card.progressionPalette.entries : null;
+            if (entries != null)
+            {
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    var e = entries[i];
+                    if (e != null && e.progression != null && e.weight > 0f)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-ORDER-1 (D-ORD-RB): stamps
+        /// <see cref="PartRender.sharedProgressionSource"/> /
+        /// <see cref="PartRender.sharedProgressionAssetName"/> from the
+        /// seeding result and the FIRST (track-list order) Backing track's
+        /// readback entry. With Backing composing in PASS 0, the only possible
+        /// pre-Backing publisher of the shared cache is the host-default seed,
+        /// so Backing reporting <see cref="ResolvedSource.SharedProgression"/>
+        /// maps to <see cref="ResolvedSource.HostDefault"/> exactly when a
+        /// seed happened (defensive: an unseeded SharedProgression is kept
+        /// as-is). No Backing entry at all: the seeded default won if seeding
+        /// happened, else nothing won the SHARED channel (consumers used a
+        /// private Pattern or rendered nothing) => None. Pure; public test
+        /// seam (house convention).
+        /// </summary>
+        public static void StampSharedProgressionReadback(
+            PartRender render,
+            SongConfig.PartConfig part,
+            DefaultProgressionSeedResult seedResult,
+            ChordProgressionData defaultProgression)
+        {
+            if (render == null) return;
+
+            bool seeded =
+                seedResult == DefaultProgressionSeedResult.Seeded ||
+                seedResult == DefaultProgressionSeedResult.SeededBackingArticulationOnly;
+
+            ResolvedTrackChoice backing = null;
+            if (part?.Tracks != null)
+            {
+                foreach (var t in part.Tracks)
+                {
+                    if (t == null || t.Role != TrackRole.Backing) continue;
+                    if (render.resolvedByTrack.TryGetValue(
+                            new MusicianTrackKey(t.MusicianId, TrackRole.Backing),
+                            out var rc) && rc != null)
+                    {
+                        backing = rc;
+                        break;
+                    }
+                }
+            }
+
+            if (backing != null)
+            {
+                render.sharedProgressionSource =
+                    backing.source == ResolvedSource.SharedProgression && seeded
+                        ? ResolvedSource.HostDefault
+                        : backing.source;
+                render.sharedProgressionAssetName = backing.sourceAssetName;
+                return;
+            }
+
+            if (seeded)
+            {
+                render.sharedProgressionSource = ResolvedSource.HostDefault;
+                render.sharedProgressionAssetName =
+                    defaultProgression != null ? defaultProgression.name : null;
+            }
+            else
+            {
+                render.sharedProgressionSource = ResolvedSource.None;
+                render.sharedProgressionAssetName = null;
+            }
         }
 
         private Action<SongConfig.PartConfig, ChordProgressionData>

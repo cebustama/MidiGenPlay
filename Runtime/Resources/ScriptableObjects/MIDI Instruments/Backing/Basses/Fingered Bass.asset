@@ -19,4 +19,5 @@ MonoBehaviour:
   PatchName: 33 - Fingered Bass
   PatchIndex: 33
   octaveMin: 2
-  octaveMax: 3
+  octaveMax: 4
+  volume01: 1

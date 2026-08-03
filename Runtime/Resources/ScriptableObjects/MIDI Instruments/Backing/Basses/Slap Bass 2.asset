@@ -18,6 +18,6 @@ MonoBehaviour:
   BankName: 000
   PatchName: 37 - Slap Bass 2
   PatchIndex: 37
-  octaveMin: 1
-  octaveMax: 3
+  octaveMin: 2
+  octaveMax: 4
   volume01: 1

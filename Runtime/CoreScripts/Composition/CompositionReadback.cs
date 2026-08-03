@@ -63,6 +63,15 @@ namespace MidiGenPlay.Composition
         SharedProgression = 5,
         /// <summary>Procedurally generated this render.</summary>
         Procedural = 6,
+        /// <summary>MGP-ALWTTT-BASS-ORDER-1 (D-ORD-RB): the per-render SHARED
+        /// progression was won by the HOST-supplied defaultProgression
+        /// (MGP-ALWTTT-BASS-SOLO-1 channel). Stamped ONLY by the orchestrator
+        /// into <c>PartRender.sharedProgressionSource</c> — composers never
+        /// report it (a composer consuming the seeded default reports
+        /// <see cref="SharedProgression"/>, which the orchestrator maps to
+        /// this member using the seeding result). Appended member: values
+        /// 0..6 are serialized/logged surface and unchanged.</summary>
+        HostDefault = 7,
     }
 
     /// <summary>

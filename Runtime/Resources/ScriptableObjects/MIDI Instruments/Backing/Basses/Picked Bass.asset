@@ -19,4 +19,5 @@ MonoBehaviour:
   PatchName: 34 - Picked Bass
   PatchIndex: 34
   octaveMin: 2
-  octaveMax: 3
+  octaveMax: 4
+  volume01: 1
