@@ -100,6 +100,26 @@ namespace MidiGenPlay.Composition
     /// shift. ZERO ctx.rng draws; pocketed events still bypass the walk
     /// (§3.7 verbatim); every planned note folds -12 while above the
     /// D-REG-1=C ceiling (per-note adaptation of D-REG-3=B).
+    /// MGP-ALWTTT-BASS-BEND-1 (D-BEND-GEST=A / D-BEND-EMIT=B / D-BEND-DEG=A
+    /// / D-BEND-ANCHOR=A / D-BEND-RESET=A / D-BEND-RANGE=A): TRUE legato for
+    /// HammerOn/PullOff. A legato hit no longer strikes a note: the nearest
+    /// preceding note-emitting hit becomes its CARRIER (BuildLegatoCarrierMap,
+    /// a pure coalescing pass -- the PLAN is untouched byte-for-byte), the
+    /// carrier's gate extends through its legato tail
+    /// (ResolveLegatoGroupEndBeats, the declared gate-law change), and each
+    /// tail hit becomes a STEP pitch bend gesture at its tick -- interval in
+    /// SCALE DEGREES resolved from the pitch the chain has reached
+    /// (ResolveLegatoDeltaSemitones; card fields hammerOffsetDegrees /
+    /// pullOffsetDegrees, default +1/-1), cumulative detune for chains,
+    /// reset at the carrier's note-off. Gestures are applied as POST-BUILD
+    /// surgery via PitchBendWriter (ticks converted with the same
+    /// beatSpan/tempoMap the notes use), before ForceAllChannel /
+    /// StampBankAndPatch. An ORPHAN legato hit (opening its event window)
+    /// degrades to an attacked note at the degree-resolved interval (warn
+    /// once per Compose). Plans without legato classes take a carrier map of
+    /// all -1 and an empty gesture list: the emission loop is line-for-line
+    /// SLAPFIG-2 and the writer never runs -- structural byte-identity,
+    /// pinned by the Ghost-vocabulary render canary. ZERO new ctx.rng draws.
     public sealed class BassTrackComposer : ITrackComposer
     {
         private readonly MidiGenPlayConfig _settings;
@@ -237,8 +257,11 @@ namespace MidiGenPlay.Composition
             // SLAPFIG-2 (D-SF2-PITCH=A): card-declared semitone offsets for
             // the HammerOn/PullOff pitch law. Read only when SelfPocket is
             // requested; consumed only by hits of those classes.
-            int hammerOffsetSemitones = 2;
-            int pullOffsetSemitones = -2;
+            // BEND-1 (D-BEND-DEG=A) re-laws these: the offsets are now
+            // SCALE DEGREES (default +1/-1 -- the scale neighbour; the Part
+            // tonality decides each step's semitone size).
+            int hammerOffsetDegrees = 1;
+            int pullOffsetDegrees = -1;
 
             // SLAPFIG-2b: per-class velocity factors and ghost gate ceiling,
             // authored on the card. Defaults to the shipped tuning when no
@@ -255,8 +278,8 @@ namespace MidiGenPlay.Composition
                 pocketSlapBoost = bassStyle.pocketSlapBoost;
                 pocketPopBoost = bassStyle.pocketPopBoost;
                 selfPocketSubdivision = bassStyle.selfPocketSubdivision;
-                hammerOffsetSemitones = bassStyle.hammerOffsetSemitones;
-                pullOffsetSemitones = bassStyle.pullOffsetSemitones;
+                hammerOffsetDegrees = bassStyle.hammerOffsetDegrees;
+                pullOffsetDegrees = bassStyle.pullOffsetDegrees;
                 selfPocketTuning = SelfPocketTuning.FromCard(bassStyle);
 
                 var pat = bassStyle.selfPocketPattern;
@@ -347,6 +370,17 @@ namespace MidiGenPlay.Composition
 
             // POCKET-1: per-Compose segment buffer (local — no composer state).
             var _segments = new List<EmitSegment>(4);
+
+            // BEND-1 (D-BEND-EMIT=B): per-Compose legato gesture buffer, in
+            // TICKS. The converter uses the SAME beatSpan/tempoMap the notes
+            // go through, so gestures and note-ons share one rounding and
+            // can never drift apart. Empty list => the writer is a hard
+            // no-op (byte-identity for every render without legato tails).
+            // Warn latch: the orphan degrade warns once per Compose.
+            var legatoGestures = new List<PitchBendWriter.StepGesture>(4);
+            bool warnedOrphanLegato = false;
+            long BeatsToTicks(double beats) =>
+                TimeConverter.ConvertFrom(beatSpan.Multiply(beats), tempoMap);
 
             // B3 WALK-2 (D-W2-VOCAB=B): the improvised walk needs the NEXT
             // event's root (approach-note target), so the ordered enumeration
@@ -440,16 +474,57 @@ namespace MidiGenPlay.Composition
                     // (classification, popBoost, pop-wins, gate) untouched —
                     // BuildPocketPlan never sees the fold.
                     // SLAPFIG-2 (D-SF2-PITCH=A): every class's pitch is a pure
-                    // call-site law over the SELECTED note. Slap/Ghost sound
-                    // on it; Pop/GhostPop in the pop domain (ResolvePopNote,
-                    // fold intact); HammerOn/PullOff at the card-declared
-                    // offset (ResolveOffsetNote, ceiling/floor folded).
+                    // call-site law. Slap/Ghost sound on the SELECTED note;
+                    // Pop/GhostPop in the pop domain (ResolvePopNote, fold
+                    // intact). BEND-1 (D-BEND-GEST=A): HammerOn/PullOff are
+                    // no longer notes - a hit with a carrier becomes a STEP
+                    // BEND GESTURE on it; only the ORPHAN case (opening its
+                    // event window) still resolves a pitch and attacks.
                     // SlapPocket plans only Slap/Pop, so its pitch mapping is
                     // byte-identical to the pre-SLAPFIG-2 pop ternary.
                     var popNote = ResolvePopNote(pc, oct, registerCeiling);
+
+                    // BEND-1: pure coalescing pass. For a plan without legato
+                    // classes every entry is -1 and the loop below is
+                    // line-for-line the SLAPFIG-2 loop - same segment count,
+                    // same arguments, same ForEvent(k) jitter derivations
+                    // (ForEvent is a pure per-index avalanche, not a stream)
+                    // - structural byte-identity.
+                    var carrierMap = BuildLegatoCarrierMap(pocketPlan);
+
+                    // Legato chain state (D-BEND-ANCHOR=A): reset at every
+                    // note-emitting hit. carrierMap[0] is always -1, so the
+                    // state is always seeded before any tail reads it.
+                    int chainPitch = 0;
+                    double chainDetune = 0;
+                    double chainGroupEndBeats = 0;
+
                     for (int k = 0; k < pocketPlan.Count; k++)
                     {
                         var h = pocketPlan[k];
+
+                        if (carrierMap[k] >= 0)
+                        {
+                            // Legato TAIL: no note-on. Interval in scale
+                            // degrees from the pitch the chain has reached
+                            // (D-BEND-DEG=A); cumulative detune so chains
+                            // pass the writer an absolute target; reset at
+                            // the carrier group's end (D-BEND-RESET=A - the
+                            // writer coalesces mid-chain resets away).
+                            int degOff =
+                                h.articulation == SelfPocketStep.HammerOn
+                                    ? hammerOffsetDegrees : pullOffsetDegrees;
+                            int delta = ResolveLegatoDeltaSemitones(
+                                chainPitch, degOff, scaleNames);
+                            chainDetune += delta;
+                            chainPitch += delta;
+                            legatoGestures.Add(new PitchBendWriter.StepGesture(
+                                BeatsToTicks(h.startBeats),
+                                chainDetune,
+                                BeatsToTicks(chainGroupEndBeats)));
+                            continue;
+                        }
+
                         NoteTheory hitNote;
                         switch (h.articulation)
                         {
@@ -458,20 +533,61 @@ namespace MidiGenPlay.Composition
                                 hitNote = popNote;
                                 break;
                             case SelfPocketStep.HammerOn:
-                                hitNote = ResolveOffsetNote(
-                                    pc, oct, hammerOffsetSemitones, registerCeiling);
-                                break;
                             case SelfPocketStep.PullOff:
+                                // ORPHAN legato (first hit of the event
+                                // window): nothing sounds yet, nothing to
+                                // bend. Degrade to an attacked note at the
+                                // degree-resolved interval from the SELECTED
+                                // note - SLAPFIG-2 behavior with the interval
+                                // law upgraded to degrees.
+                                if (!warnedOrphanLegato)
+                                {
+                                    warnedOrphanLegato = true;
+                                    Debug.LogWarning(
+                                        $"[BassTrackComposer] BEND-1: a " +
+                                        $"{h.articulation} step opens a " +
+                                        $"chord-event window (first at beat " +
+                                        $"{h.startBeats:0.##}) with no " +
+                                        $"previous hit to bend from; " +
+                                        $"emitting attacked note(s). Put a " +
+                                        $"sounding step before it in " +
+                                        $"selfPocketPattern for true legato. " +
+                                        $"(Warned once per render.)");
+                                }
                                 hitNote = ResolveOffsetNote(
-                                    pc, oct, pullOffsetSemitones, registerCeiling);
+                                    pc, oct,
+                                    ResolveLegatoDeltaSemitones(
+                                        note.NoteNumber,
+                                        h.articulation ==
+                                            SelfPocketStep.HammerOn
+                                            ? hammerOffsetDegrees
+                                            : pullOffsetDegrees,
+                                        scaleNames),
+                                    registerCeiling);
                                 break;
                             default: // Slap, Ghost
                                 hitNote = note;
                                 break;
                         }
+
+                        // Note-emitting hit => new chain anchor.
+                        chainPitch = hitNote.NoteNumber;
+                        chainDetune = 0;
+
+                        // BEND-1 carrier gate (declared law change): a hit
+                        // followed by legato tails spans THROUGH them; its
+                        // planned len applies verbatim otherwise (identity
+                        // for tail-less plans).
+                        double segLen = h.lenBeats;
+                        double groupEnd = ResolveLegatoGroupEndBeats(
+                            pocketPlan, carrierMap, k);
+                        if (groupEnd > h.startBeats + h.lenBeats)
+                            segLen = groupEnd - h.startBeats;
+                        chainGroupEndBeats = groupEnd;
+
                         _segments.Add(new EmitSegment(
                             new[] { hitNote },
-                            h.startBeats, h.lenBeats,
+                            h.startBeats, segLen,
                             ChordExpressionType.Block, effectiveRate,
                             h.velocity, evJitter.ForEvent(k)));
                     }
@@ -567,6 +683,15 @@ namespace MidiGenPlay.Composition
 
             var file = pb.Build().ToFile(tempoMap);
 
+            // BEND-1 (D-BEND-EMIT=B): apply the planned legato gestures as
+            // post-build surgery -- BEFORE ForceAllChannel (which stamps the
+            // bend events like any channel event) and BEFORE
+            // StampBankAndPatch (whose program-change tick shift then
+            // applies to bends and notes alike, keeping them aligned).
+            // Empty list = hard no-op = the byte-identity guarantee for
+            // every render without legato.
+            PitchBendWriter.ApplyStepGestures(file, legatoGestures);
+
             if (_settings?.logGenerator == true)
             {
                 var all = file.GetNotes().OrderBy(n => n.Time).ToList();
@@ -610,8 +735,10 @@ namespace MidiGenPlay.Composition
                                     : "EMPTY(decoupled)") +
                                 $" boosts=({pocketSlapBoost:+0;-0;0}," +
                                 $"{pocketPopBoost:+0;-0;0})" +
-                                $" | SLAPFIG-2 offsets=(H{hammerOffsetSemitones:+0;-0;0}," +
-                                $"P{pullOffsetSemitones:+0;-0;0})"
+                                $" | SLAPFIG-2/BEND-1 degOffsets=" +
+                                $"(H{hammerOffsetDegrees:+0;-0;0}," +
+                                $"P{pullOffsetDegrees:+0;-0;0})" +
+                                $" legatoGestures={legatoGestures.Count}"
                               : ""));
             }
 
@@ -819,6 +946,104 @@ namespace MidiGenPlay.Composition
             if (n < 0) n = 0;
             if (n > 127) n = 127;
             return NoteTheory.Get((SevenBitNumber)n);
+        }
+
+        /// <summary>
+        /// BEND-1 (D-BEND-GEST=A): pure coalescing pass over a pocket plan.
+        /// One entry per hit: the plan index of the hit's legato CARRIER when
+        /// the hit is a HammerOn/PullOff with something to bend from (the
+        /// nearest preceding hit that emits its own note-on; chains collapse
+        /// onto the chain's root carrier), or -1 when the hit emits its own
+        /// note-on - every non-legato class, and an ORPHAN legato hit at
+        /// index 0 of the event window. The PLAN itself is never modified:
+        /// BuildSelfPocketPlan and all its pins are untouched byte-for-byte;
+        /// the reinterpretation lives entirely in this map. Plans without
+        /// legato classes map to all -1 - the consuming loop is then
+        /// line-for-line the SLAPFIG-2 loop (structural byte-identity).
+        /// Pure, deterministic, no rng.
+        /// </summary>
+        public static int[] BuildLegatoCarrierMap(
+            IReadOnlyList<PocketHit> plan)
+        {
+            var map = new int[plan?.Count ?? 0];
+            for (int k = 0; k < map.Length; k++)
+            {
+                var a = plan[k].articulation;
+                bool legato =
+                    a == BasslineCardConfigSO.SelfPocketStep.HammerOn ||
+                    a == BasslineCardConfigSO.SelfPocketStep.PullOff;
+                map[k] = legato && k > 0
+                    ? (map[k - 1] == -1 ? k - 1 : map[k - 1])
+                    : -1;
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// BEND-1 (D-BEND-GEST=A): the end, in Part beats, of the legato
+        /// group anchored at <paramref name="carrierIndex"/> - the end of its
+        /// LAST tail hit, or the carrier's own planned end when no tails
+        /// follow (the identity case). Tails of one carrier are consecutive
+        /// by construction of the carrier map, and plan hits are time-sorted
+        /// with positive lengths, so the last tail's end is the group
+        /// maximum. Pure.
+        /// </summary>
+        public static double ResolveLegatoGroupEndBeats(
+            IReadOnlyList<PocketHit> plan, int[] carrierMap, int carrierIndex)
+        {
+            double end = plan[carrierIndex].startBeats
+                       + plan[carrierIndex].lenBeats;
+            for (int j = carrierIndex + 1;
+                 j < plan.Count && carrierMap[j] == carrierIndex; j++)
+                end = plan[j].startBeats + plan[j].lenBeats;
+            return end;
+        }
+
+        /// <summary>
+        /// BEND-1 (D-BEND-DEG=A): resolves a legato interval declared in
+        /// SCALE DEGREES to a signed semitone delta from
+        /// <paramref name="fromNoteNumber"/>. Walks the scale one degree at a
+        /// time (any |offset|, octave crossings for free; the tonality
+        /// decides each step's size - a harmonic-minor augmented second is a
+        /// legitimate 3-semitone step, clamped later to the GM range by the
+        /// writer, declared degradation). If the starting pitch class is NOT
+        /// a scale member (borrowed/requalified chord tone), falls back to
+        /// whole tones - offsetDegrees * 2 semitones, the SLAPFIG-2 chromatic
+        /// law per degree; silent by design (a data-dependent per-hit
+        /// condition, not a config degrade - deviation from warn-max on
+        /// record). Pure, deterministic, no rng.
+        /// </summary>
+        public static int ResolveLegatoDeltaSemitones(
+            int fromNoteNumber, int offsetDegrees, NoteName[] scaleNames)
+        {
+            if (offsetDegrees == 0) return 0;
+            if (scaleNames == null || scaleNames.Length == 0)
+                return offsetDegrees * 2;
+
+            int pc = ((fromNoteNumber % 12) + 12) % 12;
+            int idx = -1;
+            for (int i = 0; i < scaleNames.Length; i++)
+                if ((int)scaleNames[i] == pc) { idx = i; break; }
+            if (idx < 0) return offsetDegrees * 2; // off-scale fallback
+
+            int len = scaleNames.Length;
+            int dir = Math.Sign(offsetDegrees);
+            int steps = Math.Abs(offsetDegrees);
+            int cur = pc;
+            int delta = 0;
+            for (int s = 0; s < steps; s++)
+            {
+                int next = ((idx + dir) % len + len) % len;
+                int nextPc = (int)scaleNames[next];
+                int step = dir > 0
+                    ? ((nextPc - cur) % 12 + 12) % 12
+                    : -(((cur - nextPc) % 12 + 12) % 12);
+                if (step == 0) step = dir * 12; // duplicate-pc guard
+                delta += step;
+                cur = nextPc;
+                idx = next;
+            }
+            return delta;
         }
 
         /// <summary>Kick family for SlapPocket classification (semantic lane,

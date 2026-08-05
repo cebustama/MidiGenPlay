@@ -280,6 +280,23 @@ namespace MidiGenPlay.Composition
                     new System.Random(SongOrchestrator.ResolveArticulationRateSeed(trackSeed)));
             }
 
+            // MGP-ARTIC-RATE-1 (D-MGP-ARTIC-2=B): assertion, not a degrade path.
+            // §8.5 states the articulator NEVER receives either sentinel; the
+            // roller gate above is what makes that true. If this fires, a
+            // sentinel is about to be swallowed by the articulator's defensive
+            // degrade (Block / Eighth) — the F-ARTIC-RATE-GRID-1 failure mode,
+            // which shipped silently. Once per render, never per event.
+            if (articRoller == null &&
+                (chordExpression == ChordExpressionType.Random ||
+                 arpeggioRate == ArpeggioRate.Random))
+            {
+                Debug.LogWarning(
+                    "[ChordTrackComposer] Unresolved articulation sentinel " +
+                    $"(expression={chordExpression}, rate={arpeggioRate}) with no " +
+                    "roller: the articulator will degrade it (Block / Eighth). " +
+                    "See runtime/SSoT_Composer_Backing_Track.md §8.5.");
+            }
+
             // CA-V1 (D-V1-JIT-SRC=A): render-level jitter policy. NOT a stream —
             // a seed for a pure per-(event, hit) mix, so the articulator stays
             // RNG-free and ctx.rng is untouched. Amount 0 (default / no card) is
@@ -648,28 +665,30 @@ namespace MidiGenPlay.Composition
 
                     var startTime = beatSpan.Multiply(startBeats);
 
-                    // CA-T1: single unconditional articulation call — the SAME line
-                    // at both emission sites, so the figures can never diverge
-                    // per-site. Block inside Emit reproduces the legacy
-                    // MoveToTime+Chord pair verbatim (bit-identical).
-                    // MGP-ALWTTT-ARTIC-1: per-event figure resolution (null
-                    // roller => fixed CA-T1 figure). Emit remains the single
-                    // unconditional call; only the figure VALUE varies.
-                    var effectiveExpression = articRoller != null
-                        ? articRoller.NextFigure() : chordExpression;
-                    // CA-T2 (D-T2-SEAM=B): Tier-2 pitch reshape AFTER voicing,
-                    // BEFORE the pitch-preserving articulator. Tier-1/Block/Random
-                    // => same list (bit-identical). lastVoicing already captured the
-                    // full harmonic voicing above, so voice-leading continuity and
-                    // the first-chord stash are unaffected — only the emitted
-                    // voicing is reshaped. Passing effectiveExpression straight
-                    // through is correct: the articulator degrades PowerChord->Block
-                    // and renders Chugging as a chord pulse.
+                    // CA-T1: single unconditional articulation call — the SAME
+                    // line at both emission sites. MGP-ARTIC-RATE-1: the SAME
+                    // ARGUMENTS too. §8.4's both-sites guarantee is about the
+                    // resolved values reaching Emit, not just the call shape;
+                    // this site drifted when CA-V1 widened the roller gate
+                    // (F-ARTIC-RATE-GRID-1..3).
+                    var effectiveExpression =
+                        articRoller != null &&
+                        chordExpression == ChordExpressionType.Random
+                            ? articRoller.NextFigure() : chordExpression;
+                    // CA-V1: independent axis on its own substream. A fixed
+                    // figure with a Random rate rolls rates only, and vice versa
+                    // — and consumes ZERO figure draws (§8.5).
+                    var effectiveRate =
+                        articRoller != null &&
+                        arpeggioRate == ArpeggioRate.Random
+                            ? articRoller.NextRate() : arpeggioRate;
+
                     var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
 
                     _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,
-                                      effectiveExpression, arpeggioRate);
+                                      effectiveExpression, effectiveRate,
+                                      velocityJitter.ForEvent(eventIndex));
 
                     chordMarkers.Add((startTime, rn, sym, degIdx, q));
                     eventIndex++;
@@ -1440,6 +1459,21 @@ namespace MidiGenPlay.Composition
             RandomArticulationRoller articRoller,
             VelocityJitter velocityJitter)
         {
+            // MGP-ARTIC-RATE-1 (D-MGP-ARTIC-2=B): same assertion as the grid
+            // site. This entry point is reachable directly by callers that
+            // build their own roller (or none), so the check cannot live only
+            // in Compose.
+            if (articRoller == null &&
+                (chordExpression == ChordExpressionType.Random ||
+                 arpeggioRate == ArpeggioRate.Random))
+            {
+                Debug.LogWarning(
+                    "[ChordTrackComposer] Unresolved articulation sentinel " +
+                    $"(expression={chordExpression}, rate={arpeggioRate}) with no " +
+                    "roller: the articulator will degrade it (Block / Eighth). " +
+                    "See runtime/SSoT_Composer_Backing_Track.md §8.5.");
+            }
+
             // Defensive TS normalization: if progression TS differs from the Part TS (or needs upsample),
             // reproject to a runtime clone before rendering.
             prog = NormalizeProgressionForPartIfNeeded(part, prog);

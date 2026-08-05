@@ -1,17 +1,24 @@
 ﻿using Melanchall.DryWetMidi.Standards;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace MidiGenPlay.Composition
 {
     /// <summary>
     /// Bassline authoring bundle (CA-F2, SD-F2-4=A). Fills the TrackStyleBundles
-    /// �4.1 "Bassline (TBD)" row. Resolved by BassTrackComposer from the track's
+    /// §4.1 "Bassline (TBD)" row. Resolved by BassTrackComposer from the track's
     /// Style slot, mirroring the ChordTrackComposer / BackingCardConfigSO pattern.
     ///
     /// SD-F2-5=A: the bass articulation is fully independent of the backing
-    /// card � a bass track with no BasslineCardConfigSO in its Style slot always
+    /// card — a bass track with no BasslineCardConfigSO in its Style slot always
     /// renders Block, regardless of what the backing track selects.
+    ///
+    /// MGP-ALWTTT-BASS-BEND-1 (D-BEND-DEG=A): the HammerOn/PullOff interval
+    /// fields moved from SEMITONES to SCALE DEGREES (hammerOffsetDegrees /
+    /// pullOffsetDegrees, defaults +1/-1) — the tonality decides each step's
+    /// size. Renamed pre-production with [FormerlySerializedAs]; no shipped
+    /// assets carried the old fields.
     ///
     /// See runtime/SSoT_Composer_Bass_Track.md.
     /// </summary>
@@ -46,7 +53,7 @@ namespace MidiGenPlay.Composition
                  "when Chord Expression = Random. Empty = uniform over the six " +
                  "Tier-1 figures. NOTE for a monophonic line: ArpeggioUp and " +
                  "ArpeggioDown are indistinguishable (SD-F2-2=A), so the uniform " +
-                 "pool gives the repeated-note pulse double weight � use this " +
+                 "pool gives the repeated-note pulse double weight — use this " +
                  "list to rebalance.")]
         public List<ChordExpressionWeight> randomFigureWeights =
             new List<ChordExpressionWeight>();
@@ -187,8 +194,16 @@ namespace MidiGenPlay.Composition
             // indistinguishable from Ghost (no distinguishing law yet).
             Ghost = 3,    // thumb-side ghost: selected note, low velocity factor, click gate
             GhostPop = 4, // pop-side ghost: pop pitch domain (+12 fold), lowest factor, click gate
-            HammerOn = 5, // legato-soft hit at selected note + hammerOffsetSemitones (D-SF2-PITCH=A)
-            PullOff = 6,  // legato-soft hit at selected note + pullOffsetSemitones (D-SF2-PITCH=A)
+            // MGP-ALWTTT-BASS-BEND-1 (D-BEND-GEST=A): TRUE legato — no new
+            // attack. The previous sounding hit becomes the CARRIER (its gate
+            // extends through the legato step) and a step pitch bend moves
+            // the sounding pitch by the degree offset, resolved against the
+            // Part scale from the pitch the chain has reached
+            // (D-BEND-DEG=A / D-BEND-ANCHOR=A). A legato step that OPENS its
+            // event window has nothing to bend and degrades to an attacked
+            // note at the same interval (warn).
+            HammerOn = 5, // legato: carrier + step bend, +hammerOffsetDegrees in the Part scale
+            PullOff = 6,  // legato: carrier + step bend, +pullOffsetDegrees in the Part scale
         }
 
         /// <summary>
@@ -223,37 +238,52 @@ namespace MidiGenPlay.Composition
                  "never silence). Velocity law (SLAPFIG-2, D-SF2-VEL=B): " +
                  "Slap/Pop = the chord event's authored velocity + " +
                  "pocketSlapBoost/pocketPopBoost (additive, clamped 1..127 — " +
-                 "exactly v1); Ghost/GhostPop/HammerOn/PullOff = a fixed " +
-                 "per-class FACTOR of the event velocity (no boosts), so " +
-                 "classes keep their proportions instead of flattening " +
-                 "against the 127 clamp. Gate (D-SF2-GATE=B): ghosts get a " +
-                 "click-length ceiling; everything else keeps the SlapPocket " +
-                 "gate. Register ceiling and timbre rules are exactly " +
-                 "SlapPocket's.")]
+                 "exactly v1); Ghost/GhostPop = a fixed per-class FACTOR of " +
+                 "the event velocity (no boosts), so classes keep their " +
+                 "proportions instead of flattening against the 127 clamp. " +
+                 "Legato (BEND-1, D-BEND-GEST=A): HammerOn/PullOff steps do " +
+                 "NOT strike a new note — the previous sounding hit becomes " +
+                 "the CARRIER: its gate extends through the legato step(s) " +
+                 "and a step pitch bend moves the sounding pitch by the " +
+                 "card's degree offset (resolved against the Part scale), " +
+                 "returning to center at the carrier's note-off. A legato " +
+                 "step that OPENS an event window has nothing to bend and " +
+                 "degrades to an attacked note (warn once per render). " +
+                 "Gate (D-SF2-GATE=B): ghosts get a click-length ceiling; " +
+                 "everything else keeps the SlapPocket gate; a carrier " +
+                 "followed by legato steps spans through them (BEND-1 " +
+                 "declared law change). Register ceiling and timbre rules " +
+                 "are exactly SlapPocket's.")]
         public List<SelfPocketStep> selfPocketPattern =
             new List<SelfPocketStep> { SelfPocketStep.Slap, SelfPocketStep.Pop };
 
-        [Tooltip("MGP-ALWTTT-BASS-SLAPFIG-2 (D-SF2-PITCH=A). Semitone offset " +
-                 "from the event's SELECTED note for HammerOn steps. Default " +
-                 "+2 (whole step, the idiomatic blues/pentatonic hammer; +1 = " +
-                 "chromatic tension, +3 = to the minor third). Deliberately " +
-                 "chromatic-blind (same recorded deviation as the walk's " +
-                 "approach notes) and relative to the SELECTED note, not the " +
-                 "previous hit — the plan stays pitch-free; declared fidelity " +
-                 "loss vs. the real gesture, revisit by ear. Folded under the " +
-                 "register ceiling and above the MIDI floor. Ignored unless " +
-                 "the pattern contains HammerOn steps.")]
-        [Range(-12, 12)]
-        public int hammerOffsetSemitones = 2;
+        [Tooltip("MGP-ALWTTT-BASS-BEND-1 (D-BEND-DEG=A). SCALE-DEGREE offset " +
+                 "for HammerOn steps. Default +1 — the scale neighbour above; " +
+                 "the Part tonality decides whether that is a whole or a half " +
+                 "step (a harmonic-minor augmented second lands at 3 " +
+                 "semitones and is clamped to the GM ±2 bend range, declared " +
+                 "degradation). Resolved from the pitch the legato chain has " +
+                 "reached — the CARRIER, D-BEND-ANCHOR=A. If that pitch " +
+                 "class is not a scale member (borrowed/requalified chord " +
+                 "tone), falls back to whole tones (offset × 2 semitones — " +
+                 "the SLAPFIG-2 chromatic law, silent by design). Replaces " +
+                 "hammerOffsetSemitones (renamed pre-production; no shipped " +
+                 "assets carried the old field). Ignored unless the pattern " +
+                 "contains HammerOn steps.")]
+        [Range(-7, 7)]
+        [FormerlySerializedAs("hammerOffsetSemitones")]
+        public int hammerOffsetDegrees = 1;
 
-        [Tooltip("MGP-ALWTTT-BASS-SLAPFIG-2 (D-SF2-PITCH=A). Semitone offset " +
-                 "from the event's SELECTED note for PullOff steps. Default " +
-                 "-2 (the descending phrase-closer). Same chromatic-blind, " +
-                 "selected-note-relative, ceiling/floor-folded rules as " +
-                 "hammerOffsetSemitones. Ignored unless the pattern contains " +
-                 "PullOff steps.")]
-        [Range(-12, 12)]
-        public int pullOffsetSemitones = -2;
+        [Tooltip("MGP-ALWTTT-BASS-BEND-1 (D-BEND-DEG=A). SCALE-DEGREE offset " +
+                 "for PullOff steps. Default -1 — the scale neighbour below, " +
+                 "the descending phrase-closer. Same scale resolution, " +
+                 "carrier anchor, whole-tone fallback and GM-range clamp " +
+                 "rules as hammerOffsetDegrees. Replaces pullOffsetSemitones " +
+                 "(renamed pre-production). Ignored unless the pattern " +
+                 "contains PullOff steps.")]
+        [Range(-7, 7)]
+        [FormerlySerializedAs("pullOffsetSemitones")]
+        public int pullOffsetDegrees = -1;
 
         // --- SLAPFIG-2b: per-class tuning, promoted from compile-time
         // constants to card fields (D-SF2-VEL=B stays the LAW — a factor of
@@ -280,12 +310,19 @@ namespace MidiGenPlay.Composition
         [Range(0.05f, 1f)]
         public float ghostPopVelocityFactor = 0.50f;
 
-        [Tooltip("SelfPocket: HammerOn velocity factor. Softer than a struck " +
-                 "note — a fretting finger puts in less energy than a thumb.")]
+        [Tooltip("SelfPocket: HammerOn velocity factor. BEND-1 note: the " +
+                 "legato bend path emits NO new attack, so this factor only " +
+                 "applies to the degraded ORPHAN case — a HammerOn that " +
+                 "opens its event window and renders as an attacked note. " +
+                 "It still feeds the plan (the seam law is unchanged); the " +
+                 "carrier-path velocity is simply unused, a BEND-1 declared " +
+                 "loss.")]
         [Range(0.05f, 1f)]
         public float hammerOnVelocityFactor = 0.60f;
 
-        [Tooltip("SelfPocket: PullOff velocity factor.")]
+        [Tooltip("SelfPocket: PullOff velocity factor. Same BEND-1 note as " +
+                 "hammerOnVelocityFactor: consumed only by the degraded " +
+                 "orphan case.")]
         [Range(0.05f, 1f)]
         public float pullOffVelocityFactor = 0.55f;
 
@@ -293,7 +330,9 @@ namespace MidiGenPlay.Composition
                  "beats. A ghost is a click, not a short note. Default 0.10. " +
                  "The usual min(gap to next hit, remaining window, ceiling) " +
                  "law applies, so on a dense grid the gap wins anyway. " +
-                 "Slap/Pop/HammerOn/PullOff keep the SlapPocket gate ceiling.")]
+                 "Slap/Pop keep the SlapPocket gate ceiling; a hit followed " +
+                 "by legato steps spans through them regardless of class " +
+                 "(BEND-1 carrier law).")]
         [Range(0.02f, 0.5f)]
         public float ghostGateBeats = 0.10f;
 
