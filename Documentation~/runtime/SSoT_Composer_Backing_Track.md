@@ -32,6 +32,23 @@ Important documented behavior:
 - treats duplicate progression references within a single palette as independent weighted entries (no de-duplication; CE-F1 delta vs. the prior reflection path),
 - and normalizes or adapts progression timing against the **Part** meter.
 
+**Scheduling and the host default (MGP-ALWTTT-BASS-ORDER-1).** The Backing
+composer now runs in a dedicated PASS 0, before every harmony consumer,
+whatever its position in the track list
+(`SSoT_Runtime_Generation_Orchestration.md` §5.7). Two consequences for this
+composer, neither of which changes its own resolution logic:
+
+- Its publication is always visible to Bassline / Melody / Harmony. The
+  "backing composed first" precondition attached to TS normalization and
+  runtime re-qualification is now structurally guaranteed for the shared
+  channel.
+- A card carrying NO harmony source (no `progressionOverride`, no palette with
+  a valid entry, no authored `Pattern`, no per-render override) no longer
+  suppresses a host-supplied `defaultProgression`. Such a card reaches step 2
+  of its own precedence with the default already in the shared cache and
+  consumes it — instead of going procedural. Articulation-only backing cards
+  are therefore a supported shape.
+
 ## 2.1 Chord marker contract (`chd:`) — MGP-ALWTTT-DBG
 
 The backing composer stamps one `chd:` text marker **per chord event** (not per
@@ -115,6 +132,41 @@ allowed list (`entry.compatibleTonalities` when non-empty, otherwise
 holds for the override, palette and runtime-importer paths, and retiring the
 library filter is a RUNTIME candidate — it changes renders — not a
 documentation one.
+
+## 2.3 AdoptProgressionTonality (MGP-MEL-1 P4, D3=C / D4=A)
+
+**Surface.** Card-level opt-in `BackingCardConfigSO.adoptProgressionTonality`,
+default OFF — with it off, behaviour is byte-identical to pre-batch.
+
+**When it fires.** At step 2a* of the resolution chain — after resolution,
+before TONFILTER-1's 2b and requality's 2c — when the resolved progression's
+`tonalities` do NOT contain `part.Tonality`. The part then adopts
+`tonalities[0]`. Deterministic, zero rng draws; the root is unchanged.
+
+**Guard.** Adoption requires `tonalities.Count > 0`. An entry with an empty
+`tonalities` list silently does not adopt. This is the most likely authoring
+failure on this path.
+
+**Visibility to consumers.** PASS-0 ordering
+(`SSoT_Runtime_Generation_Orchestration.md` §5.7) guarantees bass, melody and
+harmony see the adopted tonality.
+
+**Precedence (D4=A).** Compose-time adoption WINS over any pre-render
+tonality, including a host `TonalityEffect`. Combining both on one card is an
+authoring error that the HOST must validate: the composer cannot distinguish a
+default tonality from an effect-pinned one.
+
+**Readback.** `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality`,
+mutually exclusive with `tonalityMismatch` by construction.
+
+**Interaction with requality.** An adopted render then requalifies (2c)
+against the ADOPTED tonality, which makes `DiatonicToPart` on the asset a
+near-no-op there.
+
+**Lifetime.** The tonality is mutated IN PLACE on the `PartConfig`. It
+persists after the card that caused it is gone, until something else changes
+it. Restoring a base tonality is HOST policy, not package behaviour — this is
+by design, not a leak.
 
 ## 3. Meter normalization contract
 
@@ -438,10 +490,49 @@ Every other figure keeps the position-derived curve.
 `Composition/Articulation/ChordArticulator.cs`). The composer's BOTH chord
 emission sites (grid path in `Compose`; `RenderFromProgression`, which also
 serves `ComposeProcedural`) replace the legacy `MoveToTime`+`Chord` pair with
-the SAME single unconditional `Emit(...)` call — there is no per-site branch
-that can diverge. `Block` inside `Emit` reproduces the legacy pair verbatim;
-byte-level identity is pinned by
+the SAME single unconditional `Emit(...)` call. `Block` inside `Emit`
+reproduces the legacy pair verbatim; byte-level identity is pinned by
 `Tests/Editor/ChordTrackComposer_ArticulationTests.cs`.
+
+**The guarantee is about the ARGUMENTS, not only the call (MGP-ARTIC-RATE-1).**
+Both sites must resolve the same per-event values — effective figure, effective
+rate, per-event jitter — before the shared call. Identical call shape with
+divergent arguments is the failure mode this section previously did NOT
+exclude, and it shipped: the grid site kept ARTIC-1's figure gate
+(`articRoller != null`) after CA-V1 widened roller construction to fire on
+EITHER sentinel, so a card with a concrete figure and `arpeggioRate = Random`
+had its authored figure silently replaced by a roll; the same site never
+resolved the rate sentinel and never passed the jitter (F-ARTIC-RATE-GRID-1,
+-2, -3). Each sentinel must degrade or resolve ONLY its own field: the two
+resolutions are independent ternaries over independent substreams, never one
+shared "is there a roller" test.
+
+Per-event resolution at BOTH sites is:
+```
+effectiveExpression = roller != null && chordExpression == Random
+                        ? roller.NextFigure() : chordExpression
+effectiveRate       = roller != null && arpeggioRate    == Random
+                        ? roller.NextRate()   : arpeggioRate
+```
+with `velocityJitter.ForEvent(eventIndex)` as `Emit`'s trailing argument.
+
+**Verification rule (the load-bearing lesson).** Seam-level tests cannot pin
+this. The roller and `PlanHits` were correct throughout; the defect lived only
+in what the composer handed them, so the entire CA-V1 suite stayed green while
+authored figures were being discarded at render time. Any contract asserting
+cross-site equivalence must be pinned by a test that drives EACH SITE
+end-to-end and asserts on EMITTED notes — the BASS-WALK-1 verification lesson
+raised from the `Hit.NoteIndex` seam to the composer.
+`Tests/Editor/ChordTrackComposer_ArticRateIndependenceTests.cs` does this for
+the grid site; `Tests/Editor/ChordMarkerParityTests.cs` covers the `chd:`
+marker half across both.
+
+**Defensive assertion (D-MGP-ARTIC-2=B).** Both sites emit ONE warning per
+render — never per event — if either sentinel is present with no roller to
+resolve it, i.e. exactly the state §8.5 declares impossible. This is an
+assertion on the roller gate, not a degrade path. The per-event figure degrades
+of §8.2 stay silent by design: "never-silent" there means *never produces
+silence*, not *always warns*.
 
 `ChordArticulator.PlanHits` is the internal pure planning seam (the test
 surface); `Emit` is a thin PatternBuilder translator. `ArpeggioFits(durBeats,
@@ -563,11 +654,21 @@ The rate sentinel is consumed by the arpeggio figures AND by Tier-2 `Chugging`
 added for that overload.
 
 Per-event `chd:` markers are unaffected by either axis (they are stamped
-outside the `Emit` call, one per event). Test surface:
-`Tests/Editor/ChordTrackComposer_RandomArticulationTests.cs` (seed-seam
-goldens, roller determinism/variance in the SEED-1 idiom, knob semantics,
-weight-table rules, rate-roll semantics + stream orthogonality,
-`PlanHits(Random)==PlanHits(Block)`).
+outside the `Emit` call, one per event). Test surface, in two layers:
+
+- **Seam** — `Tests/Editor/ChordTrackComposer_RandomArticulationTests.cs`
+  (seed-seam goldens, roller determinism/variance in the SEED-1 idiom, knob
+  semantics, weight-table rules, rate-roll semantics + stream orthogonality,
+  `PlanHits(Random)==PlanHits(Block)`).
+- **Composer** — `Tests/Editor/ChordTrackComposer_ArticRateIndependenceTests.cs`
+  (MGP-ARTIC-RATE-1). Drives the GRID emission site end-to-end with a real card
+  and asserts on emitted notes: the 2×2 sentinel matrix (concrete/Random figure
+  × concrete/Random rate), byte-identity of every rate-inert figure across all
+  four rate values, `resolvedFigures == null` for a rate-only random render
+  (the R4 clarification below, now test-pinned), figure-sequence invariance
+  under the rate knob, and that a rolled rate actually REACHES the articulator
+  rather than being dropped. The seam layer alone is insufficient and was
+  green throughout F-ARTIC-RATE-GRID-1 (§8.4).
 
 The roller's resolved figure history (`RandomArticulationRoller.History`,
 observability-only, no extra draws) is snapshotted into the backing track's
@@ -820,7 +921,13 @@ Test surface: `Tests/Editor/ChordTrackComposer_VelocityJitterTests.cs`
 (substream goldens and mutual distinctness, exact jitter goldens, bound and
 range coverage, event/hit fold asymmetry, default-jitter identity across every
 enum member, golden velocities for `Block` and `PerBeat`, both clamps,
-timing/note-index invariance, determinism, rate-sentinel degrade).
+timing/note-index invariance, determinism, rate-sentinel degrade). That file
+pins the jitter ENGINE at the `PlanHits` seam; that the composer actually
+DELIVERS the jitter to `Emit` at each emission site is pinned separately by
+`Tests/Editor/ChordTrackComposer_ArticRateIndependenceTests.cs`
+(MGP-ARTIC-RATE-1 — the grid site omitted the trailing argument entirely from
+CA-V1 until this batch, F-ARTIC-RATE-GRID-3, with every engine-level test
+green).
 
 ## 9. Update triggers
 
@@ -842,6 +949,9 @@ Update this SSoT when:
 - the arpeggio-rate roll changes (§8.5, CA-V1): the `ArpeggioRate.Random`
   sentinel, its dedicated `|articrate` substream, the shared-rerollChance
   granularity rule, the uniform rate pool, or the Eighth degrade,
+- a NEW per-event value is threaded into `Emit` (§8.4): every emission site
+  must resolve it, and the batch must add a site-level end-to-end pin, not only
+  a seam pin (MGP-ARTIC-RATE-1),
 - the seeded velocity jitter changes (§8.7): the pure-mix source (any move to a
   stateful stream would break SD-3=A and must be argued explicitly), the
   substream derivation, the jitter scope (`Block` included), the 1..127 clamp,

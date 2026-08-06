@@ -91,6 +91,26 @@ namespace MidiGenPlay.Composition
                                 ?? (cfg.Parameters?.Pattern as MelodyPatternData);
             if (melodyPattern != null)
             {
+                // MGP-MEL-1 P6.2 (inert-config signal): when a pattern wins,
+                // the card's procedural surfaces (style / palette / leading
+                // overrides) are silenced by design (SS7 precedence) -- say so
+                // instead of failing silently. logGenerator-gated, at most
+                // once per render (mirrors the TONFILTER-1 signal idiom).
+                var inertCard = cfg.Parameters?.Style as MelodyCardConfigSO;
+                if (_settings?.logGenerator == true && inertCard != null &&
+                    (inertCard.style != null ||
+                     inertCard.phrasePaletteOverride != null ||
+                     inertCard.leadingOverride != null))
+                {
+                    Debug.LogWarning(
+                        $"[MelodyTrackComposer] Card '{inertCard.name}' resolves an " +
+                        $"authored pattern ('{melodyPattern.name}') -- its procedural " +
+                        $"fields (style/phrasePaletteOverride/leadingOverride) are " +
+                        $"INERT for this render (patternOverride silences the " +
+                        $"procedural pipeline; see " +
+                        $"authoring/SSoT_Authoring_Melody_Composition.md precedence).");
+                }
+
                 var patternFile = ComposeFromPattern(
                     instrument, bpm, part, cfg, melodyPattern, channel, ctx);
 
@@ -210,6 +230,28 @@ namespace MidiGenPlay.Composition
             if (_melodicStyle != null)
                 baseForThisPart = ResolveStrategy(_melodicStyle.baseStrategy);
 
+            // MGP-MEL-1 P3: observability -- the EFFECTIVE leading/palette
+            // after resolving card overrides, so authoring can confirm from
+            // the log which config the strategies actually consume (the F1
+            // root-cause hunt could not). logGenerator-gated, zero rng draws.
+            // NOTE: when phrasePaletteOverride applied, the leading name shows
+            // the runtime clone's "(Clone)" suffix -- cosmetic, on record.
+            if (_settings?.logGenerator == true)
+            {
+                string leadingSrc = cardCfg?.leadingOverride != null
+                    ? "card.leadingOverride" : "default(_cfg)";
+                string paletteSrc = cardCfg?.phrasePaletteOverride != null
+                    ? "card.phrasePaletteOverride" : "leading.phrasePalette";
+                Debug.Log(
+                    $"[MelodyTrackComposer] Effective leading='{effectiveLeading.name}' ({leadingSrc}) " +
+                    $"palette='{(effectiveLeading.phrasePalette != null ? effectiveLeading.phrasePalette.name : "null")}' ({paletteSrc}) " +
+                    $"noteSource={effectiveLeading.noteSource} " +
+                    $"maxStep={effectiveLeading.maxStepSemitones} " +
+                    $"chanceRepeat={effectiveLeading.chanceRepeatNote:0.##} " +
+                    $"restrictDegrees={effectiveLeading.restrictToScaleDegrees} " +
+                    $"allowedDegrees={(allowedDegrees != null ? allowedDegrees.Count.ToString() : "-")}");
+            }
+
             if (_settings?.logGenerator == true)
                 Debug.Log(_melodicStyle != null
                     ? $"<color=yellow>[MelodyTrackComposer] Using melodic style " +
@@ -311,11 +353,27 @@ namespace MidiGenPlay.Composition
                     var pickedDir = PickDirective(_melodicStyle.perPhraseDirectives, rng);
                     if (pickedDir != null)
                     {
-                        if (pickedDir.overrideStrategy.HasValue)
-                            activeStrategy = ResolveStrategy(pickedDir.overrideStrategy.Value);
+                        // MGP-MEL-1 P2.1: the former MelodyStrategyId? field
+                        // could never persist (Unity does not serialize
+                        // Nullable<T>) -- the live read is now the explicit
+                        // bool + value pair on WeightedPhraseDirective.
+                        if (pickedDir.useOverrideStrategy)
+                            activeStrategy = ResolveStrategy(pickedDir.overrideStrategy);
 
                         contour = pickedDir.contour;
-                        repeat = pickedDir.repeatDirective;
+                        // MGP-MEL-1 F1 (root cause of the flat-pitch defect):
+                        // RepeatLastNotesDirective is a [Serializable] CLASS --
+                        // Unity deserializes it as a non-null instance on EVERY
+                        // directive, so "!= null" carries no authoring intent.
+                        // The intent signal is .enabled (the exact contract
+                        // ApplyIntervalDirective already applies to
+                        // interval.enabled). Passing the raw reference made
+                        // every directive-bearing phrase take the decorator's
+                        // repeat branch and pin the whole phrase to its first
+                        // note.
+                        repeat = (pickedDir.repeatDirective != null &&
+                                  pickedDir.repeatDirective.enabled)
+                            ? pickedDir.repeatDirective : null;
                         interval = pickedDir.intervalDirective;
                     }
 

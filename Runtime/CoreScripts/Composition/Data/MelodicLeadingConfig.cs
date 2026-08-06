@@ -8,7 +8,11 @@ namespace MidiGenPlay.Composition
     public class MelodicLeadingConfig : ScriptableObject
     {
         [Header("Core")]
-        public VoiceLeadingConfig voicingPreset;
+        // MGP-MEL-1 P2.5: reserved -- zero consumers anywhere in the melody
+        // pipeline (strategies read noteSource/motion fields; chord voicing
+        // lives on the Backing side). Hidden so it cannot be authored into
+        // silence; unhide when a melody-side consumer exists.
+        [HideInInspector] public VoiceLeadingConfig voicingPreset;
 
         public enum NoteSource { ChordTonesOnly, PreferChordTonesAllowScale, ScaleOnly }
         public NoteSource noteSource = NoteSource.ChordTonesOnly;
@@ -17,7 +21,9 @@ namespace MidiGenPlay.Composition
         [Tooltip("Try to keep consecutive melody notes within this distance.")]
         [Range(1, 24)] public int maxStepSemitones = 7;
         [Range(0, 1)] public float chanceRepeatNote = 0.15f;
-        [Range(0, 1)] public float chancePassingNote = 0.0f; // reserved for future
+        // MGP-MEL-1 P2.4: reserved -- not consumed by any strategy. Hidden
+        // until passing-note logic exists.
+        [HideInInspector][Range(0, 1)] public float chancePassingNote = 0.0f;
 
         [Header("Phrase Palette")]
         public PhrasePaletteSO phrasePalette;

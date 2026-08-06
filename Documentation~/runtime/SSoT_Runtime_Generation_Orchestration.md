@@ -278,11 +278,12 @@ channel is populated for parts that have no Backing track and therefore no
 publisher. `GenerateSong` does NOT take the parameter in v1 (the jam path is
 `GenerateSinglePart`).
 
-**Guard (D-SOLO-GUARD=A).** If the part contains a Backing track, the default
-is warn + ignore: the Backing track owns the shared harmony, and seeding under
-it would fork the backing's own render from the shared channel (the card-palette
-publish is guarded by don't-overwrite). The warning names the alternative — the
-per-render `patternOverride` on the Backing track (§5.3, precedence step 0).
+**Guard (D-ORD-GUARD=A, supersedes D-SOLO-GUARD=A).** The default is warn +
+ignore only when a Backing track CARRIES A HARMONY SOURCE; an
+articulation-only Backing row does not displace it. See §5.7 for the sniff, the
+appended `SeededBackingArticulationOnly` result, and the recorded palette-pick
+edge. The warning still names the alternative — the per-render `patternOverride`
+on the Backing track (§5.3, precedence step 0).
 
 **Semantics.** Seeded as-is (no TS normalization on this path, D-SOLO-NORM=A —
 hosts author the default in the part TS) and as a name-preserving runtime clone,
@@ -303,6 +304,13 @@ with no edits of its own: the color table (when the default enables it) and
 secondary-dominant resolution run here too. Zero code changes in
 `SongOrchestrator`.
 
+**Seam compatibility.** The original 3-parameter
+`TrySeedDefaultProgression(part, default, cache)` is retained VERBATIM in
+behavior, guard included (binary "any Backing present"), as the pinned
+pre-ORDER-1 seam; `SongOrchestrator_DefaultProgressionTests` runs against it
+unmodified and is the BC pin. The orchestrator calls the 4-parameter overload.
+Both share one seeding core (clone + requality + cache write).
+
 ### 5.6 Test-seam visibility convention (F-IVT-STALE, recorded at B0)
 
 Named orchestration/composer seams that exist for EditMode tests are declared
@@ -318,6 +326,102 @@ test-assembly name mismatch) and is retained only as an escape hatch. **The
 convention on record is `public`**; a batch that wants the internal discipline
 back must first confirm the real test `.asmdef` name and re-run the suite. Doc
 sites that described any of the above as "internal" were corrected at B0.
+
+### 5.7 Composition passes and deferred merge (MGP-ALWTTT-BASS-ORDER-1)
+
+**Passes (D-ORD-MECH=A).** Both entry points (`GenerateSinglePart` and
+`GenerateSong`, D-ORD-SCOPE=A) compose each part in three passes over the SAME
+track list:
+
+- **PASS 0 — `Backing`.** The shared-harmony publisher. Runs first,
+  unconditionally, so the resolved / TS-normalized / re-qualified progression is
+  published before any consumer composes.
+- **PASS 1 — everything except `Backing` and `Harmony`.**
+- **PASS 2 — `Harmony`.** Unchanged: reads Melody via the caches.
+
+**Deferred merge.** Passes no longer merge into the part file as they go. Each
+track's composed, trimmed, tagged, gain-applied and shifted `MidiFile` is
+parked in a slot indexed by its position in the track list; after PASS 2 the
+slots are merged in INDEX order. The merged chunk sequence
+`[meta, metro, track0..N]` therefore follows the TRACK LIST, not the compose
+order, and is byte-identical to the pre-ORDER-1 layout whenever per-track
+content is unchanged.
+
+**Why this is safe for identity.** Channel allocation, `ChannelRoles` and the
+`mus:` tags already derive from list position, and per-track seeds already key
+on `(role, musicianId)` — never on compose order (§5.1). No PASS 1 composer
+consumes `producedByRole` for a Backing entry. Cross-track PUBLICATION
+(progression cache, rhythm onsets, melody guide notes) still happens at each
+track's own compose time; only the physical merge moved.
+
+**Log note.** `GenerateOne` still emits its `Merged [role]` line at compose
+time (text unchanged for log-tooling compatibility), so log order now reflects
+COMPOSE order — Backing first — while the file's chunk order follows the list.
+This asymmetry is intentional.
+
+**Host-default guard (D-ORD-GUARD=A).** The orchestrator's own seeding call
+uses a 4-parameter `TrySeedDefaultProgression` overload whose guard is the
+static sniff `BackingTrackCarriesHarmonySource(trackCfg, renderOverride)`:
+true iff a per-render `ChordProgressionData` override, a card
+`progressionOverride`, a card palette with ≥ 1 valid entry (non-null
+progression AND weight > 0), or an authored `TrackParameters.Pattern` is
+present. A Backing row with none of these is articulation-only and does NOT
+displace the host default; the seeded default is then consumed by the Backing
+composer's shared-cache step (and thereby TS-normalized and re-qualified —
+better than the raw D-SOLO-NORM=A path). Pure: zero rng draws, reads only
+serialized asset / override state.
+
+`DefaultProgressionSeedResult` gains the appended member
+`SeededBackingArticulationOnly` (existing values unchanged).
+
+**Precedence for the shared progression, final form:**
+
+1. per-render `patternOverride` on the Backing track (imposes unconditionally),
+2. Backing card: `progressionOverride`, else a weighted palette pick,
+3. **host `defaultProgression`** — now also under an articulation-only Backing row,
+4. Backing track's authored `TrackParameters.Pattern`,
+5. procedural generation.
+
+**Readback (D-ORD-RB).** `PartRender` gains `sharedProgressionSource`
+(`ResolvedSource`, default `None`) and `sharedProgressionAssetName`, stamped
+once at the end of `GenerateSinglePart` by the pure seam
+`StampSharedProgressionReadback`. `ResolvedSource` gains the appended member
+`HostDefault = 7` (values 0..6 are unchanged serialized/logged surface).
+Mapping: the FIRST Backing entry in track-list order supplies the source,
+except that `SharedProgression` + a seed having happened maps to
+`HostDefault`; with no Backing entry, a seed maps to `HostDefault` and no seed
+maps to `None` (consumers used private harmony, or nothing rendered).
+Composers never report `HostDefault` — it is an orchestrator-level statement
+about which source WON the shared channel, and it exists so hosts can key
+render caches on that fact instead of the now-invalid "part has no Backing"
+proxy.
+
+### 5.8 Shared-progression carry channel (MGP-MEL-1 P7, D6=B)
+
+**Readback.** `PartRender.sharedProgressionData` — a runtime CLONE of whatever
+won the shared channel, taken after normalization and requality, with its name
+preserved so it matches `sharedProgressionAssetName` (§5.7). Null when nothing
+won the shared channel. Zero rng draws. It is a runtime instance, not an
+asset: valid for the session, and it must never be written to disk.
+
+**Host-side jam-continuity recipe.** Documented discipline; the package
+mechanism is unchanged and D-ORD-GUARD stays as-is.
+
+1. After every render, the host stores `render.sharedProgressionData`.
+2. Next card is Backing WITH a harmony source and the tonality does NOT change
+   → the host passes the stored progression as
+   `patternOverrides[(backingMusician, Backing)]`. Precedence step 0 imposes
+   and publishes it; the card contributes articulation and voicing only.
+3. The tonality DOES change (the card carries a `TonalityEffect`, or adopts)
+   → either let the card's harmony win (current behaviour), or "transport":
+   impose the SAME stored object under the new part tonality. Degree-based
+   data re-renders in the new mode for free — no transposition utility is
+   needed or planned.
+4. Backing played FIRST, with no prior jam harmony → unchanged: its
+   progression leads.
+
+The same recipe covers bass, melody and harmony, since all of them consume
+`GetProgressionForPart`.
 
 ## 6. Meter and timing rule
 
@@ -368,3 +472,12 @@ Update this SSoT when:
   or its extension to `GenerateSong`,
 - the test-seam visibility convention (§5.6) changes, or the
   `InternalsVisibleTo` directive is repaired or removed.
+- the composition-pass structure or the merge discipline (§5.7) changes: which
+  roles compose in which pass, the deferred index-ordered merge, or the
+  claim that chunk order follows the track list,
+- the harmony-source sniff, the shared-progression precedence list, or the
+  `PartRender.sharedProgressionSource` / `ResolvedSource.HostDefault` readback
+  (§5.7) changes.
+- the shared-progression carry channel (§5.8, MGP-MEL-1 P7) changes: the
+  `PartRender.sharedProgressionData` clone point, its name preservation, its
+  null semantics, or the documented host jam-continuity recipe.

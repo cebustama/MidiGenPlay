@@ -1,5 +1,353 @@
 # changelog-ssot
 
+## 2026-08-05 — DOC-SWEEP-1: the five-batch documentation backlog applied
+
+Documentation-only session, zero code. Applied the full backlog of
+drafted-but-unapplied `*_doc_diffs.md` files to their governed documents, in
+dependency order: ORDER-1/SLAPFIG-1 → SLAPFIG-2 (selective) → ARTIC-RATE-1 →
+BEND-1 → MEL-1b.
+
+### Blocker resolved before applying
+`PENDING_DOC_DIFFS.md` read **EMPTY / closed at B4** while five batches waited,
+and two of them declared they stacked on POCKET-1 v2, POCKET-2 and
+SOLO-1/RUNTIME-REQUALITY diffs whose application state the accumulator did not
+record. Verified against the **governed documents themselves** — the
+accumulator is not authority and had already produced one recorded stale-copy
+incident (M-5): POCKET-1 is present as Bass SSoT §3.7, POCKET-2 as §3.7.1,
+SOLO-1 as the §1 host-default block, RUNTIME-REQUALITY as Orchestration §5.5,
+and `coverage-matrix.md` records all three as applied by B0 — DOC-CLOSE
+(2026-07-26). The stack base was sound; the gap was bookkeeping.
+
+### Accumulator reopened
+`PENDING_DOC_DIFFS.md` was REOPENED with five entries before any document was
+touched, and swept per entry as the pass proceeded, so an interruption would
+have left the remaining backlog visible.
+
+### Three diff statements contradicted the shipped code — the code won
+- **ORDER-SLAPFIG-1 §5b bullet 1 SKIPPED.** It writes "SLAPFIG-2 … deferred to
+  a dedicated batch" into `CURRENT_STATE.md`'s blocked list. SLAPFIG-2 shipped
+  2026-08-03 and BEND-1 2026-08-05, both applied later in the same pass.
+- **SLAPFIG-2 §3a field names corrected** to `hammerOffsetDegrees` /
+  `pullOffsetDegrees` per BEND-1 §4a; the `*Semitones` names survive only as
+  `[FormerlySerializedAs]` aliases.
+- **BEND-1 §6a applied AMENDED** (sweep decision D-5): its replacement
+  accumulator table listed four entries and predates MEL-1b. Written with five
+  rows so it was not wrong on arrival.
+
+### Supersessions honoured
+`MGP-ALWTTT-BASS-SLAPFIG-2_doc_diffs.md` is marked **APPLIED IN PART**, never
+plain APPLIED: its §1d, §1e, §2 and §5a are superseded by BEND-1 (D-DOC-SEQ=B)
+and were skipped. **D-SF2-LEGATO=C is superseded** — `HammerOn` / `PullOff`
+moved from RESERVED to ACTIVE. **D-SOLO-GUARD=A is superseded by
+D-ORD-GUARD=A** at the orchestrator's own call site; the 3-parameter seam keeps
+the original guard verbatim as the BC pin.
+
+### Closure of the SLAPFIG-2 test-pin gap
+SLAPFIG-2 shipped with its laws argued structurally and confirmed by ear, not
+test-pinned, and named `BassTrackComposer_SelfPocketVocabularyTests` as its
+precondition for closure. That suite exists (20 pins) and BEND-1's verification
+header reports it green, so the caveat was NOT written into `CURRENT_STATE.md`
+(sweep decision D-4).
+
+### Sweep decisions
+- **D-1 = C.** The MEL-2 follow-ups (`transposeScaleSteps`, "Phrase Form") are
+  recorded here and in `CURRENT_STATE.md` only. No roadmap file is opened for
+  an unscoped batch.
+- **D-2 = A.** The per-mode diatonic triad table IS inlined in
+  `authoring/SSoT_Authoring_Chord_Progressions.md` §4.7.3, explicitly marked
+  DERIVED from `MusicTheory_Tonality.TonalityIntervals` and naming that source,
+  so a future interval change cannot leave a silent stale copy.
+- **D-3 = A.** Accumulator reopened first, swept per entry, closed at the end.
+- **D-4 = A.** SLAPFIG-2 treated as closed; its "EditMode pins not yet
+  written" caveat struck rather than written and later corrected.
+- **D-5 = A.** BEND-1 §6a amended to five rows.
+
+### Recorded placement deviation
+SLAPFIG-2 §4a and BEND-1 §5b both target a "Bass baseline" section of
+`CURRENT_STATE.md` that does not exist. Both entries were placed in
+**Just completed**, newest-first, which is that file's existing convention.
+
+### Not applied
+`MGP-ALWTTT-BASS-BEND-1_code_diffs_BassTrackComposer.md` is a CODE diff whose
+changes are already in the shipped `BassTrackComposer.cs`
+(`BuildLegatoCarrierMap`, `ResolveLegatoGroupEndBeats`,
+`ResolveLegatoDeltaSemitones`, the `PitchBendWriter.ApplyStepGestures` call
+site), with `PitchBendWriter.cs` present. Verified 2026-08-05; it is a
+historical record, not outstanding work.
+
+### Follow-ups recorded, not scheduled
+- **OD-ARTIC-RATE-1** — figure/rate/jitter resolution is now duplicated
+  verbatim at three emission sites; extracting one shared pure helper is the
+  structural fix. Raise it when the next per-event value is proposed.
+- **MGP-MEL-2 "Phrase Form"** (proposed, NOT scoped): `RestPhraseSO`,
+  `tailRestFraction`, `transposeScaleSteps`, and A/B/A′ phrase form with
+  part-scoped motif memory stored RELATIVELY. Needs `EvenFlowPhraseSO`,
+  `BurstThenHoldPhraseSO`, `SustainLeadInPhraseSO` to scope — the same three
+  files that close F5.
+- **F5** — `PhraseSlot.totalSlotsInPhrase` is not constant within a
+  SustainLeadIn phrase. No render impact today.
+- **Cards §4.5 reconciliation** — the ALWTTT bassline bundle subsection listed
+  only `chordExpression` and `arpeggioRate`; four batches of card surface were
+  already missing. The gap is now recorded in place rather than silently
+  backfilled.
+
+---
+
+## 2026-08-05 — MGP-MEL-1b: procedural melody directive layer fixed and hardened
+
+### Fixed
+- **F1.** `RepeatLastNotesDirective` is now gated on `.enabled`, like the
+  interval directive always was. Both are `[Serializable]` classes and always
+  deserialize to an instance, so presence carried no intent; the ungated
+  decorator short-circuited the strategy into a flat pitch. **This changes the
+  melody rng draw sequence** — ScaleFlow now consumes the per-slot draws the
+  broken decorator skipped, so the same seed yields a different (correct)
+  melody. Any golden pinning procedural melody bytes must be re-pinned;
+  SEED-1 rhythm / backing / bass streams are untouched (rng is per track).
+- **F3 (D9).** `AscendingOnly` / `DescendingOnly` snap a violating pick to the
+  nearest candidate of the SAME harmonic pool strictly above/below the phrase
+  reference — scale-aware, never chromatic. With no candidate on the required
+  side the inner pick is kept.
+
+### Changed
+- **F2 (D8=B).** `notesToRepeat` became a true N-note, phrase-scoped motif
+  buffer replayed cyclically, with `transposeSemitones` added once per
+  completed cycle. Rests never enter the motif. The transpose is CHROMATIC and
+  ACCUMULATES per cycle — a recorded authoring hazard, not a defect.
+- **P2.** Five reserved fields hidden (`MelodicStyleSO.swingAmount` /
+  `.humanize`, `MelodicLeadingConfig.chancePassingNote` / `.voicingPreset`,
+  `PhrasePaletteSO.allowCrossChordPhrases`), and
+  `WeightedPhraseDirective.overrideStrategy` migrated to `useOverrideStrategy`
+  + value. The old nullable never serialized, so no data migration exists or
+  is needed.
+
+### Added
+- **P3.** A `logGenerator`-gated effective-leading line, one per render, which
+  immediately exposed the P6 hazard live.
+- **P6.1.** The procedural precedence table now has a documented home,
+  `authoring/SSoT_Authoring_Melody_Composition.md` §4b. The hazard it records:
+  a palette set inside a `MelodicLeadingConfig` used as `leadingOverride` is
+  INERT when the card also carries `phrasePaletteOverride`.
+- **P6.2.** A `logGenerator`-gated inert-config signal on the pattern path,
+  mirroring the TONFILTER-1 signal idiom — a signal, never a degrade.
+- **P4 (D3=C / D4=A).** `BackingCardConfigSO.adoptProgressionTonality`
+  (default OFF) with readback `ResolvedTrackChoice.tonalityAdopted` /
+  `.adoptedTonality`. Fires at step 2a* when the resolved progression's
+  `tonalities` exclude the part's tonality; requires `tonalities.Count > 0`;
+  mutates the `PartConfig` tonality IN PLACE, so restoring a base tonality is
+  host policy, not package behaviour.
+- **P7 (D6=B).** `PartRender.sharedProgressionData` — a name-preserving runtime
+  clone of the shared-channel winner, taken post-normalization and
+  post-requality, as the host's jam-continuity carry channel. Runtime instance,
+  never written to disk.
+- `Tests/Editor/ConstrainedMelodyStrategy_MotifTests.cs`.
+
+### Not consumer-verified
+**P4 and P7** are implemented and unit-tested but unexercised in the game; both
+wait on host-side work (modal card, jam-continuity wiring).
+
+---
+
+## 2026-08-05 — MGP-ALWTTT-BASS-BEND-1: true legato via pitch bend, intervals in scale degrees
+
+### Added
+- `Runtime/.../Composition/Articulation/PitchBendWriter.cs` — the package's
+  shared post-build pitch bend writer (pure, static, tick-domain). First
+  non-note, non-CC emission in generated files; contract registered as
+  `SSoT_CONTRACTS.md` §11.
+- Three pure seams on `BassTrackComposer`: `BuildLegatoCarrierMap`,
+  `ResolveLegatoGroupEndBeats`, `ResolveLegatoDeltaSemitones`.
+- `Tests/Editor/PitchBendWriterTests.cs` and
+  `Tests/Editor/BassTrackComposer_LegatoBendTests.cs`; plus
+  `Tests/Editor/BassTrackComposer_SelfPocketVocabularyTests.cs`, written
+  retroactively to close SLAPFIG-2's stated test-pin precondition.
+
+### Changed
+- **D-BEND-GEST=A.** A `HammerOn` / `PullOff` step no longer strikes a note.
+  The nearest preceding sounding hit becomes its CARRIER, chains collapse onto
+  the chain's root carrier, and the carrier's gate extends through its legato
+  tail — a declared override of the §3.7.2 `min(gap, window, ceiling)` rule,
+  and only for carriers that own a tail. The PLAN is never modified, so every
+  SLAPFIG-2 pin stands byte-for-byte.
+- **D-BEND-DEG=A.** `hammerOffsetSemitones` / `pullOffsetSemitones` became
+  `hammerOffsetDegrees` / `pullOffsetDegrees` (`[FormerlySerializedAs]`,
+  defaults +1 / −1): SCALE DEGREES of the part scale, so the tonality decides
+  each step's size. **D-BEND-ANCHOR=A** measures the interval from the
+  carrier's REACHED pitch, not the event's selected note.
+- **D-SF2-LEGATO=C SUPERSEDED** — the pair moved from RESERVED to ACTIVE.
+
+### Declared degradations
+±2 semitone GM range assumed, no RPN emitted; a chained target beyond it clamps
+with a warning (shrunk interval, never a wrong direction). An off-scale
+starting pitch class falls back to whole tones **silently** — a data-dependent
+per-hit condition, a recorded deviation from the warn-max discipline. An orphan
+legato step (one that opens its chord-event window) degrades to an attacked
+note, warned once per `Compose`. The two legato velocity factors now reach only
+that orphan path: a bent tail inherits the carrier's velocity, since pitch bend
+is channel state and carries no dynamics.
+
+### Determinism
+Zero new `ctx.rng` draws; all three seams are pure statics and the writer reads
+no state. Renders without legato classes are byte-identical, pinned by a
+render-hash canary.
+
+---
+
+## 2026-08-03 — MGP-ALWTTT-BASS-SLAPFIG-2 (+2b): SelfPocket articulation vocabulary
+
+### Added
+- **D-SF2-VOCAB=C.** `SelfPocketStep` extended append-only with `Ghost = 3`,
+  `GhostPop = 4`, `HammerOn = 5`, `PullOff = 6`. `Mute` deliberately NOT
+  created (in MIDI a muted note IS a ghost note); `LeftHandSlap` deferred until
+  a law distinguishes it.
+- **D-SF2B-GRID=A.** `selfPocketSubdivision` extended with `QuarterBeat = 2`,
+  because the classic-funk ghost vocabulary is a sixteenth-note idiom that
+  `Beat` and `HalfBeat` cannot express.
+- **D-SF2B-TUNE=A.** Per-class NUMBERS moved to `BasslineCardConfigSO`
+  (`ghostVelocityFactor`, `ghostPopVelocityFactor`, `hammerOnVelocityFactor`,
+  `pullOffVelocityFactor`, `ghostGateBeats`); the LAWS stayed in the composer,
+  which keeps the byte-identity argument un-breakable from the inspector.
+
+### Decisions
+- **D-SF2-VEL=B.** Per-class velocity is a MULTIPLICATIVE factor of the chord
+  event's velocity, not an additive boost. Additive boosts do not scale past
+  two classes — a hot card's `(+64, +64)` clamps every boosted class to 127 and
+  the dynamic relief disappears.
+- **D-SF2-GATE=B.** Per-class gate ceiling: the ghost classes take
+  `ghostGateBeats`, because a ghost is a click, not a short note.
+- **D-SF2-PITCH=A.** The plan stays PITCH-FREE; each class's pitch is a pure
+  call-site law over the event's selected note.
+- **D-SF2-SWING=A.** Swing/shuffle placement, if ever added, is a CARD field
+  applied inside the planner — never read from the Rhythm track's feel, which
+  would reintroduce a cross-track dependency and require an orchestrator pass
+  under `SSoT_CONTRACTS.md` §10.
+
+Note: `ghostVelocityFactor` ships at 0.60, tuned by ear, raised from a
+research-derived 0.35 that read too quiet through a GM slap patch whose attack
+transient dominates the sample.
+
+---
+
+## 2026-08-03 — MGP-ARTIC-RATE-1: rate sentinel suppressed the authored figure
+
+### Fixed
+- `ChordTrackComposer.cs` grid emission site (`Compose`) resolved the
+  articulation figure from `articRoller != null` rather than from
+  `chordExpression == ChordExpressionType.Random`. Since CA-V1 widened roller
+  construction to fire on EITHER sentinel, selecting `arpeggioRate = Random`
+  created a roller and that roller then consumed the authored figure —
+  `chordExpression = Offbeat` rendered as a per-event random figure, silently
+  (F-ARTIC-RATE-GRID-1). Reported from ALWTTT (CTX-2b, Dev Mode articulation
+  override), verified end-to-end consumer-side before filtering.
+- The same site never resolved `ArpeggioRate.Random`, passing the sentinel raw
+  to `Emit` where it degraded to `Eighth`: the rate roll was non-functional on
+  the grid path even for `expression = Random` cards (F-ARTIC-RATE-GRID-2).
+- The same site never passed `velocityJitter` to `Emit`, so §8.7's jitter was
+  inert on the grid path (F-ARTIC-RATE-GRID-3).
+- Root cause is single: CA-V1 aligned `RenderFromProgression` and
+  `BassTrackComposer` and missed the grid site. Each sentinel now resolves only
+  its own field, via independent ternaries over the independent `|artic` and
+  `|articrate` substreams.
+
+### Added
+- `Tests/Editor/ChordTrackComposer_ArticRateIndependenceTests.cs` — the 2×2
+  sentinel matrix driven END TO END through the grid site, asserting on emitted
+  notes. Includes a positive pin that the rolled rate REACHES the articulator,
+  so a fix that merely dropped the sentinel would fail.
+- Once-per-render assertion warning at both emission sites when a sentinel is
+  present with no roller (D-MGP-ARTIC-2=B).
+
+### Decisions
+- **D-MGP-ARTIC-1 = (C).** Neither the articulator's defensive guard degrading
+  the whole articulation (option A) nor a resolution-order fault (option B):
+  `ChordArticulator.PlanCore` was correct throughout and ignores `arpeggioRate`
+  for every figure that does not consume it. The cause was a stale gate at
+  `ChordTrackComposer.cs:658`.
+- **D-MGP-ARTIC-2 = B.** One composer-side assertion warning per render, not
+  per-event degrade warnings. The batch brief read §8's "never silent" as
+  "always warns"; §8.2 says *never produces silence*. Recorded because the
+  misreading is a natural one and will recur.
+- **D-MGP-ARTIC-3 = A.** The jitter omission is fixed in the same batch rather
+  than deferred: the field currently does nothing on that path, so there is no
+  established sound to break.
+
+### Meaning change
+`SSoT_Composer_Backing_Track.md` §8.4's both-sites guarantee was stated at CALL
+granularity ("the SAME single unconditional `Emit(...)` call"), which is true
+and insufficient — the ARGUMENTS diverged. It is now stated at ARGUMENT
+granularity, with the verification rule that any cross-site equivalence claim
+must be pinned by a test driving EACH SITE end-to-end and asserting on emitted
+notes. Every CA-V1 test sat at the roller / `PlanHits` seams, both always
+correct, so the whole suite stayed green throughout the defect.
+
+### Impact radius
+Renders change, intentionally, for three card populations: concrete figure +
+`rate = Random` (the authored figure is restored), `expression = Random` +
+`rate = Random` (arpeggio rates now vary instead of being pinned to `Eighth`),
+and any card with `velocityJitter > 0` on the grid path. Determinism under a
+pinned seed is unchanged.
+
+---
+
+## 2026-07-31 — MGP-ALWTTT-BASS-ORDER-1 + SLAPFIG-1: order independence and the autonomous slap figure
+
+### Fixed
+- **F-BASS-ORDER-1.** A Bassline row placed BEFORE a Backing row whose harmony
+  lived in its Style bundle (card override / palette — invisible to
+  `FindProgressionForPart`, which reads only `Parameters.Pattern`) resolved to
+  a null progression and rendered PERMANENT SILENCE. Track-list order is a
+  consumer identity concern and consumers cannot reorder freely, so the fix is
+  package-side scheduling, not a documentation caveat.
+
+### Changed
+- **D-ORD-MECH=A.** Both entry points compose in three passes: PASS 0 Backing
+  (the shared-harmony publisher), PASS 1 everything except Backing and
+  Harmony, PASS 2 Harmony. Merging is DEFERRED — each track parks in a slot
+  indexed by track-list position and the slots merge in INDEX order after
+  PASS 2, so chunk order follows the LIST while log order follows COMPOSE
+  order. The asymmetry is intentional.
+- **D-ORD-GUARD=A, superseding D-SOLO-GUARD=A.** The guard on the host default
+  is no longer "a Backing row exists" but "a Backing row carries a HARMONY
+  SOURCE" — a static, draw-free sniff
+  (`SongOrchestrator.BackingTrackCarriesHarmonySource`). An articulation-only
+  Backing row no longer suppresses the host default, and consumes it through
+  its own shared-cache step, which also gives it TS normalization and requality
+  — a strict improvement over the raw D-SOLO-NORM=A path. The 3-parameter
+  `TrySeedDefaultProgression` seam keeps the original binary guard VERBATIM as
+  the BC pin.
+- The normalization-order hazard is CLOSED for the shared progression. Two
+  residues remain on record: the bass's own `Parameters.Pattern` fallback
+  (private harmony, outside the shared channel) and the backing-less SOLO-1
+  seed path.
+
+### Added
+- **D-SFIG-SURF=A.** `PocketCouplingMode.SelfPocket = 2` — the slap/pop gesture
+  with NO Rhythm track and NO cross-track read, so it cannot wake the
+  consumer-side onset publication duty. Cycled, meter-anchored card pattern
+  (D-SFIG-PAT=A) keyed on the ABSOLUTE grid index, so the figure keeps phase
+  across chord changes; velocity based on the chord EVENT (D-SFIG-VEL=A). Zero
+  rng, zero state, and everything downstream of the plan is SlapPocket
+  verbatim. An empty or all-`Rest` pattern warns once and degrades
+  byte-identically to `Off`.
+- **D-ORD-RB.** `PartRender.sharedProgressionSource` +
+  `sharedProgressionAssetName`, with `ResolvedSource.HostDefault = 7` appended.
+  Composers never report `HostDefault` — it is an orchestrator-level statement
+  about which source WON the shared channel, so hosts can stop keying render
+  caches on the now-invalid "part has no Backing" proxy.
+- **`SSoT_CONTRACTS.md` §10, track-list order contract.** No rendered output
+  may depend on the ORDER of track-list entries, only on content and per-track
+  keys; a new cross-track dependency needs a PASS, not a caveat. Recorded
+  exception: `SlapPocket` still consumes published Rhythm onsets and degrades
+  gracefully; `SelfPocket` is the order-free alternative.
+- `Tests/Editor/SongOrchestrator_HarmonyOrderTests.cs`,
+  `Tests/Editor/BassTrackComposer_SelfPocketTests.cs`.
+
+### Recorded edge
+A palette that looks valid to the presence-based sniff can still fail its
+TS-aware pick at compose time; the Backing then degrades to procedural and the
+suppressed default does NOT resurge. Not silence — a documented gap matching
+pre-ORDER-1 "palette pick failed" semantics.
+
 ## 2026-07-29 — CPE-META-1 + CPE-META-2: chord asset metadata in the editor, the import payload and the LLM route
 
 ### Added — CPE-META-1 (asset metadata section)

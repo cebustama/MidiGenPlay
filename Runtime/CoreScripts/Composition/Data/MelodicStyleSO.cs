@@ -21,8 +21,11 @@ namespace MidiGenPlay.Composition
         public bool usePerPhraseOverrides = false;
         public List<WeightedPhraseDirective> perPhraseDirectives = new();
 
-        [Range(0, 1)] public float swingAmount = 0f;   // reserved for later
-        [Range(0, 1)] public float humanize = 0f;      // reserved for later
+        // MGP-MEL-1 P2.2: reserved -- NOT consumed by any composer yet.
+        // Hidden so they cannot be authored into silence; unhide when the
+        // MIDI-emission stage actually implements them.
+        [HideInInspector][Range(0, 1)] public float swingAmount = 0f;
+        [HideInInspector][Range(0, 1)] public float humanize = 0f;
     }
 
     [Serializable]
@@ -120,8 +123,17 @@ namespace MidiGenPlay.Composition
     {
         [Range(0f, 1f)] public float weight = 1f;
 
-        [Tooltip("If null, the baseStrategy is used.")]
-        public MelodyStrategyId? overrideStrategy = null;
+        // MGP-MEL-1 P2.1: replaces the former `MelodyStrategyId?` field.
+        // Unity does NOT serialize Nullable<T>, so the nullable could never
+        // appear in the inspector nor carry a value -- live composer code fed
+        // by a field that never persisted. No data migration needed for the
+        // same reason (nothing was ever serialized).
+        [Tooltip("Enable to override the base strategy for phrases that draw " +
+                 "this directive.")]
+        public bool useOverrideStrategy = false;
+
+        [Tooltip("Strategy used when useOverrideStrategy is on.")]
+        public MelodyStrategyId overrideStrategy = MelodyStrategyId.ScaleFlow;
 
         public ContourConstraint contour = ContourConstraint.None;
 

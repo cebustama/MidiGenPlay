@@ -45,6 +45,20 @@ namespace MidiGenPlay.Composition
         // or rendered nothing). Composers never report HostDefault.
         public ResolvedSource sharedProgressionSource = ResolvedSource.None;
         public string sharedProgressionAssetName;
+        // MGP-MEL-1 P7 (D6=B): the ChordProgressionData that WON the shared
+        // channel this render, as a RUNTIME CLONE (captured from the
+        // per-render cache, i.e. post TS-normalization / requality whenever
+        // those ran) -- never an asset reference, so host-side mutation can
+        // never touch project assets. Null when nothing won the shared
+        // channel (no publisher: consumers used a private Pattern or
+        // rendered nothing). This is the jam-continuity carry channel: the
+        // host reads it after a render and, when the NEXT played card should
+        // ACCOMPANY the ongoing harmony instead of replacing it (e.g. same
+        // tonality), imposes it via the Backing patternOverride (precedence
+        // step 0). Tonality-change transport is free by construction: the
+        // data is degree-based, so imposing the SAME object under a new
+        // part tonality re-renders it in the new mode.
+        public ChordProgressionData sharedProgressionData;
         public long partTicks;
         public int bpm;
     }
@@ -654,6 +668,18 @@ namespace MidiGenPlay.Composition
             // MGP-ALWTTT-BASS-ORDER-1 (D-ORD-RB): stamp which source won the
             // shared progression this render.
             StampSharedProgressionReadback(render, part, seedResult, defaultProgression);
+
+            // MGP-MEL-1 P7 (D6=B): snapshot the winning shared progression as
+            // a runtime clone (keep the cache instance's name so the identity
+            // matches sharedProgressionAssetName -- no "(Clone)" drift). Pure
+            // dictionary read + Instantiate: zero rng draws.
+            if (progressionByPart.TryGetValue(part, out var sharedProg) &&
+                sharedProg != null)
+            {
+                var snapshot = UnityEngine.Object.Instantiate(sharedProg);
+                snapshot.name = sharedProg.name;
+                render.sharedProgressionData = snapshot;
+            }
 
             return render;
         }

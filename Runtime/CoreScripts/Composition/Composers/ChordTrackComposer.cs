@@ -413,6 +413,47 @@ namespace MidiGenPlay.Composition
                 }
             }
 
+            // 2a*) MGP-MEL-1 P4 (D3=C / D4=A) -- AdoptProgressionTonality.
+            // Card-level opt-in: the card DELEGATES the part's tonality to
+            // the progression it resolved. When that progression declares
+            // reference tonalities that EXCLUDE the part's, the part adopts
+            // the FIRST listed tonality (deterministic, zero rng draws; the
+            // root note is unchanged -- mode change only, mirroring the
+            // host-side TonalityEffect surface). Runs BEFORE 2b (so the
+            // TONFILTER-1 mismatch signal does not fire for an adopted
+            // render) and BEFORE 2c (so TS normalization / requality see the
+            // FINAL tonality). Backing composes in PASS 0
+            // (MGP-ALWTTT-BASS-ORDER-1), so bass / melody / harmony read the
+            // adopted tonality via part.Tonality / GetTonalityProfileForPart.
+            // D4=A precedence contract: compose-time adoption deliberately
+            // wins over any pre-render tonality the host set for the part
+            // (incl. an explicit TonalityEffect); combining both on one card
+            // is an authoring error the HOST validates -- the composer cannot
+            // distinguish "default tonality" from "effect-pinned tonality".
+            if (backingStyle != null && backingStyle.adoptProgressionTonality &&
+                prog != null && prog.tonalities != null &&
+                prog.tonalities.Count > 0 &&
+                !prog.tonalities.Contains(part.Tonality))
+            {
+                var adopted = prog.tonalities[0];
+                var previous = part.Tonality;
+                part.Tonality = adopted;
+
+                resolvedChoice.tonalityAdopted = true;
+                resolvedChoice.adoptedTonality = adopted;
+
+                if (_settings?.logGenerator == true)
+                {
+                    Debug.Log(
+                        $"<color=green>[ChordTrackComposer]</color> " +
+                        $"AdoptProgressionTonality: part '{part.Name}' " +
+                        $"{previous} -> {adopted} (progression " +
+                        $"'{prog.DisplayName}' authored for " +
+                        $"[{string.Join(", ", prog.tonalities)}]; card " +
+                        $"'{backingStyle.name}' opts in; root unchanged).");
+                }
+            }
+
             // 2b) TONFILTER-1 (D-B2-1=C): the part's tonality is card
             // authority and is NEVER reverted by the progression asset.
             // ChordProgressionData.tonalities is descriptive metadata

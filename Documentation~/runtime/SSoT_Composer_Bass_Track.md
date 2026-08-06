@@ -16,6 +16,18 @@ Governs:
 - `Tests/Editor/BassTrackComposer_RegisterTests.cs` (B3 BASS-REG-1 — §2 band and
   ceiling, §3.6 walk fold, §3.7.1 pop fold)
 - `Tests/Editor/BassTrackComposer_WalkImprovTests.cs` (B3 WALK-2 — §3.6bis)
+- `Tests/Editor/BassTrackComposer_SelfPocketTests.cs` (MGP-ALWTTT-BASS-SLAPFIG-1
+  — §3.7.2)
+- `Tests/Editor/BassTrackComposer_SelfPocketVocabularyTests.cs`
+  (MGP-ALWTTT-BASS-SLAPFIG-2/2b, written retroactively at BEND-1 step 1 —
+  §3.7.3)
+- `Tests/Editor/BassTrackComposer_LegatoBendTests.cs`
+  (MGP-ALWTTT-BASS-BEND-1 — §3.7.3)
+- `Runtime/CoreScripts/Composition/Articulation/PitchBendWriter.cs` and
+  `Tests/Editor/PitchBendWriterTests.cs` (MGP-ALWTTT-BASS-BEND-1). Homed here
+  because the bass is the writer's only in-package consumer today; the
+  CONTRACT is `SSoT_CONTRACTS.md` §11 and that is the authority. If the melody
+  composer adopts it, the home moves.
 
 This list matches `ssot_manifest.yaml` exactly. The three test files added on
 2026-07-28 were already cited by name in the body (§3.6, §3.6bis, §3.7) and were
@@ -37,13 +49,34 @@ On record (pre-existing, deliberately unchanged by CA-F2):
 - **Single pass, no repeat-to-fill.** Unlike the backing composer, the bass
   renders each progression event once at its absolute step; it does not
   repeat the progression to cover the part length.
-- **Normalization-order hazard.** The bass sees the TS-normalized runtime
-  clone only if the backing track composed first (track-list order); otherwise
-  it consumes the raw cached/authored progression. Same for the RUNTIME-REQUALITY
-  re-resolution (§4.1 of the Authoring SSoT): both transforms live at the
-  backing composer's site, plus the SOLO-1 seed path. The bass's own
-  `cfg.Parameters.Pattern` fallback receives NEITHER — recorded gap, unchanged.
+- **Normalization-order hazard — CLOSED for the shared progression
+  (MGP-ALWTTT-BASS-ORDER-1).** The backing composer now always composes first
+  (PASS 0), so the bass always sees the TS-normalized, re-qualified runtime
+  clone when a Backing row exists. Two residues remain, both recorded and
+  unchanged: (a) the bass's own `cfg.Parameters.Pattern` fallback receives
+  NEITHER transform — it is private harmony, outside the shared channel; and
+  (b) on a backing-less part the SOLO-1 seed path still seeds AS-IS
+  (D-SOLO-NORM=A). Under an articulation-only Backing row the seeded default
+  now DOES receive both transforms, because the Backing composer consumes it
+  via its shared-cache step — a strict improvement over D-SOLO-NORM=A, on
+  record.
 - `degreeAccidental` is ignored (same recorded gap as the backing grid path).
+
+**Order independence (MGP-ALWTTT-BASS-ORDER-1, D-ORD-MECH=A).** The bass no
+longer depends on the Backing track's POSITION in the track list. The
+orchestrator composes every Backing row in a dedicated PASS 0, before any
+harmony consumer, and merges the per-track results afterwards in track-list
+index order (`runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7). The
+shared progression is therefore always published by the time the bass reads
+`ctx.GetProgressionForPart`, whatever the list order.
+
+This closes **F-BASS-ORDER-1** (ALWTTT gig report, 2026-07-30): a Bassline row
+placed BEFORE a Backing row whose harmony lived in its Style bundle (card
+override / palette, invisible to `FindProgressionForPart`, which reads only
+`Parameters.Pattern`) resolved to a null progression and rendered PERMANENT
+SILENCE. Track-list order is a consumer-side identity concern (channels,
+`ChannelRoles`, per-musician RNG streams) and consumers cannot reorder freely;
+the fix is package-side scheduling, not a documentation caveat.
 
 **Per-render override (Ask C, D-DBG4=A).** A `patternOverride` targeting the
 Bassline track is **warn + ignore** in v1: the bass owns no pattern channel (it
@@ -70,13 +103,26 @@ The bass still owns no harmony: the parameter is a HOST channel into the
 shared cache, not a bass surface. `BasslineCardConfigSO` gains no harmonic
 field, and the D-DBG4=A warn+ignore on Bassline `patternOverride` is unchanged.
 
-- **Guard (D-SOLO-GUARD=A).** If the part HAS a Backing track the default is
-  **warn + ignore** — the Backing track owns the shared harmony. Seeding under
-  it would FORK the render: the backing card-palette publish is guarded by
-  "don't overwrite", so backing would sound its own pick while the other tracks
-  consumed the pre-seeded default. To impose harmony on a part WITH backing,
-  use the per-render `patternOverride` on the Backing track (precedence step 0,
-  imposes unconditionally).
+- **Guard (D-ORD-GUARD=A, supersedes D-SOLO-GUARD=A).** The guard is no longer
+  "a Backing row exists" but "a Backing row carries a HARMONY SOURCE" — a
+  static, draw-free sniff (`SongOrchestrator.BackingTrackCarriesHarmonySource`)
+  over: per-render override of type `ChordProgressionData`, card
+  `progressionOverride`, card palette with at least one valid entry
+  (non-null progression AND weight > 0 — the exact `PickRandomProgression`
+  filter), or authored `TrackParameters.Pattern`. A Backing row carrying NONE
+  of these is ARTICULATION-ONLY (a future bossa / ska / power-chord bundle):
+  the host default IS seeded, and the Backing composer consumes it through its
+  own shared-cache step — one winner, no fork. When the sniff DOES find a
+  source, the default is warn + ignore as before, because seeding under a
+  real source would fork the render (the card-palette publish is guarded by
+  "don't overwrite"). To impose harmony on a part whose Backing carries a
+  source, use the per-render `patternOverride` on the Backing track
+  (precedence step 0, imposes unconditionally).
+- **Recorded edge (presence-based sniff).** A palette that looks valid to the
+  sniff can still fail its TS-aware pick at compose time; the Backing then
+  degrades to procedural and the suppressed default does NOT resurge. Not
+  silence — a documented gap, matching pre-ORDER-1 "palette pick failed"
+  semantics.
 - **Normalization (D-SOLO-NORM=A).** The default is seeded AS-IS. TS
   normalization is the backing composer's site and does not run on this path,
   so this is a THIRD instance of the normalization-order hazard recorded above;
@@ -541,6 +587,233 @@ Side effect on record: `ResolvePopNote` also refuses to build a note above
 MIDI 127, closing a latent out-of-range `Note.Get` on extreme assets that
 pre-B3 code could reach.
 
+#### 3.7.2 SelfPocket — autonomous slap/pop figure (MGP-ALWTTT-BASS-SLAPFIG-1)
+
+**Surface (D-SFIG-SURF=A).** `PocketCouplingMode.SelfPocket = 2` (append-only;
+`Off = 0` and `SlapPocket = 1` unchanged). SelfPocket produces the slap/pop
+GESTURE with NO Rhythm track and NO cross-track read: it never calls
+`ctx.GetRhythmOnsetsForPart`, so it cannot wake the consumer-side publication
+duty on the ALWTTT boundary (§8.4 there). The two coupled modes are mutually
+exclusive by the enum; the per-event branch keys on which source field is
+non-null, so `Off` keeps both null and the loop body stays draw-for-draw AND
+value-for-value the decoupled path.
+
+Rejected: a new `ChordExpressionType` member. The Tier-1 articulation engine is
+pitch-preserving and rng-free; the pop's +12 (and its ceiling fold) is composer
+domain, not engine domain.
+
+**Hit source (D-SFIG-PAT=A).** Two card fields on `BasslineCardConfigSO`:
+`selfPocketSubdivision` (`Beat = 0` → 1.0 beat, `HalfBeat = 1` → 0.5 beat,
+`QuarterBeat = 2` → 0.25 beat, MGP-ALWTTT-BASS-SLAPFIG-2b D-SF2B-GRID=A) and
+`selfPocketPattern`, a cycled `List<SelfPocketStep>` whose alphabet is defined
+in §3.7.3, default `[Slap, Pop]`. Unknown future subdivision members fall
+through to `Beat` rather than throwing.
+
+`QuarterBeat` exists because the classic-funk ghost vocabulary is a
+SIXTEENTH-note idiom: the two canonical figures (a dead sixteenth immediately
+before the pop; two dead sixteenths between sounding notes) are inexpressible
+on `Beat` or `HalfBeat`. In 4/4 a 16-step pattern on `QuarterBeat` is exactly
+one bar, and a 16-step pattern is the shortest that can place an
+end-of-bar anticipation without the figure rotating against the meter. Candidate hits sit at
+multiples of the subdivision step in PART beats, **anchored to the meter**
+(part beat 0), intersected with the chord-event window `[start, start + len)`
+— inclusive start, exclusive end, the `BuildPocketPlan` convention. The step is
+chosen by the ABSOLUTE grid index modulo the pattern length, so the figure
+keeps phase across chord changes exactly as SlapPocket's absolute drum onsets
+do; splitting a window at a chord boundary yields the same hits as one
+whole-bar plan (test-pinned). `Rest` skips.
+
+**Velocity (D-SFIG-VEL=A, extended by D-SF2-VEL=B).** Base is the chord
+EVENT's authored velocity (vs the drum step's in SlapPocket). Two laws, keyed
+by articulation class:
+
+- `Slap` / `Pop`: base + the EXISTING `pocketSlapBoost` / `pocketPopBoost`,
+  clamped 1..127 — the D-PKT-VEL2=B law over a different base, verbatim.
+- `Ghost` / `GhostPop` / `HammerOn` / `PullOff`: `round(base × class factor)`,
+  clamped 1..127. **No boosts.** The factors are authored per card
+  (D-SF2B-TUNE=A) and default to the shipped tuning.
+
+  *Reach note (BEND-1, D-BEND-GEST=A).* Since a legato hit no longer emits a
+  note-on (§3.7.3), `hammerOnVelocityFactor` and `pullOffVelocityFactor` are
+  consumed ONLY on the degraded ORPHAN path. A bent tail inherits the
+  carrier's velocity — pitch bend is channel state and carries no dynamics of
+  its own. This is a declared loss, recorded on the card tooltips; restoring
+  per-tail dynamics would require a re-attack, which is the thing the batch
+  removes.
+
+The two laws differ on purpose. Additive boosts do not scale past two classes:
+a hot card (the gig's `(+64, +64)` on events authored at 100) drives every
+boosted class into the 127 clamp and the dynamic relief disappears. A
+multiplicative factor preserves proportion under any event velocity, and a
+factor of exactly 1.0 for `Slap`/`Pop` is what makes a v1-only pattern
+byte-identical to SLAPFIG-1.
+
+**Everything downstream is SlapPocket verbatim.** The planner emits the same
+`PocketHit` list, consumed by the same emission branch: 1-note `Block`
+segments, pop = selected note +12 through `ResolvePopNote` (D-REG-2=B ceiling
+fold, pop identity untouched), the D-PKT-GATE=A length rule
+`min(gap to next PLANNED hit, remaining window, PocketMaxGateBeats)`, and the
+per-hit jitter refold.
+
+**Planner.** `BuildSelfPocketPlan(eventStart, eventLen, subdivision, pattern,
+eventVelocity, slapBoost, popBoost)` — public pure test seam, the
+`BuildPocketPlan` / `BuildWalkVoicing` idiom. ZERO rng, zero state, zero
+cross-track reads. It runs at the same per-event position as the SlapPocket
+plan: AFTER both §2 selection draws, reading no rng — the POCKET-1 structural
+argument verbatim.
+
+**Degrade.** An empty or all-`Rest` pattern warns ONCE at entry and leaves
+`selfPocketPattern` null, so the whole render takes the decoupled figure —
+byte-identical to `Off` (test-pinned). Never an error, never silence. A window
+shorter than one grid step yields an empty plan, which is the caller's
+per-event fallback (identical to an empty SlapPocket plan).
+
+**Timbre.** As SlapPocket: the slap/pop TIMBRE is the bass patch's
+(GM Slap Bass 1/2 on the `MIDIInstrumentSO`). This mode shapes timing,
+register and dynamics only.
+
+**Vocabulary.** See §3.7.3.
+
+**Deferred (post-SLAPFIG-2, not implemented).** Per-step velocity or accent
+curves; swing/shuffle placement (doctrine fixed in §3.7.3, implementation
+open); octave-jump variants beyond the single +12 pop and the alternate pop
+intervals (+15/+16/+19); a `LeftHandSlap` class; compound macros
+(open-hammer-pluck, machine-gun triplet, trill) which would require a step
+that emits several events; bar-aware pattern selection and end-of-phrase
+ornament substitution (BASS-PHRASE-1).
+
+#### 3.7.3 SelfPocket articulation vocabulary and legato (MGP-ALWTTT-BASS-SLAPFIG-2 / BEND-1)
+
+**Alphabet (D-SF2-VOCAB=C).** `SelfPocketStep` is append-only over the v1
+`{Slap = 0, Pop = 1, Rest = 2}`:
+
+| Member | Sounds as | Velocity | Gate ceiling | Status |
+|---|---|---|---|---|
+| `Slap = 0` | note on the selected pitch | base + `pocketSlapBoost` | `PocketMaxGateBeats` | v1 |
+| `Pop = 1` | note, `ResolvePopNote` (+12, ceiling-folded) | base + `pocketPopBoost` | `PocketMaxGateBeats` | v1 |
+| `Rest = 2` | — | — | — | v1 |
+| `Ghost = 3` | note on the selected pitch | base × `ghostVelocityFactor` | `ghostGateBeats` | active |
+| `GhostPop = 4` | note, `ResolvePopNote` | base × `ghostPopVelocityFactor` | `ghostGateBeats` | active |
+| `HammerOn = 5` | **pitch bend on its carrier**, `+hammerOffsetDegrees` | carrier's (orphan: base × `hammerOnVelocityFactor`) | extends the carrier's gate | active (BEND-1) |
+| `PullOff = 6` | **pitch bend on its carrier**, `+pullOffsetDegrees` | carrier's (orphan: base × `pullOffVelocityFactor`) | extends the carrier's gate | active (BEND-1) |
+
+A pattern containing only v1 members renders byte-identical to SLAPFIG-1, and
+a pattern without `HammerOn`/`PullOff` renders byte-identical to SLAPFIG-2:
+the v1 members carry no factor and no per-class ceiling, and the legato pass
+degenerates to a no-op (below). Both identities are structural, and the
+second is pinned by a render-hash canary
+(`GhostVocabulary_Render_IsDeterministic`).
+
+**Two members were deliberately NOT created.** `Mute` is not a class: in MIDI
+a muted note IS a ghost note — minimum-band velocity AND ultra-short gate, both
+at once — and the source vocabulary treats ghost/dead/muted as synonyms. A
+separate member would duplicate a class with no distinguishing law.
+`LeftHandSlap` is deferred for the same reason at v1 parameters (its MIDI
+profile is indistinguishable from `Ghost`); its rhythmic FUNCTION differs
+(backbeat vs. fill), so it earns a slot once a law distinguishes it — e.g. a
+fixed open-string pitch.
+
+**Pitch of the sounding classes (D-SF2-PITCH=A).** The plan stays PITCH-FREE.
+`PocketHit` carries an articulation CLASS; every sounding class's pitch is a
+pure call-site law over the event's SELECTED note, with no rng:
+`ResolvePopNote` for the pop domain (register fold intact) and
+`ResolveOffsetNote` for the orphan legato case (folds `-12` while above the
+register ceiling, `+12` if below the MIDI floor, hard-clamped only as a last
+resort).
+
+**Legato is a MODIFICATION of the previous note, not a note (D-BEND-GEST=A).**
+This is the defining law of the class pair, and the reason SLAPFIG-2's
+note-based emission was replaced: on a General MIDI patch any note-on
+retriggers the sample's attack, which is precisely what a hammer-on removes.
+
+- **Carrier.** For each hit, `BuildLegatoCarrierMap(plan)` returns the plan
+  index of the nearest preceding hit that emits its OWN note-on, or `-1` when
+  the hit emits its own note. Chains collapse onto the chain's ROOT carrier,
+  so a `[Slap, HammerOn, PullOff]` group is one note with two bend points.
+  The PLAN is never modified: `BuildSelfPocketPlan` and every SLAPFIG-2 pin
+  stand byte-for-byte; the reinterpretation lives entirely in this pure
+  coalescing pass. A plan with no legato classes maps to all `-1`, and the
+  emission loop is then line-for-line the SLAPFIG-2 loop.
+- **Gate (declared law change).** The carrier's gate extends through its
+  legato tail — `ResolveLegatoGroupEndBeats` returns the end of the LAST tail,
+  and the identity of the hit's own planned end when there is none. This
+  overrides the §3.7.2 `min(gap, window, ceiling)` result for carriers with a
+  tail, and only for them; a following NON-legato hit is not a tail.
+- **Interval, in SCALE DEGREES (D-BEND-DEG=A).** Card fields
+  `hammerOffsetDegrees` / `pullOffsetDegrees` (`int`, defaults `+1` / `-1`,
+  `[FormerlySerializedAs]` over the SLAPFIG-2 semitone fields) are DEGREES of
+  the PART scale, not semitones. `ResolveLegatoDeltaSemitones` walks the scale
+  one degree at a time from the pitch the chain has reached, so the tonality
+  decides each step's size: `+1` from the tonic of a major key is a whole
+  step, `+1` from its third is a half step. Any `|offset|` works; octave
+  crossings come for free.
+  - *Anchoring (D-BEND-ANCHOR=A).* The interval is measured from the CARRIER's
+    reached pitch — the note that is actually sounding — not from the event's
+    selected note. This is structural: the chain state resets at every
+    note-emitting hit.
+  - *Off-scale fallback.* If the starting pitch class is not a scale member
+    (a borrowed or re-qualified chord tone), the resolver falls back to whole
+    tones, `offsetDegrees × 2`. **Silent by design** — a data-dependent
+    per-hit condition, not a configuration degrade. Recorded deviation from
+    the warn-max discipline.
+- **Emission (D-BEND-EMIT=B / D-BEND-RESET=A / D-BEND-RANGE=A).** Tails
+  accumulate an absolute detune and enqueue a STEP gesture; the composer
+  applies the whole list as post-build surgery through `PitchBendWriter`
+  (`SSoT_CONTRACTS.md` §11), between `pb.Build().ToFile(tempoMap)` and
+  `ForceAllChannel` / `StampBankAndPatch`, so bends inherit the channel stamp
+  and the bank/patch tick shift exactly as notes do. Ticks are converted with
+  the same `beatSpan`/`tempoMap` the notes use, so a gesture can never drift
+  from its carrier. An empty gesture list is a hard no-op.
+- **Range degradation.** The GM default of ±2 semitones is ASSUMED; no RPN is
+  emitted. A chained target beyond the range clamps with a warning — a shrunk
+  interval, never a wrong direction. Verified behaviour, not a defect: a
+  two-hammer chain over a whole-tone pair reaches `+4` and stops at `+2`. The
+  writer's `rangeSemitones` parameter is the declared seam for the slide
+  follow-up, which will need conditional RPN.
+- **Orphan.** A legato hit that OPENS its chord-event window has nothing to
+  bend from. It degrades to an ATTACKED note at the degree-resolved interval
+  from the selected note — SLAPFIG-2 behaviour with the interval law upgraded
+  — with one warning per `Compose` (latched). Authoring guidance: put a
+  sounding step before a legato step in `selfPocketPattern`.
+
+**Gate (D-SF2-GATE=B).** Unchanged law, per-class ceiling:
+`min(gap to next PLANNED hit, remaining window, class ceiling)`. Ghost classes
+take `ghostGateBeats` because a ghost is a click, not a short note; every
+other class keeps `PocketMaxGateBeats`. The BEND-1 carrier extension above is
+applied AFTER this rule, and only to a carrier that owns a tail.
+
+**Tuning surface (D-SF2B-TUNE=A).** The per-class NUMBERS are card fields
+(`ghostVelocityFactor`, `ghostPopVelocityFactor`, `hammerOnVelocityFactor`,
+`pullOffVelocityFactor`, `ghostGateBeats`), carried into the planner as a
+`SelfPocketTuning` value with a `Default` that mirrors the field defaults. The
+LAWS do not move to the card: "factor of the event velocity, never an additive
+boost" and "ghosts get a click ceiling" remain composer domain. This keeps the
+byte-identity argument un-breakable from the inspector while letting the ear
+set the constants — the shipped `ghostVelocityFactor` of 0.60 is a
+tuned-by-ear value, raised from a research-derived 0.35 that read too quiet
+through a GM slap patch, whose attack transient dominates the sample.
+
+**Swing doctrine (D-SF2-SWING=A).** Not implemented. If swing/shuffle
+placement is ever added it is a CARD field applied to the grid inside the
+planner — never read from the Rhythm track's feel. Reading the drummer would
+reintroduce a cross-track dependency, contradict the mode's defining autonomy,
+break the `SelfPocket_IgnoresTheRhythmTrack_BassStemIsByteIdentical` pin, and
+require an orchestrator pass under §10 of `SSoT_CONTRACTS.md`.
+
+**Determinism.** Unchanged: zero new `ctx.rng` draws — the three BEND-1 seams
+(`BuildLegatoCarrierMap`, `ResolveLegatoGroupEndBeats`,
+`ResolveLegatoDeltaSemitones`) are pure static functions and the writer reads
+no state. `ForEvent(k)` remains a pure per-index derivation, so skipping a
+tail's note does not shift any other hit's jitter. Same seed → same bytes,
+gestures included.
+
+Test surface: `Tests/Editor/BassTrackComposer_SelfPocketVocabularyTests.cs`
+(the SLAPFIG-2/2b vocabulary, plus the Ghost/GhostPop render canary),
+`Tests/Editor/PitchBendWriterTests.cs` (the writer in isolation) and
+`Tests/Editor/BassTrackComposer_LegatoBendTests.cs` (the three seams and the
+legato render: determinism, bend presence, closing invariant, the fewer
+note-ons law, and the anti-no-op pin).
+
 ## 4. MIDI plumbing
 
 Unchanged by CA-F2: channel forcing on all ChannelEvents; bank/patch stamping
@@ -597,3 +870,19 @@ Update this document when any of the following change:
   (D-W2-REG, §3.6bis), or the pop fold-onto-the-selected-note (D-REG-2=B,
   §3.7.1) and the pitch-only scope that keeps the POCKET-1/2 test surface
   meaning verbatim.
+- the order-independence contract (§1) changes: the PASS 0 scheduling of
+  Backing, the deferred index-ordered merge, or the harmony-source sniff that
+  gates the host default;
+- the SelfPocket surface (§3.7.2) changes: the enum member, the cycled-pattern
+  grid or its meter anchoring, the velocity base, the degrade rule, or the
+  reuse of the SlapPocket emission pipeline downstream of the plan;
+- the SelfPocket vocabulary (§3.7.3) changes: a `SelfPocketStep` member is
+  added or its status changes, a per-class pitch / velocity / gate law
+  changes, the tuning surface moves between card and composer, or the swing
+  doctrine is implemented or revised;
+- the legato law (§3.7.3, BEND-1) changes: the carrier rule or chain
+  collapsing, the carrier gate extension, the scale-degree interval law
+  (including its anchoring and its off-scale fallback), the orphan degrade,
+  the post-build application point relative to `ForceAllChannel` /
+  `StampBankAndPatch`, or the assumed ±2 semitone range / the decision to
+  emit RPN.

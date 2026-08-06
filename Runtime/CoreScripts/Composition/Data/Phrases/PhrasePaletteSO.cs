@@ -19,8 +19,11 @@ namespace MidiGenPlay.Composition.Phrases
         [Tooltip("-1 bias descending, +1 bias ascending, 0 = let planner alternate/decide.")]
         [Range(-1, 1)] public int defaultContourBias = 0;
 
-        [Tooltip("If true, archetypes are allowed to produce " +
-            "slots that spill into the next chord span.")]
+        // MGP-MEL-1 P2.3: reserved -- inert while the planner keeps the
+        // "one chord span = one phrase" model (PhrasePlanner documents the
+        // cross-chord extension as a TODO; no archetype emits slots beyond
+        // spanBeats). Hidden so it cannot be authored into silence.
+        [HideInInspector]
         public bool allowCrossChordPhrases = false;
     }
 }

@@ -18,5 +18,6 @@ MonoBehaviour:
   BankName: 000
   PatchName: 5 - E.Piano 2
   PatchIndex: 5
-  octaveMin: 3
-  octaveMax: 7
+  octaveMin: 5
+  octaveMax: 5
+  volume01: 1

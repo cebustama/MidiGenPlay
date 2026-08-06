@@ -64,6 +64,23 @@ namespace MidiGenPlay.Composition
                  "from this palette using its internal weights.")]
         public ChordProgressionPaletteSO progressionPalette;
 
+        [Tooltip("MGP-MEL-1 P4 (D3=C / D4=A): when ON and the progression this " +
+                 "card resolves declares reference tonalities that EXCLUDE the " +
+                 "part's tonality, the part ADOPTS the progression's first " +
+                 "listed tonality for this render (mode change; root " +
+                 "unchanged). Runs in the Backing composer (PASS 0), so every " +
+                 "downstream consumer (bass, melody, harmony) renders in the " +
+                 "adopted mode. Applies at COMPOSE time and therefore wins " +
+                 "over any pre-render tonality the host set for the part -- " +
+                 "combining this with an explicit TonalityEffect on the same " +
+                 "card is an authoring error (validate host-side). OFF " +
+                 "(default) = existing behavior: the part tonality wins and " +
+                 "AsAuthored assets render with the TONFILTER-1 mismatch " +
+                 "signal. This is the clean authoring surface for " +
+                 "multi-modal progression palettes (e.g. a card whose entries " +
+                 "span Dorian / Phrygian / Lydian / Mixolydian).")]
+        public bool adoptProgressionTonality = false;
+
         /// <summary>
         /// Legacy picker (unchanged behavior):
         /// Priority:

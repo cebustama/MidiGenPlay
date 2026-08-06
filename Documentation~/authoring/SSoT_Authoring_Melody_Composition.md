@@ -101,6 +101,114 @@ This includes ideas such as:
 
 It is package truth even when an external project chooses to inject it through a game-facing bundle.
 
+## 4b. Procedural melody: precedence and recipes (MGP-MEL-1b, P6.1)
+
+### Layer precedence (authoritative table)
+
+| # | Surface | Wins over | Silences |
+|---|---------|-----------|----------|
+| 0 | Per-render `ctx.patternOverride` (host) | everything | all procedural surfaces |
+| 1 | `MelodyCardConfigSO.patternOverride` | 2..6 | style, palettes, leadings (P6.2 signal fires, logGenerator-gated) |
+| 2 | `TrackParameters.Pattern` (as `MelodyPatternData`) | 3..6 | same as 1 |
+| 3 | `MelodyCardConfigSO.phrasePaletteOverride` | 4 (palette slot only) | `leadingOverride.phrasePalette` AND the default leading's palette — **a palette set inside a `MelodicLeadingConfig` used as `leadingOverride` is INERT when the card also carries `phrasePaletteOverride`** |
+| 4 | `MelodyCardConfigSO.leadingOverride` | 5 | constructor/default leading (all fields) |
+| 5 | Constructor default `MelodicLeadingConfig` (`MidiGenPlayConfig.melodicLeading`) | — | — |
+| 6 | `MelodyCardConfigSO.style` | constructor base strategy | — (orthogonal to 3–5: style picks PITCH POLICY, leading picks TASTE, palette picks PHRASING) |
+
+Row 3 is the case that motivated P6: a leading authored with its own
+`phrasePalette` looks configured and is silently overridden. The P3
+effective-leading log line (below) now exposes this every render.
+
+Per-phrase, inside 6: `usePerPhraseOverrides` → weighted directive draw →
+`useOverrideStrategy` replaces the base strategy for that phrase →
+`contour` / `repeatDirective` wrap it in `ConstrainedMelodyStrategy`.
+
+> **A directive is ALWAYS drawn when the list is non-empty.** There is no
+> implicit "no directive" outcome. If some phrases should run unconstrained,
+> author an explicit neutral directive and give it weight.
+
+### Directive intent contract (F1)
+
+`RepeatLastNotesDirective` and `InterPhraseIntervalDirective` are
+`[Serializable]` classes: their instances ALWAYS exist after deserialization,
+so instance presence carries no intent. **The `enabled` bool is the only
+intent signal**, and the composer gates both on it before they can affect a
+render. F1 closed the repeat-side gap; the interval side always had the gate.
+
+### Motif repetition semantics (F2, D8=B)
+
+With `repeatDirective.enabled`, the first `notesToRepeat` audible picks of the
+phrase form the MOTIF (chosen by the strategy, contour applied); every later
+slot replays it cyclically, transposed by `transposeSemitones` once per
+completed cycle. `transpose = 0` is an exact ostinato; `+2` is an ascending
+sequence. Rests never enter the motif. The buffer is phrase-scoped — one
+decorator instance per chord span.
+
+> **AUTHORING HAZARD — `transposeSemitones` is CHROMATIC, not diatonic.**
+> Verified benign in E Ionian only because that motif's intervals happened to
+> land in-scale (B→+2→C♯, A→+2→B). A motif containing degree 7 transposed +2
+> leaves the scale (D♯ → F♮ in E major). Until a diatonic variant exists
+> (`transposeScaleSteps`, not scheduled), prefer `transpose = 0` or verify the
+> specific motif degrees against the mode. The transposition also ACCUMULATES
+> per cycle and stops only at the instrument-range clamp — pair a non-zero
+> transpose with short burst archetypes.
+
+### Contour semantics (F3, D9)
+
+`AscendingOnly` / `DescendingOnly` snap a violating pick to the NEAREST
+candidate of the same harmonic pool (chord / scale / noteSource /
+allowedDegrees) strictly above or below the phrase reference (peak ?? start).
+Scale-aware, never chromatic. When no candidate exists on the required side
+(a range edge), the inner pick is kept: a soft contour miss beats an
+out-of-scale note.
+
+### Rests and phrase breathing
+
+Intra-phrase rests **already exist and already fire**: a `PhraseSlot` with
+`playNote = false` is skipped by the composer and therefore never logged,
+which is why `[MelodySlot]` lines can start at `slot=1/…`. Rest density is an
+ARCHETYPE property, not a leading or style property.
+
+What does NOT exist is a phrase-final breath. Sustaining archetypes fill the
+remainder of the chord span with the held note (observed `dur=7.75` on an
+8-beat span), so consecutive phrases run together and read as continuous
+singing. The authoring workaround today is shorter spans or denser palettes.
+
+### Inert / reserved fields (P2 registry)
+
+| Field | Status |
+|---|---|
+| `MelodicStyleSO.swingAmount`, `.humanize` | reserved, hidden (`[HideInInspector]`) |
+| `MelodicLeadingConfig.chancePassingNote` | reserved, hidden |
+| `MelodicLeadingConfig.voicingPreset` | reserved, hidden (zero melody-side consumers) |
+| `PhrasePaletteSO.allowCrossChordPhrases` | reserved, hidden (one-chord-one-phrase model) |
+| `WeightedPhraseDirective.overrideStrategy` | MIGRATED to `useOverrideStrategy` + value (P2.1); the old nullable never serialized, so no data migration exists or is needed |
+
+### Recipe 1 — literal melody
+
+`MelodyCardConfigSO.patternOverride` = an authored `MelodyPatternData`.
+Ignores harmony by design; adapts to Part tonality/root; deterministic.
+Everything else on the card is inert, and the P6.2 signal says so under
+`logGenerator`.
+
+### Recipe 2 — palette melody
+
+`phrasePaletteOverride` (phrase vocabulary) + `style`
+(`baseStrategy = ScaleFlow`, weighted directives — include a neutral directive
+if some phrases should run free) + optional `leadingOverride` (taste and
+velocities). Identity is the palette; the notes vary per seed.
+
+### Recipe 3 — chord-aware climb
+
+`style.baseStrategy = AscendingClimb`, `usePerPhraseOverrides = false`;
+leading with `noteSource = PreferChordTonesAllowScale` (or `ChordTonesOnly`),
+`maxStepSemitones = 2–4`, low `chanceRepeatNote`; an EvenFlow-dominant
+palette. Ascends within AND across phrases (one phrase per chord, so the steps
+follow the harmony's timing); chord tones are weighted ×1.8, so the chosen
+degree follows the sounding chord; the final slot cadences deliberately to the
+tonic two octaves up (`octs = 2` is currently hardcoded — recorded gap). Needs
+an instrument range of roughly 2.5 octaves or more for an 8-chord part.
+
 ## 5. Canonical melody pattern format (Phase 1)
 
 As of Phase 1 of `Roadmap_Melody_Authoring_MVP.md` (closed 2026-06-16),
@@ -355,6 +463,10 @@ Authoring owns the pattern's *meaning* (this document); runtime owns *how it is
 consumed* (the runtime SSoT). Authoring tools never depend on the runtime path.
 
 ## 8. Update triggers
+
+- the procedural precedence table, the directive intent contract, the motif /
+  contour semantics, the rest-and-breathing statement, or the reserved-field
+  registry (§4b, MGP-MEL-1b) change;
 
 Update this SSoT when:
 

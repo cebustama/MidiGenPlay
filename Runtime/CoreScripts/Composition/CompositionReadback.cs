@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using static MidiGenPlay.MusicTheory.MusicTheory;
 
 namespace MidiGenPlay.Composition
 {
@@ -139,6 +140,18 @@ namespace MidiGenPlay.Composition
         /// qualityRenderPolicy=DiatonicToPart on the asset. False whenever
         /// tonalities is empty, compatible, or requality is opted in.</summary>
         public bool tonalityMismatch;
+
+        /// <summary>Backing, MGP-MEL-1 P4 (D3=C): true when the card's
+        /// adoptProgressionTonality made the part adopt the resolved
+        /// progression's first reference tonality this render (see
+        /// <see cref="adoptedTonality"/>). Mutually exclusive with
+        /// <see cref="tonalityMismatch"/> by construction (adoption runs
+        /// first and makes the tonality compatible).</summary>
+        public bool tonalityAdopted;
+
+        /// <summary>The tonality adopted when <see cref="tonalityAdopted"/>;
+        /// default otherwise.</summary>
+        public Tonality adoptedTonality;
     }
 
     /// <summary>

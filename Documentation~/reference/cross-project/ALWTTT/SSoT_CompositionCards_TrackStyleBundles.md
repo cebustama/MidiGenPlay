@@ -289,7 +289,27 @@ Additional hooks currently present on the bundle (but not yet wired into generat
 
 **Meaning**
 - `chordExpression` selects the Tier-1 rhythmic articulation applied over the
-  monophonic bass line for the whole render (CA-F2). `Block` (default) is
+  monophonic bass line for the whole render (CA-F2).
+- Pocket coupling (MGP-ALWTTT-BASS-POCKET-1 / SLAPFIG-1 / SLAPFIG-2 / BEND-1):
+  see `runtime/SSoT_Composer_Bass_Track.md` §3.7–§3.7.3 for the authoritative
+  semantics. Authoring-relevant fields: `pocketMode`, `pocketSlapBoost`,
+  `pocketPopBoost`, `selfPocketSubdivision`, `selfPocketPattern`, and the
+  SLAPFIG-2b tuning block (`ghostVelocityFactor`, `ghostPopVelocityFactor`,
+  `hammerOnVelocityFactor`, `pullOffVelocityFactor`, `ghostGateBeats`) plus
+  `hammerOffsetDegrees` / `pullOffsetDegrees` (SCALE DEGREES since BEND-1; the
+  old `*Semitones` names survive only as `[FormerlySerializedAs]` aliases).
+- `HammerOn` / `PullOff` are ACTIVE since MGP-ALWTTT-BASS-BEND-1
+  (D-SF2-LEGATO=C superseded) and may be offered by authoring UI and
+  generators. Two authoring rules travel with them (§3.7.3): a legato step must
+  be preceded by a sounding step inside the same chord-event window or it
+  degrades to an attacked note, and a chain whose accumulated interval exceeds
+  ±2 semitones clamps.
+
+> **Pre-existing drift, NOT introduced by these batches.** This subsection
+> listed only `chordExpression` and `arpeggioRate`; every POCKET-1 and
+> SLAPFIG-1 field was already missing. The additive block above records the gap
+> rather than silently backfilling four batches of card surface. A proper
+> reconciliation belongs to a documentation batch of its own. `Block` (default) is
   bit-identical legacy output. Persistent card-level selection (D-EXP1=A),
   fully independent of the backing card (SD-F2-5=A): a bass track with no
   bassline bundle always renders `Block`.

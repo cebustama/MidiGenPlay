@@ -117,3 +117,62 @@ A technical change is not complete until:
 - `CURRENT_STATE.md` is updated if focus/reality changed,
 - `changelog-ssot.md` is updated if meaning/authority changed,
 - and `coverage-matrix.md` is updated if the primary home changed.
+
+## 10. Track-list order contract (MGP-ALWTTT-BASS-ORDER-1)
+
+The track list is a CONSUMER IDENTITY structure — it determines channel
+allocation, `ChannelRoles`, `mus:` tags and merged chunk order — and consumers
+must be free to append to it in play order without reordering.
+
+Therefore: **no rendered output may depend on the ORDER of entries in the
+track list, only on their content and their per-track keys.** Cross-track
+dependencies are resolved by the orchestrator's pass structure
+(`SSoT_Runtime_Generation_Orchestration.md` §5.7), never by requiring the host
+to order the list.
+
+Consequences:
+- A new cross-track dependency needs a pass, not a documented ordering caveat.
+- Per-track seeds key on `(role, musicianId)`; adding, removing or moving a row
+  must not shift another row's stream.
+- Physical merge is index-ordered and decoupled from compose order, so byte
+  layout stays a function of the list.
+
+Recorded exception (pre-existing, unchanged): `SlapPocket` consumes the Rhythm
+track's PUBLISHED onsets and therefore still degrades gracefully to the
+decoupled figure when the Rhythm row composes after the bass. It is opt-in,
+warn-only and never silent, and `SelfPocket` (SLAPFIG-1) provides the
+order-free alternative.
+
+## 11. Emitted MIDI event contract (MGP-ALWTTT-BASS-BEND-1)
+
+Generated track files carry note events, the per-track bank/patch stamp, the
+per-track channel stamp, the consumer mix-gain CC7 (§8) — and, since BEND-1,
+**pitch bend events**.
+
+- **Producer.** `PitchBendWriter` (Runtime, pure, static) is the ONLY writer of
+  pitch bend in the package. Composers do not emit bend through
+  `PatternBuilder` or the articulation engine; they plan gestures and hand
+  them to the writer as post-build surgery on their own file, after
+  `pb.Build().ToFile(tempoMap)` and BEFORE the channel stamp and the
+  bank/patch stamp. Gestures arrive in TICKS: meter authority stays with the
+  composer (§5).
+- **No entry ⇒ no event.** A null or empty gesture list leaves the file
+  untouched — not re-deltaed, not rebuilt. Every render that plans no gesture
+  is byte-identical to a build without the writer.
+- **Same-tick ordering law.** At any tick a bend point is written AFTER every
+  event that is not a sounding note-on, and BEFORE the first sounding note-on.
+  A note starting on a reset tick therefore starts centred, never bent for
+  zero ticks. Insertion never re-times existing events.
+- **Channel-state reset invariant.** Pitch bend is CHANNEL state. Every
+  gesture carries its own reset to centre (8192); same-tick points coalesce
+  (last value wins, one event per tick), and the LAST bend event of a chunk is
+  always centre. No render may leave a channel detuned past its final gesture.
+- **Single-channel scope.** The writer operates on the first track chunk and
+  assumes a monophonic, single-channel track. Bass and melody are the intended
+  consumers; the backing track is a declared NON-consumer, because on a
+  polyphonic channel a bend detunes every sounding voice.
+- **Range.** The GM default sensitivity (±2 semitones) is assumed; no RPN is
+  emitted in v1. Targets beyond the range clamp with a warning. A future
+  consumer needing a wider range must negotiate it via RPN.
+- **Determinism.** Same gestures + same file ⇒ same bytes. The writer draws no
+  rng and reads no external state.

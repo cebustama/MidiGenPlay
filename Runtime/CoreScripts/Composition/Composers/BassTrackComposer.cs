@@ -120,6 +120,31 @@ namespace MidiGenPlay.Composition
     /// all -1 and an empty gesture list: the emission loop is line-for-line
     /// SLAPFIG-2 and the writer never runs -- structural byte-identity,
     /// pinned by the Ghost-vocabulary render canary. ZERO new ctx.rng draws.
+    /// MGP-ALWTTT-BASS-PHRASE-1 (D-PH-SURF=D / D-PH-LEN=A / D-PH-ANCHOR=A
+    /// / D-PH-FILL=C / D-PH-SCOPE=A / D-PH-BYTE=A / D-PH-SEAM=A /
+    /// D-PH-INDEX=A / SD-PH-1..3=A): phrase-aware SelfPocket. The card gains
+    /// an authored phrase length and a bar-substitution table (slot ->
+    /// pattern variants); bar = floor(part beat / beatsPerBar) — METER
+    /// absolute — slot = bar % phraseLength, phraseIndex = bar /
+    /// phraseLength. A substituted slot plays one of its variants
+    /// (SeededMix: pure integer mix of (phrase seed, phraseIndex, slot),
+    /// the WalkMix01 idiom with its own duplicated constants; RoundRobin:
+    /// phraseIndex % count); with the phrase ACTIVE every pattern — body
+    /// included — indexes from its bar start (D-PH-INDEX=A). The extended
+    /// BuildSelfPocketPlan overload carries it all as ARGUMENTS (still a
+    /// pure static function: zero rng, zero cross-track reads — the §8.4
+    /// autonomy pin holds); the legacy 8-arg signature delegates with a
+    /// null table and is line-for-line the SLAPFIG-2b planner. The single
+    /// OFF gate is the table being empty (D-PH-BYTE=A) — phrase length and
+    /// the selection toggle are inert without it, so pre-PHRASE cards and
+    /// SlapPocket/Off render byte-identical by construction. Table-defect
+    /// degradation is LOCAL (SD-PH-1=A: duplicate slot -> last wins;
+    /// out-of-range / empty variants -> inert), warned once per Compose.
+    /// The phrase seed derives via SongOrchestrator.StableHash32
+    /// ("|selfphrase") composer-side — a recorded deviation from the
+    /// Resolve*-in-orchestrator convention to hold this batch's touched
+    /// files to the verified-fresh pair; relocation is a no-render-change
+    /// refactor candidate. ZERO new ctx.rng draws.
     public sealed class BassTrackComposer : ITrackComposer
     {
         private readonly MidiGenPlayConfig _settings;
@@ -304,6 +329,46 @@ namespace MidiGenPlay.Composition
                         $"'{bassStyle.name}'. Rendering the decoupled figure.");
                 }
             }
+
+            // MGP-ALWTTT-BASS-PHRASE-1: phrase surface, resolved once at
+            // entry. The SINGLE gate is the substitution table (D-PH-BYTE=A):
+            // null/empty table => every local below stays at its inert
+            // default and the planner call degenerates to the SLAPFIG-2b
+            // path, byte-identical by construction. Table validation is the
+            // pure seam ResolvePhraseSubstitutions (SD-PH-1=A: local
+            // degradation, last-wins duplicates, inert out-of-range); its
+            // warnings are batched into ONE LogWarning per Compose. The
+            // phrase seed is a dedicated derived substream key consumed only
+            // by the pure variant mix — never a stream, never ctx.rng.
+            IReadOnlyDictionary<int, IReadOnlyList<IReadOnlyList<SelfPocketStep>>>
+                phraseSubstitutions = null;
+            int phraseLengthBars = 0;
+            var phraseVariantSelection =
+                BasslineCardConfigSO.SelfPocketVariantSelection.SeededMix;
+            int phraseSeed = 0;
+            if (selfPocketPattern != null &&
+                bassStyle.selfPocketBarSubstitutions != null &&
+                bassStyle.selfPocketBarSubstitutions.Count > 0)
+            {
+                var phraseWarnings = new List<string>();
+                phraseSubstitutions = ResolvePhraseSubstitutions(
+                    bassStyle.selfPocketBarSubstitutions,
+                    bassStyle.selfPocketPhraseLengthBars,
+                    phraseWarnings);
+                if (phraseWarnings.Count > 0)
+                {
+                    Debug.LogWarning(
+                        $"[BassTrackComposer] PHRASE-1 on card " +
+                        $"'{bassStyle.name}': " +
+                        string.Join(" ", phraseWarnings));
+                }
+                if (phraseSubstitutions != null)
+                {
+                    phraseLengthBars = bassStyle.selfPocketPhraseLengthBars;
+                    phraseVariantSelection = bassStyle.selfPocketVariantSelection;
+                    phraseSeed = ResolvePhraseSeed(trackSeed);
+                }
+            }
             if (pocketRequested)
             {
                 pocketSlapBoost = bassStyle.pocketSlapBoost;
@@ -341,6 +406,42 @@ namespace MidiGenPlay.Composition
             // meter; in others this is a deliberate, test-pinned sync fix.
             var tsInfo = GetTimeSignatureDetails(part.TimeSignature, bpm);
             int beatsPerBar = tsInfo.BeatsPerMeasure;
+
+            // PHRASE-1 (D-PH-INDEX=A): non-divisor advisory — a pattern
+            // whose length does not divide the bar's grid steps restarts
+            // mid-cycle every bar under the within-bar law. Legal (the
+            // restart IS the law), but usually a typo, so it warns once
+            // per Compose. Informative only; never alters the plan.
+            if (phraseSubstitutions != null)
+            {
+                double phStep =
+                    selfPocketSubdivision ==
+                        SelfPocketSubdivision.QuarterBeat ? 0.25 :
+                    selfPocketSubdivision ==
+                        SelfPocketSubdivision.HalfBeat ? 0.5 : 1.0;
+                int stepsPerBar = (int)Math.Round(beatsPerBar / phStep);
+                var offenders = new List<string>();
+                if (selfPocketPattern.Count > 0 &&
+                    stepsPerBar % selfPocketPattern.Count != 0)
+                    offenders.Add($"body({selfPocketPattern.Count})");
+                foreach (var kv in phraseSubstitutions)
+                    for (int v = 0; v < kv.Value.Count; v++)
+                        if (kv.Value[v].Count > 0 &&
+                            stepsPerBar % kv.Value[v].Count != 0)
+                            offenders.Add(
+                                $"bar{kv.Key}.variant{v}({kv.Value[v].Count})");
+                if (offenders.Count > 0)
+                {
+                    Debug.LogWarning(
+                        $"[BassTrackComposer] PHRASE-1 on card " +
+                        $"'{bassStyle.name}': pattern length(s) do not " +
+                        $"divide the bar's {stepsPerBar} grid steps — " +
+                        $"{string.Join(", ", offenders)}. They restart at " +
+                        $"every bar (the within-bar law); if the phase " +
+                        $"carry-over of v1 was intended, author the full " +
+                        $"bar. (Warned once per render.)");
+                }
+            }
             var beatSpan = GetBeatSpan(part.TimeSignature);
 
             var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
@@ -456,7 +557,12 @@ namespace MidiGenPlay.Composition
                         ? BuildSelfPocketPlan(startBeats, lenBeats,
                             selfPocketSubdivision, selfPocketPattern,
                             ce.velocity, pocketSlapBoost, pocketPopBoost,
-                            selfPocketTuning)
+                            selfPocketTuning,
+                            // PHRASE-1: inert quintet while the table is
+                            // null — the overload reduces to SLAPFIG-2b.
+                            beatsPerBar, phraseLengthBars,
+                            phraseSubstitutions, phraseVariantSelection,
+                            phraseSeed)
                         : null;
 
                 if (pocketPlan != null && pocketPlan.Count > 0)
@@ -738,7 +844,12 @@ namespace MidiGenPlay.Composition
                                 $" | SLAPFIG-2/BEND-1 degOffsets=" +
                                 $"(H{hammerOffsetDegrees:+0;-0;0}," +
                                 $"P{pullOffsetDegrees:+0;-0;0})" +
-                                $" legatoGestures={legatoGestures.Count}"
+                                $" legatoGestures={legatoGestures.Count}" +
+                                (phraseSubstitutions != null
+                                    ? $" | PHRASE-1 len={phraseLengthBars}" +
+                                      $" slots={phraseSubstitutions.Count}" +
+                                      $" sel={phraseVariantSelection}"
+                                    : "")
                               : ""));
             }
 
@@ -1221,6 +1332,46 @@ namespace MidiGenPlay.Composition
             int slapBoost = 0,
             int popBoost = 0,
             SelfPocketTuning? tuning = null)
+            // PHRASE-1 (D-PH-SEAM=A): the pre-PHRASE signature delegates
+            // with a null table — the extended body's null-table branch is
+            // the v1 lookup verbatim, so every existing pin runs against
+            // identical behaviour (structural byte-identity by delegation).
+            => BuildSelfPocketPlan(eventStartBeats, eventLenBeats,
+                subdivision, pattern, eventVelocity, slapBoost, popBoost,
+                tuning, beatsPerBar: 0, phraseLengthBars: 0,
+                barSubstitutions: null,
+                variantSelection:
+                    BasslineCardConfigSO.SelfPocketVariantSelection.SeededMix,
+                phraseSeed: 0);
+
+        /// <summary>
+        /// MGP-ALWTTT-BASS-PHRASE-1 (D-PH-SEAM=A): the phrase-aware
+        /// overload. Still a PURE function of its arguments — zero rng,
+        /// zero cross-track reads (the SLAPFIG-1 autonomy pin's ground).
+        /// <paramref name="barSubstitutions"/> null => the per-index lookup
+        /// is <c>pattern[g % Count]</c>, the SLAPFIG-2b law verbatim.
+        /// Non-null => ResolvePhraseStep decides each grid index's step:
+        /// meter-absolute bar (D-PH-ANCHOR=A), slot = bar % phrase length,
+        /// variant per the selection law (SD-PH-2/3=A), and WITHIN-BAR
+        /// indexing for every pattern (D-PH-INDEX=A). Everything downstream
+        /// of the step lookup — velocity law, gate law, accumulator,
+        /// epsilons — is shared and untouched.
+        /// </summary>
+        public static List<PocketHit> BuildSelfPocketPlan(
+            double eventStartBeats,
+            double eventLenBeats,
+            SelfPocketSubdivision subdivision,
+            IReadOnlyList<SelfPocketStep> pattern,
+            int eventVelocity,
+            int slapBoost,
+            int popBoost,
+            SelfPocketTuning? tuning,
+            double beatsPerBar,
+            int phraseLengthBars,
+            IReadOnlyDictionary<int, IReadOnlyList<IReadOnlyList<SelfPocketStep>>>
+                barSubstitutions,
+            BasslineCardConfigSO.SelfPocketVariantSelection variantSelection,
+            int phraseSeed)
         {
             var hits = new List<PocketHit>();
             if (pattern == null || pattern.Count == 0 || eventLenBeats <= 0)
@@ -1248,7 +1399,13 @@ namespace MidiGenPlay.Composition
                 double beat = g * step;
                 if (beat >= end - 1e-9) break; // exclusive end
 
-                var s = pattern[g % pattern.Count];
+                // PHRASE-1: null table = the v1 lookup verbatim (the
+                // delegation path); otherwise the phrase law decides.
+                var s = barSubstitutions == null
+                    ? pattern[g % pattern.Count]
+                    : ResolvePhraseStep(beat, step, pattern, beatsPerBar,
+                        phraseLengthBars, barSubstitutions,
+                        variantSelection, phraseSeed);
                 if (s == SelfPocketStep.Rest) continue;
 
                 int vel = ResolveSelfPocketVelocity(
@@ -1268,6 +1425,216 @@ namespace MidiGenPlay.Composition
                 hits.Add(new PocketHit(acc[i].beat, len, acc[i].vel, acc[i].art));
             }
             return hits;
+        }
+
+        /// <summary>
+        /// PHRASE-1 (D-PH-ANCHOR=A / D-PH-INDEX=A / SD-PH-2/3=A): the
+        /// per-grid-index step law with the phrase ACTIVE, as a pure seam.
+        /// Bar = floor(beat / beatsPerBar + eps) — METER absolute, part
+        /// beat 0 anchored, integer bar lengths in part beats (the TS
+        /// table's BeatsPerMeasure) though the math stays in doubles with
+        /// the planner's own epsilon discipline. Slot = bar % phrase
+        /// length; a substituted slot resolves its variant via
+        /// <see cref="ResolvePhraseVariantIndex"/>; EVERY effective pattern
+        /// (body included) indexes from its bar start — the within-bar law
+        /// that keeps fills aligned. A defensive empty effective pattern
+        /// yields Rest (unreachable through ResolvePhraseSubstitutions,
+        /// which drops empty variants).
+        /// </summary>
+        public static SelfPocketStep ResolvePhraseStep(
+            double beat,
+            double step,
+            IReadOnlyList<SelfPocketStep> body,
+            double beatsPerBar,
+            int phraseLengthBars,
+            IReadOnlyDictionary<int, IReadOnlyList<IReadOnlyList<SelfPocketStep>>>
+                barSubstitutions,
+            BasslineCardConfigSO.SelfPocketVariantSelection variantSelection,
+            int phraseSeed)
+        {
+            if (beatsPerBar <= 0 || phraseLengthBars < 1)
+                return body[(int)Math.Floor(beat / step + 1e-9) % body.Count];
+
+            int bar = (int)Math.Floor(beat / beatsPerBar + 1e-9);
+            int slot = bar % phraseLengthBars;
+            int phraseIndex = bar / phraseLengthBars;
+
+            IReadOnlyList<SelfPocketStep> effective = body;
+            if (barSubstitutions != null &&
+                barSubstitutions.TryGetValue(slot, out var variants) &&
+                variants != null && variants.Count > 0)
+            {
+                effective = variants[ResolvePhraseVariantIndex(
+                    variantSelection, phraseSeed, phraseIndex, slot,
+                    variants.Count)];
+            }
+
+            if (effective == null || effective.Count == 0)
+                return SelfPocketStep.Rest;
+
+            // D-PH-INDEX=A: within-bar index — grid points elapsed since
+            // the bar started. For meters where beatsPerBar is a multiple
+            // of the step (every shipped case: BeatsPerMeasure is an
+            // integer and steps are 1 / 0.5 / 0.25) this is exact; the
+            // floor+epsilon keeps it total for any future fractional bar.
+            double barStartBeat = bar * beatsPerBar;
+            int gBar = (int)Math.Floor((beat - barStartBeat) / step + 1e-9);
+            if (gBar < 0) gBar = 0;
+            return effective[gBar % effective.Count];
+        }
+
+        /// <summary>
+        /// PHRASE-1 (SD-PH-2=A / SD-PH-3=A): the variant-selection law, as
+        /// a pure seam. RoundRobin: phraseIndex % count (negative-safe).
+        /// SeededMix: floor(mix01 * count) with mix01 in [0, 1) — the index
+        /// is provably in range; the defensive clamp only guards FP edge
+        /// noise. One variant short-circuits (both laws agree at 0).
+        /// </summary>
+        public static int ResolvePhraseVariantIndex(
+            BasslineCardConfigSO.SelfPocketVariantSelection selection,
+            int phraseSeed, int phraseIndex, int slot, int variantCount)
+        {
+            if (variantCount <= 1) return 0;
+            if (selection ==
+                BasslineCardConfigSO.SelfPocketVariantSelection.RoundRobin)
+            {
+                int r = phraseIndex % variantCount;
+                return r < 0 ? r + variantCount : r;
+            }
+            int idx = (int)(PhraseMix01(phraseSeed, phraseIndex, slot, 0u)
+                * variantCount);
+            return idx >= variantCount ? variantCount - 1 : idx;
+        }
+
+        /// <summary>
+        /// PHRASE-1 (SD-PH-1=A): pure table validation — the card's
+        /// substitution list to the planner's lookup map. LOCAL
+        /// degradation: a duplicate barIndex keeps the LAST entry; an
+        /// out-of-range barIndex is inert; a variant with no steps is
+        /// dropped; an entry left with zero variants is inert. An all-Rest
+        /// variant is LEGAL (a silent break bar). Every defect appends one
+        /// message to <paramref name="warnings"/> (the caller logs the
+        /// batch once per Compose). Returns null when nothing usable
+        /// survives — including phraseLengthBars &lt; 1, the one GLOBAL
+        /// degrade (a phrase of no bars addresses no slots) — which is the
+        /// caller's OFF signal (D-PH-BYTE=A).
+        /// </summary>
+        public static IReadOnlyDictionary<int,
+                IReadOnlyList<IReadOnlyList<SelfPocketStep>>>
+            ResolvePhraseSubstitutions(
+                IReadOnlyList<BasslineCardConfigSO.SelfPocketBarSubstitution>
+                    table,
+                int phraseLengthBars,
+                List<string> warnings)
+        {
+            if (table == null || table.Count == 0) return null;
+            if (phraseLengthBars < 1)
+            {
+                warnings?.Add(
+                    $"selfPocketPhraseLengthBars={phraseLengthBars} is " +
+                    $"invalid (< 1); phrase substitutions disabled.");
+                return null;
+            }
+
+            var map = new Dictionary<int,
+                IReadOnlyList<IReadOnlyList<SelfPocketStep>>>();
+            for (int i = 0; i < table.Count; i++)
+            {
+                var entry = table[i];
+                if (entry == null) continue;
+                if (entry.barIndex < 0 ||
+                    entry.barIndex >= phraseLengthBars)
+                {
+                    warnings?.Add(
+                        $"substitution[{i}] barIndex={entry.barIndex} is " +
+                        $"outside 0..{phraseLengthBars - 1}; entry ignored.");
+                    continue;
+                }
+
+                var variants = new List<IReadOnlyList<SelfPocketStep>>();
+                if (entry.variants != null)
+                {
+                    for (int v = 0; v < entry.variants.Count; v++)
+                    {
+                        var steps = entry.variants[v]?.steps;
+                        if (steps == null || steps.Count == 0)
+                        {
+                            warnings?.Add(
+                                $"substitution[{i}] (bar {entry.barIndex}) " +
+                                $"variant[{v}] has no steps; variant " +
+                                $"dropped.");
+                            continue;
+                        }
+                        variants.Add(steps);
+                    }
+                }
+                if (variants.Count == 0)
+                {
+                    warnings?.Add(
+                        $"substitution[{i}] (bar {entry.barIndex}) has no " +
+                        $"usable variants; entry ignored.");
+                    continue;
+                }
+                if (map.ContainsKey(entry.barIndex))
+                {
+                    warnings?.Add(
+                        $"duplicate substitution for bar {entry.barIndex}; " +
+                        $"the LAST entry wins.");
+                }
+                map[entry.barIndex] = variants;
+            }
+            return map.Count > 0 ? map : null;
+        }
+
+        /// <summary>
+        /// PHRASE-1: dedicated phrase-substream seed. Consumed only as the
+        /// KEY of the pure variant mix (PhraseMix01) — never a stream.
+        /// Derivation lives composer-side this batch (calling the SAME
+        /// public StableHash32) as a recorded deviation from the
+        /// Resolve*-in-SongOrchestrator convention, to hold the touched
+        /// file set to the verified-fresh pair; relocating it is a
+        /// no-render-change refactor candidate (same string, same hash).
+        /// </summary>
+        public static int ResolvePhraseSeed(int trackSeed)
+            => SongOrchestrator.StableHash32($"{trackSeed}|selfphrase");
+
+        // PHRASE-1 (SD-PH-3=A): pure integer mix for variant selection —
+        // the WalkMix01 idiom, deliberately DUPLICATED (avalanche and all)
+        // with its own fold constants so the (phraseIndex, slot) matrix is
+        // asymmetric and no other seam's byte-identity radius grows.
+        private const uint PhraseIndexFold = 0xC2B2AE35u; // murmur3 fin #2
+        private const uint PhraseSlotFold = 0x27D4EB2Fu;  // xxh32 prime #5
+
+        /// <summary>Uniform double in [0, 1) for (phraseIndex, slot, salt)
+        /// under the phrase substream seed. Pure, allocation-free,
+        /// integer-only mixing — exactly pinnable goldens. PUBLIC per the
+        /// §5.6 named-seam convention (the F-IVT-STALE record: the
+        /// InternalsVisibleTo escape hatch is not relied upon).</summary>
+        public static double PhraseMix01(
+            int phraseSeed, int phraseIndex, int slot, uint salt)
+        {
+            unchecked
+            {
+                uint x = PhraseAvalanche((uint)phraseSeed
+                    ^ ((uint)phraseIndex * PhraseIndexFold));
+                x = PhraseAvalanche(x ^ ((uint)slot * PhraseSlotFold) ^ salt);
+                return x / 4294967296.0; // [0, 1)
+            }
+        }
+
+        // lowbias32 finalizer — the VelocityJitter/Walk constants, verbatim
+        // (the idiom is shared; the instance is duplicated on purpose).
+        private static uint PhraseAvalanche(uint x)
+        {
+            unchecked
+            {
+                x ^= x >> 16;
+                x *= 0x7FEB352Du;
+                x ^= x >> 15;
+                x *= 0x846CA68Bu;
+                x ^= x >> 16;
+                return x;
+            }
         }
 
         /// <summary>

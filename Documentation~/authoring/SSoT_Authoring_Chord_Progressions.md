@@ -467,6 +467,118 @@ dominant, the six shared pitch classes, same-seed plan identity down to list
 order, different-seed same-set/same-bands, the Locrian `+1` accidental, and the
 Aeolian→relative-major pair sharing all seven triads).
 
+### 4.7 Authoring for tonality adoption (MGP-MEL-1b, D5)
+
+#### 4.7.1 Render-policy default for new assets (D5)
+
+NEW narrowly-labeled progression assets that are not meant to LEAD the
+tonality should default `qualityRenderPolicy = DiatonicToPart` (wizard and
+importer default). Existing serialized assets keep their stored value — there
+is no retroactive change.
+
+The trade-off is about who owns colour. `DiatonicToPart` conforms the
+progression's colour to the part, so part identity wins.
+`adoptProgressionTonality` (`runtime/SSoT_Composer_Backing_Track.md` §2.3) is
+the tool for the opposite intent, when the progression's MODAL identity should
+win.
+
+*Follow-up code item, NOT in this batch:* flip the field initializer and the
+importer default.
+
+#### 4.7.2 Authoring modal progressions for adoption
+
+**Rule: author every event as a PLAIN diatonic degree of the TARGET mode,
+with `degreeAccidental = 0`.** Do not encode ♭II as `Supertonic` with
+accidental −1.
+
+Degrees resolve against the part's scale, and under adoption the part IS in
+that mode: in Phrygian, `Supertonic` already sits a semitone above the tonic,
+so `Supertonic` + accidental 0 + quality `Major` renders as ♭II. An accidental
+on top flattens it twice.
+
+**Corollary:** `tonalities[0]` must be the mode the degrees were written
+against, because they only read correctly once adoption has happened. An empty
+`tonalities` list means adoption silently does not fire (§2.3 of the Backing
+SSoT).
+
+#### 4.7.3 Diatonic triads per mode — DERIVED convenience table
+
+> **Derived, not authoritative.** Every row below is a rotation of the
+> interval sets in `MusicTheory_Tonality.TonalityIntervals`, which is the
+> single source of truth for mode shapes. If an interval set ever changes,
+> this table is stale by construction — re-derive from `TonalityIntervals`
+> rather than trusting it.
+
+| Degree | Dorian | Phrygian | Lydian | Mixolydian |
+|---|---|---|---|---|
+| 1 Tonic | i | i | I | I |
+| 2 Supertonic | ii | ♭II | II | ii |
+| 3 Mediant | ♭III | ♭III | iii | iii° |
+| 4 Subdominant | IV | iv | ♯iv° | IV |
+| 5 Dominant | v | v° | V | v |
+| 6 Submediant | vi° | ♭VI | vi | vi |
+| 7 Subtonic / Leading | ♭VII | ♭vii | vii | ♭VII |
+
+Read with §4.7.2: the accidental in the label above describes where the degree
+SITS in that mode, and is therefore already implied by the mode. It is NOT a
+`degreeAccidental` to author.
+
+### 4.7 Authoring for tonality adoption (MGP-MEL-1b, D5)
+
+#### 4.7.1 Render-policy default for new assets (D5)
+
+NEW narrowly-labeled progression assets that are not meant to LEAD the
+tonality should default `qualityRenderPolicy = DiatonicToPart` (wizard and
+importer default). Existing serialized assets keep their stored value — there
+is no retroactive change.
+
+The trade-off is about who owns colour. `DiatonicToPart` conforms the
+progression's colour to the part, so part identity wins.
+`adoptProgressionTonality` (`runtime/SSoT_Composer_Backing_Track.md` §2.3) is
+the tool for the opposite intent, when the progression's MODAL identity should
+win.
+
+*Follow-up code item, NOT in this batch:* flip the field initializer and the
+importer default.
+
+#### 4.7.2 Authoring modal progressions for adoption
+
+**Rule: author every event as a PLAIN diatonic degree of the TARGET mode,
+with `degreeAccidental = 0`.** Do not encode ♭II as `Supertonic` with
+accidental −1.
+
+Degrees resolve against the part's scale, and under adoption the part IS in
+that mode: in Phrygian, `Supertonic` already sits a semitone above the tonic,
+so `Supertonic` + accidental 0 + quality `Major` renders as ♭II. An accidental
+on top flattens it twice.
+
+**Corollary:** `tonalities[0]` must be the mode the degrees were written
+against, because they only read correctly once adoption has happened. An empty
+`tonalities` list means adoption silently does not fire (§2.3 of the Backing
+SSoT).
+
+#### 4.7.3 Diatonic triads per mode — DERIVED convenience table
+
+> **Derived, not authoritative.** Every row below is a rotation of the
+> interval sets in `MusicTheory_Tonality.TonalityIntervals`, which is the
+> single source of truth for mode shapes. If an interval set ever changes,
+> this table is stale by construction — re-derive from `TonalityIntervals`
+> rather than trusting it.
+
+| Degree | Dorian | Phrygian | Lydian | Mixolydian |
+|---|---|---|---|---|
+| 1 Tonic | i | i | I | I |
+| 2 Supertonic | ii | ♭II | II | ii |
+| 3 Mediant | ♭III | ♭III | iii | iii° |
+| 4 Subdominant | IV | iv | ♯iv° | IV |
+| 5 Dominant | v | v° | V | v |
+| 6 Submediant | vi° | ♭VI | vi | vi |
+| 7 Subtonic / Leading | ♭VII | ♭vii | vii | ♭VII |
+
+Read with §4.7.2: the accidental in the label above describes where the degree
+SITS in that mode, and is therefore already implied by the mode. It is NOT a
+`degreeAccidental` to author.
+
 ## 5. Palette semantics
 
 Progression palettes group progression assets into reusable themed packs for runtime selection.
@@ -489,6 +601,14 @@ Runtime consumption is defined in:
   (§4.2; consumption contract in the backing SSoT §2.2).
 
 ## 7. Update triggers
+
+- the tonality-adoption authoring rules (§4.7) change: the `DiatonicToPart`
+  default for new assets, the plain-degree rule for modal progressions, the
+  `tonalities[0]` corollary, or the derived triad table's source of truth;
+
+- the tonality-adoption authoring rules (§4.7) change: the `DiatonicToPart`
+  default for new assets, the plain-degree rule for modal progressions, the
+  `tonalities[0]` corollary, or the derived triad table's source of truth;
 
 Update this SSoT when:
 

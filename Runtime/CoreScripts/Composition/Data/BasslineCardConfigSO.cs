@@ -1,4 +1,5 @@
 ﻿using Melanchall.DryWetMidi.Standards;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -21,6 +22,15 @@ namespace MidiGenPlay.Composition
     /// assets carried the old fields.
     ///
     /// See runtime/SSoT_Composer_Bass_Track.md.
+    ///
+    /// MGP-ALWTTT-BASS-PHRASE-1 (D-PH-SURF=D / D-PH-FILL=C): the SelfPocket
+    /// PHRASE surface — an authored phrase length plus a bar-substitution
+    /// table (bar slot -> one or more pattern variants) that lets the figure
+    /// breathe across bars: body bars cycle selfPocketPattern; substituted
+    /// slots (canonically the last bar of the phrase) play their own
+    /// pattern. The table being empty is the single OFF gate (D-PH-BYTE=A):
+    /// every other phrase field is inert until at least one substitution
+    /// exists, so cards serialized before this batch render byte-identical.
     /// </summary>
     [CreateAssetMenu(menuName = "MidiGenPlay/TrackConfigs/BasslineCardConfig")]
     public class BasslineCardConfigSO : TrackStyleBundleSO
@@ -256,6 +266,97 @@ namespace MidiGenPlay.Composition
                  "are exactly SlapPocket's.")]
         public List<SelfPocketStep> selfPocketPattern =
             new List<SelfPocketStep> { SelfPocketStep.Slap, SelfPocketStep.Pop };
+
+        // --- MGP-ALWTTT-BASS-PHRASE-1: phrase-level bar substitutions.
+        // D-PH-SURF=D (base pattern + substitution table), D-PH-LEN=A
+        // (authored fixed length, purely modular — no part-end lookahead),
+        // D-PH-ANCHOR=A (meter-absolute: bar = floor(part beat /
+        // beatsPerBar); parts whose first chord event starts late still
+        // count the phrase from part beat 0), D-PH-FILL=C (variant LIST per
+        // slot; seeded pure-mix selection by default, round-robin as a
+        // toggle), D-PH-SCOPE=A (SelfPocket only — SlapPocket takes its grid
+        // from the drummer's published onsets), D-PH-INDEX=A (with the
+        // phrase active, EVERY pattern — body included — indexes from its
+        // bar start; enabling the phrase may re-phase a body whose length
+        // does not divide the bar's grid steps, a declared, opt-in change).
+        // Unity cannot serialize List<List<T>>, hence the two wrapper
+        // classes. Both are plain [Serializable] data — no behaviour.
+
+        /// <summary>One pattern variant for a substituted bar slot. An
+        /// all-Rest variant is LEGAL (a silent break bar); an empty steps
+        /// list is invalid and dropped with a warning (SD-PH-1=A).</summary>
+        [Serializable]
+        public class SelfPocketPatternVariant
+        {
+            [Tooltip("The bar's articulation pattern, same alphabet and " +
+                     "same grid as selfPocketPattern. Indexed from the BAR " +
+                     "start (D-PH-INDEX=A) and cycled if shorter than the " +
+                     "bar. All-Rest = a deliberate silent bar. Empty = " +
+                     "invalid, dropped with a warning.")]
+            public List<SelfPocketStep> steps = new List<SelfPocketStep>();
+        }
+
+        /// <summary>One substituted slot of the phrase. Defect semantics
+        /// (SD-PH-1=A): a duplicate barIndex keeps the LAST entry; a
+        /// barIndex outside 0..phraseLength-1 is inert; both warn once per
+        /// render. Degradation is LOCAL — valid entries survive.</summary>
+        [Serializable]
+        public class SelfPocketBarSubstitution
+        {
+            [Tooltip("0-based slot within the phrase this entry replaces. " +
+                     "phraseLength-1 is the phrase-closing bar — the " +
+                     "'Aeroplane' fill slot. Out of range = entry ignored " +
+                     "(warned once per render).")]
+            public int barIndex;
+
+            [Tooltip("Pattern variants for this slot. One variant = a fixed " +
+                     "fill. Several = the selection law picks one per " +
+                     "phrase occurrence (selfPocketVariantSelection). Empty " +
+                     "= entry ignored (warned).")]
+            public List<SelfPocketPatternVariant> variants =
+                new List<SelfPocketPatternVariant>();
+        }
+
+        /// <summary>PHRASE-1 variant-selection law. Append-only; values
+        /// serialized in assets.</summary>
+        public enum SelfPocketVariantSelection
+        {
+            // SD-PH-2=A: seeded pure mix is the default — deterministic
+            // per (phrase seed, phrase index, slot), the WalkMix01 idiom.
+            // Same seed => same picks; no ctx.rng stream exists.
+            SeededMix = 0,
+            // phraseIndex % variant count — mechanical alternation,
+            // useful for A/B auditioning and fully seed-independent.
+            RoundRobin = 1,
+        }
+
+        [Tooltip("PHRASE-1 (D-PH-LEN=A): phrase length in bars. The " +
+                 "substitution table's barIndex addresses slots " +
+                 "0..length-1; the phrase repeats purely modularly over " +
+                 "the part (a trailing partial phrase just truncates — no " +
+                 "part-end fill logic in v1, deferred). INERT while the " +
+                 "substitution table is empty (D-PH-BYTE=A: the table is " +
+                 "the single ON/OFF gate).")]
+        [Min(1)]
+        public int selfPocketPhraseLengthBars = 4;
+
+        [Tooltip("PHRASE-1 (D-PH-SURF=D): the bar-substitution table. " +
+                 "EMPTY = phrase machinery OFF, v1 cycling byte-identical " +
+                 "(the single gate, D-PH-BYTE=A). Each entry replaces one " +
+                 "phrase slot with its own pattern variant(s); the " +
+                 "canonical use is one entry at slot length-1 — the " +
+                 "phrase-closing fill.")]
+        public List<SelfPocketBarSubstitution> selfPocketBarSubstitutions =
+            new List<SelfPocketBarSubstitution>();
+
+        [Tooltip("PHRASE-1 (SD-PH-2=A): how a slot with several variants " +
+                 "picks one per phrase occurrence. SeededMix (default) = " +
+                 "deterministic seeded pure mix, varied but reproducible; " +
+                 "RoundRobin = phraseIndex % count. Inert while the table " +
+                 "is empty or no slot has more than one variant.")]
+        public SelfPocketVariantSelection selfPocketVariantSelection =
+            SelfPocketVariantSelection.SeededMix;
+
 
         [Tooltip("MGP-ALWTTT-BASS-BEND-1 (D-BEND-DEG=A). SCALE-DEGREE offset " +
                  "for HammerOn steps. Default +1 — the scale neighbour above; " +

@@ -70,6 +70,99 @@
 
 ## Just completed
 
+- **MGP-MEL-1b — procedural melody directive layer fixed and hardened
+  (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
+  interval directive, closing a flat-pitch defect where an always-present
+  `[Serializable]` instance short-circuited the strategy. F2: `notesToRepeat`
+  became a true N-note phrase-scoped motif buffer replayed cyclically with a
+  per-cycle `transposeSemitones` (D8=B) — the transpose is CHROMATIC and
+  accumulates, a recorded authoring hazard. F3: `AscendingOnly` /
+  `DescendingOnly` snap to the nearest candidate of the same harmonic pool
+  (D9), so contour is scale-aware and never chromatic. P2: five reserved
+  fields hidden and `WeightedPhraseDirective.overrideStrategy` migrated to
+  `useOverrideStrategy` + value. P3: an effective-leading log line, which
+  immediately exposed the P6 hazard live. P6.1: the procedural precedence
+  table now has a documented home (`authoring/SSoT_Authoring_Melody_Composition.md`
+  §4b); P6.2: a logGenerator-gated inert-config signal on the pattern path.
+  New package surfaces: `BackingCardConfigSO.adoptProgressionTonality` (P4,
+  D3=C / D4=A) with `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality`,
+  and `PartRender.sharedProgressionData` (P7, D6=B) as the jam-continuity carry
+  channel. New suite `ConstrainedMelodyStrategy_MotifTests`.
+  **F1 changes the melody rng draw sequence** — same seed now yields a
+  different, correct melody; any procedural-melody golden must be re-pinned.
+  **P4 and P7 are implemented and unit-tested but NOT consumer-verified** —
+  both need host-side work (modal card, jam-continuity wiring).
+
+- **MGP-MEL-1b — procedural melody directive layer fixed and hardened
+  (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
+  interval directive, closing a flat-pitch defect where an always-present
+  `[Serializable]` instance short-circuited the strategy. F2: `notesToRepeat`
+  became a true N-note phrase-scoped motif buffer replayed cyclically with a
+  per-cycle `transposeSemitones` (D8=B) — the transpose is CHROMATIC and
+  accumulates, a recorded authoring hazard. F3: `AscendingOnly` /
+  `DescendingOnly` snap to the nearest candidate of the same harmonic pool
+  (D9), so contour is scale-aware and never chromatic. P2: five reserved
+  fields hidden and `WeightedPhraseDirective.overrideStrategy` migrated to
+  `useOverrideStrategy` + value. P3: an effective-leading log line, which
+  immediately exposed the P6 hazard live. P6.1: the procedural precedence
+  table now has a documented home (`authoring/SSoT_Authoring_Melody_Composition.md`
+  §4b); P6.2: a logGenerator-gated inert-config signal on the pattern path.
+  New package surfaces: `BackingCardConfigSO.adoptProgressionTonality` (P4,
+  D3=C / D4=A) with `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality`,
+  and `PartRender.sharedProgressionData` (P7, D6=B) as the jam-continuity carry
+  channel. New suite `ConstrainedMelodyStrategy_MotifTests`.
+  **F1 changes the melody rng draw sequence** — same seed now yields a
+  different, correct melody; any procedural-melody golden must be re-pinned.
+  **P4 and P7 are implemented and unit-tested but NOT consumer-verified** —
+  both need host-side work (modal card, jam-continuity wiring).
+
+- **True legato via pitch bend (MGP-ALWTTT-BASS-BEND-1, 2026-08-05).** A
+  `HammerOn`/`PullOff` step no longer strikes a note: the nearest preceding
+  sounding hit becomes its CARRIER, the carrier's gate extends through the
+  legato tail, and each tail becomes a STEP pitch bend gesture applied
+  post-build by the new shared `PitchBendWriter` (Runtime, pure;
+  `SSoT_CONTRACTS.md` §11 — the package's first non-note, non-CC emission).
+  Intervals moved from semitones to SCALE DEGREES (`hammerOffsetDegrees` /
+  `pullOffsetDegrees`, defaults +1/-1, `[FormerlySerializedAs]`), anchored to
+  the scale and measured from the carrier's reached pitch, so the tonality
+  decides each step's size. Declared degradations: ±2 semitone GM range assumed
+  (wider chains clamp with a warning), off-scale starting pitch classes fall
+  back to whole tones silently, an orphan legato step degrades to an attacked
+  note (warn once per render), and the two legato velocity factors now reach
+  only that orphan path. Zero new `ctx.rng` draws; renders without legato
+  classes are byte-identical, pinned by a render-hash canary. 50 EditMode pins
+  across three suites; smoke S5-A…S5-R0 all PASS.
+
+- **SelfPocket articulation vocabulary (MGP-ALWTTT-BASS-SLAPFIG-2 / 2b,
+  2026-08-03).** `SelfPocketStep` extended append-only with `Ghost = 3`,
+  `GhostPop = 4`, `HammerOn = 5`, `PullOff = 6`; `selfPocketSubdivision`
+  extended with `QuarterBeat = 2` (sixteenths). Per-class velocity is a
+  multiplicative factor of the chord event's velocity (not an additive boost);
+  per-class gate ceiling gives the ghost classes a click-length gate; both sets
+  of numbers are authored on `BasslineCardConfigSO` while the laws stay in the
+  composer. `HammerOn`/`PullOff` were RESERVED at this batch's close and are now
+  ACTIVE (see BEND-1 above). Planner remains pure, rng-free and
+  cross-track-free; v1 patterns byte-identical. EditMode pins were written
+  retroactively by BEND-1 step 1
+  (`BassTrackComposer_SelfPocketVocabularyTests`, 20 pins).
+
+- **MGP-ALWTTT-BASS-ORDER-1 + MGP-ALWTTT-BASS-SLAPFIG-1 (2026-07-31).**
+  Cross-boundary demand from ALWTTT, both asks implemented and verified.
+  ORDER-1: shared harmony is now independent of track-list order (PASS 0 for
+  Backing + deferred index-ordered merge, both entry points); the guard on the
+  host default became a static harmony-source sniff, so an articulation-only
+  Backing row no longer suppresses it; `PartRender.sharedProgressionSource`
+  (+ `ResolvedSource.HostDefault = 7`) exposes which source won.
+  Closes F-BASS-ORDER-1 (bass-before-backing rendered permanent silence).
+  SLAPFIG-1: `PocketCouplingMode.SelfPocket` — autonomous slap/pop figure over
+  the shared progression from a cycled, meter-anchored card pattern; zero rng,
+  zero cross-track reads, reuses the whole SlapPocket emission pipeline.
+  Files: `SongOrchestrator.cs`, `BassTrackComposer.cs`,
+  `BasslineCardConfigSO.cs`, `CompositionReadback.cs`; new suites
+  `SongOrchestrator_HarmonyOrderTests.cs`,
+  `BassTrackComposer_SelfPocketTests.cs`. Verified in ALWTTT gig logs
+  2026-07-31.
+
 - Closed **CPE-META-2 — metadata in the import payload (D3=A) + LLM emission
   (D4)** (2026-07-29). The import payload and the LLM route now carry chord
   asset metadata: four OPTIONAL setup-card lines, presence-gated, with the
@@ -1301,6 +1394,38 @@ concern; see roadmap §"Future work").
 - Phrasing / feel knob semantic completion (Phase 9)
 - The older `MIDISong` / `MIDIGeneratorManager` runtime branch still coexists
   in the repository
+- **Consumer-side adoption of `sharedProgressionSource`.** ALWTTT still keys
+  its render cache on the `hasBacking` proxy; until it re-conditions the `dp:`
+  token on `HostDefault` and retires the skip, the articulation-only-Backing
+  path is implemented and unit-tested but not exercised in the game.
+- **Slide / ramped bend** (bass catalogue §B.8). The seam exists —
+  `PitchBendWriter` takes a `rangeSemitones` parameter and the conditional-RPN
+  requirement is recorded (`SSoT_CONTRACTS.md` §11) — but the ramp gesture
+  itself is not implemented; `StepGesture` is deliberately a step.
+- **Melody slur.** `PitchBendWriter` is available to the melody composer and
+  documented there as an unconsumed seam.
+- **Consumer verification of MGP-MEL-1b P4 / P7.** `adoptProgressionTonality`
+  and `PartRender.sharedProgressionData` are implemented and unit-tested but
+  unexercised in the game; both wait on host-side work.
+- **Phrase-final breath.** Sustaining archetypes fill the remainder of the
+  chord span, so consecutive phrases run together. `tailRestFraction` and the
+  wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
+  A/B/A′ form with relatively-stored motif memory) are proposed but NOT
+  scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
+- **Recorded gap F5.** `PhraseSlot.totalSlotsInPhrase` is not constant within
+  a SustainLeadIn phrase. No render impact today; any future end-of-phrase
+  logic would inherit it.
+- **Consumer verification of MGP-MEL-1b P4 / P7.** `adoptProgressionTonality`
+  and `PartRender.sharedProgressionData` are implemented and unit-tested but
+  unexercised in the game; both wait on host-side work.
+- **Phrase-final breath.** Sustaining archetypes fill the remainder of the
+  chord span, so consecutive phrases run together. `tailRestFraction` and the
+  wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
+  A/B/A′ form with relatively-stored motif memory) are proposed but NOT
+  scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
+- **Recorded gap F5.** `PhraseSlot.totalSlotsInPhrase` is not constant within
+  a SustainLeadIn phrase. No render impact today; any future end-of-phrase
+  logic would inherit it.
 
 ## Docs to update next
 

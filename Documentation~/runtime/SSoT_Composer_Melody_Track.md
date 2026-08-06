@@ -289,7 +289,74 @@ layer downstream. There is no in-package consumer today.
 has no editor dependency. It consumes `MelodyPatternData`, whose authoring semantics live
 in `authoring/SSoT_Authoring_Melody_Composition.md` §5/§7; it does not own them.
 
+### 7.2 Directive layer, motif and contour (MGP-MEL-1b)
+
+**Intent contract (F1).** `RepeatLastNotesDirective` and
+`InterPhraseIntervalDirective` are `[Serializable]` classes and always
+deserialize to an instance, so presence is not intent: the composer gates BOTH
+on `.enabled`. Before F1 the repeat side was ungated, and the decorator
+short-circuited the strategy into a flat pitch.
+
+**Directive draw.** When `usePerPhraseOverrides` is set and the weighted list
+is non-empty, a directive is ALWAYS drawn — there is no implicit
+"no directive" outcome. An unconstrained phrase requires an explicitly
+authored neutral directive.
+
+**Motif (F2, D8=B).** `ConstrainedMelodyStrategy` keeps a true N-note buffer:
+the first `notesToRepeat` audible picks form the motif, later slots replay it
+cyclically, and `transposeSemitones` is added once per completed cycle. The
+buffer is phrase-scoped (one decorator instance per chord span) and rests never
+enter it. **The transposition is CHROMATIC**: a motif degree transposed out of
+the mode leaves the scale, and the offset accumulates per cycle until the
+instrument-range clamp. The diatonic sibling (`transposeScaleSteps`, reusing
+`MelodyTrackComposer.ScaleStepsToSemitones`) is a recorded follow-up, not
+implemented.
+
+**Contour (F3, D9).** `AscendingOnly` / `DescendingOnly` snap a violating pick
+to the nearest candidate of the SAME harmonic pool strictly above/below the
+phrase reference (peak ?? start) — scale-aware, never chromatic. With no
+candidate on the required side the inner pick is kept.
+
+**Effective-leading log (P3).** One line per render, `logGenerator`-gated,
+reporting the leading actually in force and the palette actually in force.
+A `(Clone)` suffix on the leading name is cosmetic — it means a palette
+override cloned the leading rather than mutating the authored asset.
+
+**Inert-config signal (P6.2).** When a pattern path wins (card
+`patternOverride` or `TrackParameters.Pattern`), one `logGenerator`-gated
+signal per render names the procedural surfaces that are consequently inert.
+Mirrors the TONFILTER-1 signal idiom: a signal, never a degrade.
+
+**Determinism note.** F1 CHANGES the melody rng draw sequence — ScaleFlow now
+consumes the per-slot draws the broken decorator short-circuited. Same seed ⇒
+a different (and correct) melody versus pre-F1. Any golden pinning procedural
+melody bytes must be re-pinned. The SEED-1 rhythm / backing / bass streams are
+untouched, since rng is per track.
+
+Test surface: `Tests/Editor/ConstrainedMelodyStrategy_MotifTests.cs`.
+
+**Recorded gap F5 — `PhraseSlot.totalSlotsInPhrase` is not constant within a
+phrase.** SustainLeadIn phrases emit `slot=1/2` followed by `slot=2/3` for the
+same `phraseId`. No render impact today (nothing consumes
+`PhraseState.TotalNotesInPhrase`), but the value is wrong and any future
+end-of-phrase logic would inherit the fault. Cause not asserted — the archetype
+source has not been reviewed.
+
+**Pitch bend seam (available, NOT consumed).** Since MGP-ALWTTT-BASS-BEND-1 the
+package has a shared post-build pitch bend writer, `PitchBendWriter`
+(`SSoT_CONTRACTS.md` §11), used by the bass for true legato. The melody
+composer is the anticipated second consumer — a slur / legato phrase would use
+the same step-gesture surface, and the melody track is already monophonic and
+single-channel, which is the writer's stated precondition. **Nothing is
+implemented here today**; this note exists so a future melody batch does not
+re-derive the seam or write a second bend path.
+
 ## 8. Update triggers
+
+- the directive layer changes (§7.2, MGP-MEL-1b): the `.enabled` intent
+  contract, the always-draws-a-directive property, the motif buffer semantics
+  or its chromatic transpose, the contour snapping rule, or the P3 / P6.2
+  signals;
 
 Update this SSoT when:
 
