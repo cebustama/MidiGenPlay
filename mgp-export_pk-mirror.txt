@@ -1,43 +1,217 @@
 # ============================================================
 # Set: pk-mirror  -- full refresh of the MidiGenPlay mirror
 #                    held in a consuming project's PK (ALWTTT).
-# Everything in session-b, plus the resident reference set.
+#
+# v2 -- 2026-08-10. Rebuilt against the ALWTTT refresh inventory
+# ("MidiGenPlay en el PK de ALWTTT -- inventario para refresco",
+# 2026-08-10) plus the package changes landed since the
+# MGP-20260729 export.
+#
+# Paths are relative to the MidiGenPlay PACKAGE ROOT.
+# A bare filename (no slash) is searched recursively, so the
+# list survives file moves -- used deliberately below for every
+# file whose package path is NOT confirmed by ssot_manifest.yaml.
+#
+# Anything reported MISSING by the export is a real finding:
+# either the file was renamed, or it never existed. Do not
+# silently drop those lines -- resolve them.
 # ============================================================
 
-# --- everything from session-b
-Documentation~/planning/Especificacion_Contenido_FaseA.md
-Documentation~/planning/Handoff_Contenido_FaseB_ALWTTT.md
-Documentation~/authoring/SSoT_Authoring_Chord_Progressions.md
-Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md
-Documentation~/runtime/SSoT_Composer_Backing_Track.md
-Documentation~/runtime/SSoT_Composer_Bass_Track.md
+
+# ============================================================
+# 1. BASELINE, AUTHORITY ORDER AND GOVERNANCE
+# ============================================================
 Documentation~/CURRENT_STATE.md
 Documentation~/SSoT_INDEX.md
-Runtime/CoreScripts/Composition/RomanProgressionParser.cs
-Editor/DrumPatternTextParser.cs
-Runtime/CoreScripts/Data/ChordProgressionData.cs
-Runtime/CoreScripts/ScriptableObjects/MIDIInstrumentSO.cs
-
-# --- governed contracts and orchestration surface
 Documentation~/SSoT_CONTRACTS.md
-Documentation~/runtime/SSoT_Runtime_Generation_Orchestration.md
-Documentation~/authoring/SSoT_Authoring_Tools.md
+Documentation~/coverage-matrix.md
+# ADDED v2: what is test-pinned vs. merely documented. Tells the
+# consumer which package behaviours it may rely on.
+changelog-ssot.md
+# ADDED v2: the single instrument that lets ALWTTT diff a stale
+# mirror against reality without opening every file.
+PENDING_DOC_DIFFS.md
+# ADDED v2: declares whether any documentation diff is DRAFTED
+# but NOT APPLIED. Empty as of DOC-SWEEP-2 (2026-08-08).
+package.json
+# ADDED v2: version pin (1.2.0 at time of writing). 1.1.0 does
+# not exist -- see the BAGGAGE-1 note in CURRENT_STATE.
+ssot_manifest.yaml
+# ADDED v2: the map of which document governs which code path.
+# Lets the consumer tell "not documented" from "documented elsewhere".
 
-# --- cross-project reference (consumer-facing; not package truth)
+
+# ============================================================
+# 2. RUNTIME SSoTs (behaviour authority)
+# ============================================================
+Documentation~/runtime/SSoT_Runtime_Generation_Orchestration.md
+Documentation~/runtime/SSoT_Runtime_Song_Model_and_Config.md
+# ADDED v2: SongConfig/PartConfig/TrackParameters meaning, incl.
+# volume01 (MGP-MIX-1 3.2). This is the surface ALWTTT writes.
+Documentation~/runtime/SSoT_Composer_Backing_Track.md
+Documentation~/runtime/SSoT_Composer_Bass_Track.md
+Documentation~/runtime/SSoT_Composer_Rhythm_Track.md
+# ADDED v2: the Rhythm card family had no composer authority in
+# the mirror.
+Documentation~/runtime/SSoT_Composer_Melody_Track.md
+# ADDED v2: same gap for the Melody card family.
+
+
+# ============================================================
+# 3. AUTHORING SSoTs (data-format authority)
+# ============================================================
+Documentation~/authoring/SSoT_Authoring_Chord_Progressions.md
+Documentation~/authoring/SSoT_Authoring_Rhythm_Patterns.md
+Documentation~/authoring/SSoT_Authoring_Tools.md
+Documentation~/authoring/SSoT_Authoring_Melody_Composition.md
+# ADDED v2: completes the three authored pattern domains.
+# NOT included on purpose: SSoT_Authoring_LLM_Generation.md and
+# SSoT_Authoring_MIDI_Import.md -- editor-only tooling with no
+# consumer-side surface. Add them only if ALWTTT asks.
+
+
+# ============================================================
+# 4. CROSS-PROJECT REFERENCE (consumer-facing; NOT package truth)
+# ============================================================
 Documentation~/reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md
+Documentation~/reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md
+Documentation~/reference/cross-project/ALWTTT/SSoT_CompositionSystem_INDEX.md
+# ADDED v2
+Documentation~/reference/cross-project/ALWTTT/ALWTTT_Melody_Authoring_Pipeline.md
+# ADDED v2
 Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_BAGGAGE_1.md
 Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_POCKET.md
-Documentation~/reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md
+Documentation~/reference/cross-project/ALWTTT/Handoff_MGP_MIX_1.md
+# ADDED v2: was missing from v1 even though it was already
+# registered; it carries the CC7 mix-gain host contract.
+MGP-TRIAGE-ALWTTT-R3_host_resolutions.md
+# ADDED v2, HIGH VALUE: triage answers to the ALWTTT R3 evidence
+# bundle (2026-08-08) with explicit OPEN HOST ACTIONS. Bare
+# filename: path not registered in the manifest.
 
-# --- card / palette surfaces written by ALWTTT (name mismatch = failed import)
+
+# ============================================================
+# 5. CARD / BUNDLE SURFACES (the families ALWTTT authors)
+#    A name mismatch here is a failed import.
+# ============================================================
 Runtime/CoreScripts/Composition/Data/BasslineCardConfigSO.cs
 Runtime/CoreScripts/Composition/Data/BackingCardConfigSO.cs
 Runtime/CoreScripts/Composition/Data/RhythmCardConfigSO.cs
+MelodyCardConfigSO.cs
+# TIER 3 FIX: MGP-owned but unprefixed in the PK. Bare filename
+# (path not registered in the manifest).
+HarmonyCardConfigSO.cs
+# ADDED v2: the fifth family exists in the package and is absent
+# from the ALWTTT inventory entirely.
+TrackStyleBundleSO.cs
+# TIER 1: base class of every family. Bare filename -- path not
+# registered in the manifest.
+TrackRole.cs
+# TIER 1, EXPECT "MISSING": the enum has no dedicated file that
+# we could confirm. It lives in namespace MidiGenPlay.Composition.
+# If this line reports MISSING, locate it once with:
+#   Get-ChildItem -Recurse -Filter *.cs | Select-String 'enum TrackRole'
+# then replace this line with the real filename.
+Runtime/CoreScripts/Composition/Interfaces/ITrackComposer.cs
+# ADDED v2: most likely home of the TrackRole enum, and the
+# composer interface itself is worth mirroring regardless.
 Runtime/CoreScripts/Composition/Data/ChordExpressionType.cs
+Runtime/CoreScripts/Composition/Data/ModulationOctaveHint.cs
+# ADDED v2: one-shot PartConfig transient SET BY ALWTTT's own
+# ModulationEffect. The consumer writes it and has never had it.
+VoiceLeadingConfig.cs
+# ADDED v2: field type of BackingCardConfigSO.voiceLeadingOverride;
+# the backing card is unreadable without it. Bare filename.
+
+
+# ============================================================
+# 6. PALETTES AND PATTERN DATA
+# ============================================================
 Runtime/CoreScripts/Composition/Data/ChordProgressionPaletteSO.cs
 Runtime/CoreScripts/Composition/Data/DrumPatternPaletteSO.cs
-
-# --- import / resolution seams
-Runtime/CoreScripts/Composition/ChordProgressionRuntimeImporter.cs
-Runtime/CoreScripts/Composition/ChordQualityResolver.cs
+Runtime/CoreScripts/Data/ChordProgressionData.cs
 Runtime/CoreScripts/Data/DrumPatternData.cs
+Runtime/CoreScripts/Data/MelodyPatternData.cs
+# TIER 3 FIX: MGP-owned but unprefixed in the PK.
+PatternDataSO.cs
+# TIER 4: the generic base constraint used blind until now.
+ChordProgressionLibrarySO.cs
+# TIER 4: live on the procedural path (ctx.Settings.progressionLibrary)
+# and registered in no governs:. Bare filename.
+TonalityProfileSO.cs
+# ADDED v2: same class of file as the line above
+# (ctx.GetTonalityProfileForPart), same lack of registration.
+
+
+# ============================================================
+# 7. MELODY CHAIN (needed to make MelodyCardConfigSO readable)
+# ============================================================
+Runtime/CoreScripts/Composition/Data/Phrases/PhrasePaletteSO.cs
+Runtime/CoreScripts/Composition/Data/Phrases/PhraseArchetypeSO.cs
+Runtime/CoreScripts/Composition/Data/MelodicLeadingConfig.cs
+# ADDED v2
+Runtime/CoreScripts/Composition/Data/MelodicStyleSO.cs
+# ADDED v2
+
+
+# ============================================================
+# 8. DISCOVERY / RESOURCES RESOLUTION  (CSV-4b prerequisite)
+#    These are the classes that resolve BY PATH, i.e. the ones a
+#    folder rename can invalidate.
+# ============================================================
+Runtime/CoreScripts/Data/MidiGenPlayConfig.cs
+Runtime/CoreScripts/Services/PatternRepositoryResources.cs
+Runtime/CoreScripts/Services/TrackPatternConfigStoreResources.cs
+Runtime/CoreScripts/Interfaces/IPatternRepository.cs
+Runtime/CoreScripts/Interfaces/ITrackPatternConfigStore.cs
+# ADDED v2: the write half of the persistence contract.
+InstrumentRepositoryResources.cs
+# TIER 4. Bare filename -- path not registered in the manifest.
+
+
+# ============================================================
+# 9. IMPORT / RESOLUTION SEAMS (make "zero warnings" checkable)
+# ============================================================
+Runtime/CoreScripts/Composition/ChordProgressionRuntimeImporter.cs
+Runtime/CoreScripts/Composition/RomanProgressionParser.cs
+Runtime/CoreScripts/Composition/ChordQualityResolver.cs
+Runtime/CoreScripts/Composition/ChordProgressionRequality.cs
+# ADDED v2: qualityRenderPolicy / ApplyDiatonicRequality. The host
+# already reasons about AsAuthored vs DiatonicToPart.
+Editor/DrumPatternTextParser.cs
+
+
+# ============================================================
+# 10. HOST CALL SURFACE  (ADDED v2 -- recommended, not requested)
+#     ALWTTT calls GenerateSinglePart and reads PartRender. Those
+#     signatures moved three times since the mirror (SEED-1,
+#     DBG-1+3, MIX-1) and the mirror contains none of them.
+# ============================================================
+Runtime/CoreScripts/Composition/SongOrchestrator.cs
+Runtime/CoreScripts/Composition/CompositionReadback.cs
+Runtime/CoreScripts/Data/SongConfig.cs
+Runtime/CoreScripts/Composition/Composers/BassTrackComposer.cs
+# TIER 4: the consumer of BasslineCardConfigSO; interprets
+# pocket / walk / SelfPocket.
+Runtime/CoreScripts/Composition/Articulation/PitchBendWriter.cs
+# ADDED v2: NEW since the mirror (MGP-ALWTTT-BASS-BEND-1,
+# 2026-08-05). Its contract is SSoT_CONTRACTS 11.
+
+
+# ============================================================
+# 11. INSTRUMENTS
+# ============================================================
+Runtime/CoreScripts/ScriptableObjects/MIDIInstrumentSO.cs
+Runtime/CoreScripts/ScriptableObjects/MIDIPercussionInstrumentSO.cs
+# TIER 4
+
+
+# ============================================================
+# 12. PLANNING CARRIED OVER FROM THE v1 SET
+#     Kept for continuity; drop if the phase-A/B content arc is
+#     closed on the ALWTTT side.
+# ============================================================
+Documentation~/planning/Especificacion_Contenido_FaseA.md
+Handoff_Contenido_FaseB_ALWTTT.md
+# Reported NOT FOUND by the MGP-20260729 export. Bare filename so
+# it exports if it has since been created; expect MISSING otherwise.

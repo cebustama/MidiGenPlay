@@ -1,5 +1,128 @@
 # changelog-ssot
 
+## 2026-08-08 — MGP-TRIAGE-ALWTTT-R3: ALWTTT R3 evidence bundle triaged
+
+Code closed 2026-08-08 (EditMode green); documentation applied in the same-day
+pass MGP-DOC-SWEEP-2. Source: `MGP_Evidence_Bundle_from_ALWTTT_R3_2026-08-08.md`,
+answered back through the boundary contract's open-asks channel. No evidence
+label was promoted from "observed" to "confirmed" without a package-side repro.
+
+### Fixed
+- **E1 — gap F5 closed, and RECLASSIFIED from cosmetic to audible.**
+  `SustainLeadInPhraseSO`'s pickup branch built three slots while hardcoding
+  `totalSlotsInPhrase = 2, 2, 3`; all three now carry `3`. The prior "no render
+  impact" justification rested on nothing consuming
+  `PhraseState.TotalNotesInPhrase` — true, but the SLOT field has a second
+  consumer, `MelodyTrackComposer.IsFinalSlotOfPart`
+  (`slotIndexInPhrase == totalSlotsInPhrase - 1`), which a drifting denominator
+  satisfies more than once. On the final chord span both the pickup grace note
+  and the landing read as final, and `AscendingClimbMelodyStrategy`
+  short-circuits every such slot to a tonic two octaves above the reference.
+  Scope: AscendingClimb + a pickup SustainLeadIn phrase on the last chord span.
+  Landed in `runtime/SSoT_Composer_Melody_Track.md`, which now also states the
+  archetype bookkeeping obligations (constant denominator, dense indices,
+  exactly one final slot). Pinned by
+  `Tests/Editor/PhraseArchetype_SlotBookkeepingTests.cs`.
+- **E3 — clone identity.** `NormalizeProgressionForPartIfNeeded` built its clone
+  from `CreateInstance` field by field and never copied
+  `UnityEngine.Object.name`, which `CreateInstance` leaves empty; the four
+  `Instantiate` sites carried the milder `(Clone)`-suffix form. Same hazard
+  class as the documented F-NORM-DROP; `.name` is not a serialized field, which
+  is why it survived four batches. New invariant in
+  `runtime/SSoT_Composer_Backing_Track.md` §3.1:
+  `sharedProgressionData.name == sharedProgressionAssetName` on every precedence
+  step. **The reported CardPalette scoping is void** — the loser is
+  normalization, not the source, and normalization fires on nearly every render
+  (`sub x1` authored, `x4` wanted). Pinned by
+  `Tests/Editor/ChordProgression_CloneIdentityTests.cs`.
+
+### Changed
+- **E2 — `maxStepSemitones` is a PREFERENCE, not a bound.** No contract was
+  violated; the log was misleading. `ComputeMotionWeight` multiplies an
+  over-step candidate's weight by `0.01` rather than excluding it, and
+  `AscendingClimb`'s no-candidate fallbacks abandon the limit deliberately.
+  Separately, the logged step is measured on the EMITTED note — after strategy,
+  after contour snap, after `ApplyIntervalDirective`. Log renamed `maxStep=` →
+  `maxStepPref=` and `step=` → `emittedStep=`; `emittedStep > maxStepPref` is
+  expected output. **No behaviour change.** MEL-1b's evidence line "all steps ≤
+  `maxStepSemitones`" was a one-render observation and must not be cited as an
+  invariant.
+
+### Closed as intended
+- **E4 — chromatic motif transposition.** `transposeSemitones` is chromatic and
+  accumulates per cycle; a degree transposed out of the mode leaves the scale.
+  Already specified in `runtime/SSoT_Composer_Melody_Track.md` and carrying an
+  authoring-hazard callout in `authoring/SSoT_Authoring_Melody_Composition.md`,
+  which now records the R3 sighting as a field data point. No code.
+
+### Committed
+- **PartConfig in-place mutation is now a contract, not an implementation
+  detail.** New `SSoT_CONTRACTS.md` §12: `adoptProgressionTonality` assigns
+  `part.Tonality` in place during compose, the mutation is visible after
+  `GenerateSinglePart` returns and must remain so, and composing against an
+  internal copy or reverting on exit is a breaking change requiring a
+  boundary-record entry. Exactly one field on one opt-in path; no other composer
+  may mutate the `PartConfig`. `runtime/SSoT_Composer_Backing_Track.md` §2.3
+  names `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality` as the
+  PREFERRED read path — it distinguishes "adopted to X" from "was already X",
+  which reading the mutated field cannot.
+
+### Determinism
+E1 CHANGES the melody rng draw sequence on affected renders: the slot that used
+to short-circuit to the cadence now runs the normal ascending path and draws
+from `PickWeightedRandom`. **Same seed ⇒ a different (and correct) melody** for
+any AscendingClimb part using a pickup SustainLeadIn phrase. Same class as
+MEL-1b's F1. Rhythm, backing and bass streams are untouched (rng is per track).
+Any pinned-seed melody golden needs re-pinning.
+
+### Consumer verification discharged
+The live ALWTTT session of 2026-08-08 exercised **MGP-MEL-1b P4 and P7** in the
+game: `adoptProgressionTonality` drove JAM-2 and `PartRender.sharedProgressionData`
+drove JAM-1. Both left the `CURRENT_STATE.md` blocked list, where they had stood
+since 2026-08-05.
+
+### Open, recorded, not scheduled
+Per DOC-SWEEP-1 decision D-1=C, follow-ups are recorded here and in
+`CURRENT_STATE.md` only; no roadmap file is opened for unscoped work.
+- **`transposeScaleSteps`** — the diatonic sibling of `transposeSemitones`. Now
+  carries TWO data points: the MEL-1b hazard note and the R3 sighting. Still
+  unscheduled, and still the correct answer to E4 rather than changing the
+  chromatic behaviour.
+- **`AscendingClimbMelodyStrategy` hardcodes `octs = 2`** for the final-slot
+  cadence. Candidate for a style/leading parameter. E1 made the consequence of
+  that hardcode audible; the hardcode itself is untouched.
+- **`ResolvedSource.TrackParameters` is unreachable on the Backing path.**
+  `GetProgressionForPart` is consulted first and the orchestrator wires it with
+  an authored fallback (`SongOrchestrator.FindProgressionForPart`) returning the
+  first Backing track's `Parameters.Pattern`, so a Backing track with its own
+  authored progression always reports `SharedProgression`. Behaviour is correct;
+  the taxonomy is misleading, and any host branch keyed on
+  `sharedProgressionSource == TrackParameters` is dead. Either the fallback is
+  consulted AFTER the track's own Pattern, or the enum member is documented as
+  second-Backing-track-only. **Both change what the readback reports, so both
+  are runtime decisions, not documentation ones.** Recorded in
+  `runtime/SSoT_Composer_Backing_Track.md` §3.1, not scheduled.
+- **A composer-level render gate for E1** (AscendingClimb + pickup SustainLeadIn
+  on the last chord span, asserting ONE cadence). The archetype-level pin closes
+  the defect; the render gate would pin the interaction. Deferred as
+  disproportionate for a one-line data fix.
+
+### Sweep decisions (MGP-DOC-SWEEP-2)
+- **D-1=A.** `CURRENT_STATE.md`'s "Recorded gap F5" bullet said "No render
+  impact today". §1 of this batch falsifies it. The diff's §7 did not mention
+  the bullet; it was REMOVED rather than left standing, because leaving a
+  governed document asserting the opposite of its own primary SSoT is the drift
+  class this process exists to prevent. Recorded here as an amendment beyond the
+  diff.
+- **D-2=A.** `coverage-matrix.md` registers new test files in its closure-notes
+  section, not in the table's "Secondary / supporting docs" column, which holds
+  documents. The diff's "add under the melody/backing composer row" was applied
+  in the file's own convention. **No primary-home flip; no row added.**
+- **D-3.** `PENDING_DOC_DIFFS.md` entry 3 (MGP-ARTIC-RATE-1) was corrected to
+  **APPLIED EXCEPT §B.2**, not to plain APPLIED — see that file for the
+  evidence. Writing the missing §B.2 header entry now would be re-applying a
+  diff already swept at DOC-SWEEP-1, which this batch is forbidden to do.
+
 ## 2026-08-05 — DOC-SWEEP-1: the five-batch documentation backlog applied
 
 Documentation-only session, zero code. Applied the full backlog of

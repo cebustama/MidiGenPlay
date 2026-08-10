@@ -42,6 +42,7 @@
 |   |   |   +---README.md
 |   |   |   \---Roadmap_MIDI_Import.md
 |   |   +---Especificacion_Contenido_FaseA.md
+|   |   +---PENDING_DOC_DIFFS.md
 |   |   \---README.md
 |   +---reference
 |   |   +---cross-project
@@ -60,6 +61,7 @@
 |   |   +---package
 |   |   |   +---Documentation_Update_Protocol_Addendum.md
 |   |   |   +---Palette_Card_Identity_Design.md
+|   |   |   +---PK_Mirror_Export_HowTo.md
 |   |   |   +---README.md
 |   |   |   \---Tests_Authoring_HowTo.md
 |   |   \---README.md
@@ -90,6 +92,9 @@
 +---Editor
 |   +---AssemblyInfo.cs
 |   +---BankDropdownDrawer.cs
+|   +---BasslineCardEditorWindow.cs
+|   +---BassPatternTextParser.cs
+|   +---BassPatternTextWarning.cs
 |   +---ChordGenreVocabularyBuilder.cs
 |   +---ChordLLMFieldPlan.cs
 |   +---ChordMidiImporter.cs
@@ -132,6 +137,7 @@
 |   |   |   +---Articulation
 |   |   |   |   +---ChordArticulator.cs
 |   |   |   |   +---ChordReshaper.cs
+|   |   |   |   +---PitchBendWriter.cs
 |   |   |   |   \---RandomArticulationRoller.cs
 |   |   |   +---Composers
 |   |   |   |   +---BassTrackComposer.cs
@@ -458,12 +464,18 @@
 |   \---ALWTTT.sf2
 +---Tests
 |   \---Editor
+|       +---BassPatternTextParserTests.cs
 |       +---BassTrackComposer_ArticulationTests.cs
+|       +---BassTrackComposer_LegatoBendTests.cs
+|       +---BassTrackComposer_PhraseTests.cs
 |       +---BassTrackComposer_PocketTests.cs
 |       +---BassTrackComposer_RegisterTests.cs
+|       +---BassTrackComposer_SelfPocketTests.cs
+|       +---BassTrackComposer_SelfPocketVocabularyTests.cs
 |       +---BassTrackComposer_WalkImprovTests.cs
 |       +---ChordMarkerParityTests.cs
 |       +---ChordMidiImporterTests.cs
+|       +---ChordProgression_CloneIdentityTests.cs
 |       +---ChordProgressionEditorImporterTests.cs
 |       +---ChordProgressionEditorWindow_V2Tests.cs
 |       +---ChordProgressionEditorWindowWiringTests.cs
@@ -475,12 +487,14 @@
 |       +---ChordProgressionRequalityTests.cs
 |       +---ChordProgressionRuntimeImporterTests.cs
 |       +---ChordQualityResolver_V2Tests.cs
+|       +---ChordTrackComposer_ArticRateIndependenceTests.cs
 |       +---ChordTrackComposer_ArticulationTests.cs
 |       +---ChordTrackComposer_DirectionalFirstChordTests.cs
 |       +---ChordTrackComposer_InversionPinTests.cs
 |       +---ChordTrackComposer_RandomArticulationTests.cs
 |       +---ChordTrackComposer_TonalityMetadataTests.cs
 |       +---ChordTrackComposer_VelocityJitterTests.cs
+|       +---ConstrainedMelodyStrategy_MotifTests.cs
 |       +---DrumMidiImporterTests.cs
 |       +---DrumPatternData_SnapshotTests.cs
 |       +---DrumPatternEditorImporterTests.cs
@@ -499,9 +513,12 @@
 |       +---PaletteSelectorTests.cs
 |       +---PatternOverrideAndReadbackTests.cs
 |       +---PercussionNoteResolverTests.cs
+|       +---PhraseArchetype_SlotBookkeepingTests.cs
+|       +---PitchBendWriterTests.cs
 |       +---RhythmTrackComposer_OnsetPublicationTests.cs
 |       +---RomanProgressionParserTests.cs
 |       +---SongOrchestrator_DefaultProgressionTests.cs
+|       +---SongOrchestrator_HarmonyOrderTests.cs
 |       +---SongOrchestrator_MixGainTests.cs
 |       +---SongOrchestratorKeyingTests.cs
 |       \---SongOrchestratorSeedTests.cs

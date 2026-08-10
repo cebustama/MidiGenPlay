@@ -70,28 +70,35 @@
 
 ## Just completed
 
-- **MGP-MEL-1b — procedural melody directive layer fixed and hardened
-  (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
-  interval directive, closing a flat-pitch defect where an always-present
-  `[Serializable]` instance short-circuited the strategy. F2: `notesToRepeat`
-  became a true N-note phrase-scoped motif buffer replayed cyclically with a
-  per-cycle `transposeSemitones` (D8=B) — the transpose is CHROMATIC and
-  accumulates, a recorded authoring hazard. F3: `AscendingOnly` /
-  `DescendingOnly` snap to the nearest candidate of the same harmonic pool
-  (D9), so contour is scale-aware and never chromatic. P2: five reserved
-  fields hidden and `WeightedPhraseDirective.overrideStrategy` migrated to
-  `useOverrideStrategy` + value. P3: an effective-leading log line, which
-  immediately exposed the P6 hazard live. P6.1: the procedural precedence
-  table now has a documented home (`authoring/SSoT_Authoring_Melody_Composition.md`
-  §4b); P6.2: a logGenerator-gated inert-config signal on the pattern path.
-  New package surfaces: `BackingCardConfigSO.adoptProgressionTonality` (P4,
-  D3=C / D4=A) with `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality`,
-  and `PartRender.sharedProgressionData` (P7, D6=B) as the jam-continuity carry
-  channel. New suite `ConstrainedMelodyStrategy_MotifTests`.
-  **F1 changes the melody rng draw sequence** — same seed now yields a
-  different, correct melody; any procedural-melody golden must be re-pinned.
-  **P4 and P7 are implemented and unit-tested but NOT consumer-verified** —
-  both need host-side work (modal card, jam-continuity wiring).
+- **MGP-TRIAGE-ALWTTT-R3 — ALWTTT R3 evidence bundle triaged (2026-08-08).**
+  Five code changes, EditMode green. **E1: gap F5 CLOSED and reclassified from
+  cosmetic to AUDIBLE.** `SustainLeadInPhraseSO`'s pickup branch hardcoded
+  `totalSlotsInPhrase = 2, 2, 3`; all three now carry `3`. The broken
+  denominator satisfied `MelodyTrackComposer.IsFinalSlotOfPart` twice on the
+  final chord span, so `AscendingClimbMelodyStrategy` fired its tonic cadence on
+  the grace note as well as the landing. **E2: `maxStepSemitones` documented as
+  a PREFERENCE, not a bound** — `ComputeMotionWeight` weights by `0.01` rather
+  than excluding, and the logged step is measured post-strategy, post-contour
+  snap and post-`ApplyIntervalDirective`. Log renamed `maxStep=` →
+  `maxStepPref=`, `step=` → `emittedStep=`; no behaviour change. **E3: clone
+  identity invariant.** `NormalizeProgressionForPartIfNeeded` built its clone
+  with `CreateInstance` and never copied `UnityEngine.Object.name`; fixed at the
+  root plus the four `Instantiate` sites that left a `(Clone)` suffix. New
+  invariant `sharedProgressionData.name == sharedProgressionAssetName` on every
+  precedence step (`SSoT_Composer_Backing_Track.md` §3.1). Not CardPalette-
+  specific: the normalizer fires on nearly every render. **E4 closed as intended**
+  (chromatic motif transposition, already documented). **PartConfig in-place
+  mutation COMMITTED** as a stable consumer surface — new `SSoT_CONTRACTS.md`
+  §12, with `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality` as the
+  preferred read path. New suites `PhraseArchetype_SlotBookkeepingTests` and
+  `ChordProgression_CloneIdentityTests`.
+  **E1 changes the melody rng draw sequence** on AscendingClimb parts using a
+  pickup SustainLeadIn phrase — same seed now yields a different, correct
+  melody; any procedural-melody golden for those parts must be re-pinned.
+  Rhythm, backing and bass streams are untouched (rng is per track).
+  **MGP-MEL-1b P4 and P7 are now CONSUMER-VERIFIED** by the live ALWTTT session
+  of 2026-08-08: `adoptProgressionTonality` drove JAM-2 and
+  `PartRender.sharedProgressionData` drove JAM-1. Both left the blocked list.
 
 - **MGP-MEL-1b — procedural melody directive layer fixed and hardened
   (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
@@ -113,8 +120,33 @@
   channel. New suite `ConstrainedMelodyStrategy_MotifTests`.
   **F1 changes the melody rng draw sequence** — same seed now yields a
   different, correct melody; any procedural-melody golden must be re-pinned.
-  **P4 and P7 are implemented and unit-tested but NOT consumer-verified** —
-  both need host-side work (modal card, jam-continuity wiring).
+  **P4 and P7 were implemented and unit-tested but not consumer-verified at
+  the time of this entry** — both were verified live on 2026-08-08, see
+  MGP-TRIAGE-ALWTTT-R3.
+
+- **MGP-MEL-1b — procedural melody directive layer fixed and hardened
+  (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
+  interval directive, closing a flat-pitch defect where an always-present
+  `[Serializable]` instance short-circuited the strategy. F2: `notesToRepeat`
+  became a true N-note phrase-scoped motif buffer replayed cyclically with a
+  per-cycle `transposeSemitones` (D8=B) — the transpose is CHROMATIC and
+  accumulates, a recorded authoring hazard. F3: `AscendingOnly` /
+  `DescendingOnly` snap to the nearest candidate of the same harmonic pool
+  (D9), so contour is scale-aware and never chromatic. P2: five reserved
+  fields hidden and `WeightedPhraseDirective.overrideStrategy` migrated to
+  `useOverrideStrategy` + value. P3: an effective-leading log line, which
+  immediately exposed the P6 hazard live. P6.1: the procedural precedence
+  table now has a documented home (`authoring/SSoT_Authoring_Melody_Composition.md`
+  §4b); P6.2: a logGenerator-gated inert-config signal on the pattern path.
+  New package surfaces: `BackingCardConfigSO.adoptProgressionTonality` (P4,
+  D3=C / D4=A) with `ResolvedTrackChoice.tonalityAdopted` / `.adoptedTonality`,
+  and `PartRender.sharedProgressionData` (P7, D6=B) as the jam-continuity carry
+  channel. New suite `ConstrainedMelodyStrategy_MotifTests`.
+  **F1 changes the melody rng draw sequence** — same seed now yields a
+  different, correct melody; any procedural-melody golden must be re-pinned.
+  **P4 and P7 were implemented and unit-tested but not consumer-verified at
+  the time of this entry** — both were verified live on 2026-08-08, see
+  MGP-TRIAGE-ALWTTT-R3.
 
 - **True legato via pitch bend (MGP-ALWTTT-BASS-BEND-1, 2026-08-05).** A
   `HammerOn`/`PullOff` step no longer strikes a note: the nearest preceding
@@ -1404,28 +1436,16 @@ concern; see roadmap §"Future work").
   itself is not implemented; `StepGesture` is deliberately a step.
 - **Melody slur.** `PitchBendWriter` is available to the melody composer and
   documented there as an unconsumed seam.
-- **Consumer verification of MGP-MEL-1b P4 / P7.** `adoptProgressionTonality`
-  and `PartRender.sharedProgressionData` are implemented and unit-tested but
-  unexercised in the game; both wait on host-side work.
 - **Phrase-final breath.** Sustaining archetypes fill the remainder of the
   chord span, so consecutive phrases run together. `tailRestFraction` and the
   wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
   A/B/A′ form with relatively-stored motif memory) are proposed but NOT
   scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
-- **Recorded gap F5.** `PhraseSlot.totalSlotsInPhrase` is not constant within
-  a SustainLeadIn phrase. No render impact today; any future end-of-phrase
-  logic would inherit it.
-- **Consumer verification of MGP-MEL-1b P4 / P7.** `adoptProgressionTonality`
-  and `PartRender.sharedProgressionData` are implemented and unit-tested but
-  unexercised in the game; both wait on host-side work.
 - **Phrase-final breath.** Sustaining archetypes fill the remainder of the
   chord span, so consecutive phrases run together. `tailRestFraction` and the
   wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
   A/B/A′ form with relatively-stored motif memory) are proposed but NOT
   scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
-- **Recorded gap F5.** `PhraseSlot.totalSlotsInPhrase` is not constant within
-  a SustainLeadIn phrase. No render impact today; any future end-of-phrase
-  logic would inherit it.
 
 ## Docs to update next
 

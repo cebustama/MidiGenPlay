@@ -152,6 +152,12 @@ decorator instance per chord span.
 > specific motif degrees against the mode. The transposition also ACCUMULATES
 > per cycle and stops only at the instrument-range clamp — pair a non-zero
 > transpose with short burst archetypes.
+>
+> **Field observation (ALWTTT R3, 2026-08-08).** One unreproduced sighting of a
+> motif leaving the scale under transposition. Consistent with this hazard as
+> documented — it is the feature behaving as specified, not a defect, and no
+> package work is warranted on a single sighting. Recorded as one data point for
+> the priority of `transposeScaleSteps`, which remains unscheduled.
 
 ### Contour semantics (F3, D9)
 

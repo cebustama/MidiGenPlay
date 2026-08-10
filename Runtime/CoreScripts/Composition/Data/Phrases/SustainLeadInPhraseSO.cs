@@ -30,6 +30,22 @@ namespace MidiGenPlay.Composition.Phrases
 
             if (doPickup && pickupDur * 2 < spanBeats)
             {
+                // MGP-TRIAGE-ALWTTT-R3 / F5 (E1). The pickup branch emits
+                // THREE slots (silent lead-in, pickup attack, sustain) and
+                // previously hardcoded totalSlotsInPhrase = 2 on the first
+                // two and 3 on the last -- the observed "slot=1/2 then
+                // slot=2/3" within one phraseId.
+                //
+                // NOT cosmetic. MelodyTrackComposer.IsFinalSlotOfPart is
+                // exactly `slotIndexInPhrase == totalSlotsInPhrase - 1`, so
+                // the stale denominator made the predicate true TWICE on the
+                // part's last chord span (slot 1: 1 == 2-1; slot 2: 2 == 3-1),
+                // firing AscendingClimbMelodyStrategy's final tonic cadence on
+                // the pickup grace note as well as on the landing.
+                //
+                // The field counts SLOTS, not audible notes -- EvenFlow counts
+                // its rest slots too -- so the silent lead-in is included.
+                const int slotsInPhrase = 3;
                 list.Add(new PhrasePlanner.PhraseSlot
                 {
                     whenBeat = startBeat,
@@ -39,7 +55,7 @@ namespace MidiGenPlay.Composition.Phrases
                     isPhraseEnd = false,
                     phraseId = phraseId,
                     slotIndexInPhrase = 0,
-                    totalSlotsInPhrase = 2,
+                    totalSlotsInPhrase = slotsInPhrase,
                     desiredContourDir = contourDir
                 });
 
@@ -52,7 +68,7 @@ namespace MidiGenPlay.Composition.Phrases
                     isPhraseEnd = false,
                     phraseId = phraseId,
                     slotIndexInPhrase = 1,
-                    totalSlotsInPhrase = 2,
+                    totalSlotsInPhrase = slotsInPhrase,
                     desiredContourDir = contourDir
                 });
 
@@ -68,7 +84,7 @@ namespace MidiGenPlay.Composition.Phrases
                     isPhraseEnd = true,
                     phraseId = phraseId,
                     slotIndexInPhrase = 2,
-                    totalSlotsInPhrase = 3,
+                    totalSlotsInPhrase = slotsInPhrase,
                     desiredContourDir = contourDir
                 });
             }

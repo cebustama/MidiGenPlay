@@ -322,6 +322,31 @@ reporting the leading actually in force and the palette actually in force.
 A `(Clone)` suffix on the leading name is cosmetic — it means a palette
 override cloned the leading rather than mutating the authored asset.
 
+**`maxStepSemitones` is a PREFERENCE, not a bound (MGP-TRIAGE-ALWTTT-R3, E2).**
+ALWTTT reported `maxStep=4` alongside slot logs showing `step=5` and asked
+whether the contract was violated. It is not, and the mechanism is not the one
+the host hypothesised (post-snap measurement). Two independent reasons:
+
+1. **No strategy enforces it as a limit.** `MelodyStrategyCommon.ComputeMotionWeight`
+   multiplies an over-step candidate's weight by `0.01` — it crushes the odds,
+   it does not exclude. With a wide candidate pool that surviving mass wins
+   sometimes, by design. `AscendingClimbMelodyStrategy` DOES hard-filter its
+   upward pool by `maxStepSemitones`, but its no-candidate fallbacks (nearest
+   upward candidate; nearest candidate overall) leave the limit deliberately.
+   The field's own tooltip says "try to keep", and that is the contract.
+2. **The logged number is measured later than the pick.** `emittedStep` is the
+   distance between EMITTED notes — after the strategy, after
+   `ConstrainedMelodyStrategy`'s contour snap, and after
+   `ApplyIntervalDirective`, which moves the note by design. It is not the
+   quantity `maxStepSemitones` weights.
+
+The log now reads `maxStepPref=` and `emittedStep=` so the pair cannot be read
+as a contract. `emittedStep > maxStepPref` is expected output, not a defect.
+
+Note on the MEL-1b batch record: its F1 evidence line ("all steps ≤
+`maxStepSemitones`") was a live OBSERVATION on one render, never a guarantee.
+It should not be cited as an invariant.
+
 **Inert-config signal (P6.2).** When a pattern path wins (card
 `patternOverride` or `TrackParameters.Pattern`), one `logGenerator`-gated
 signal per render names the procedural surfaces that are consequently inert.
@@ -335,12 +360,43 @@ untouched, since rng is per track.
 
 Test surface: `Tests/Editor/ConstrainedMelodyStrategy_MotifTests.cs`.
 
-**Recorded gap F5 — `PhraseSlot.totalSlotsInPhrase` is not constant within a
-phrase.** SustainLeadIn phrases emit `slot=1/2` followed by `slot=2/3` for the
-same `phraseId`. No render impact today (nothing consumes
-`PhraseState.TotalNotesInPhrase`), but the value is wrong and any future
-end-of-phrase logic would inherit the fault. Cause not asserted — the archetype
-source has not been reviewed.
+**F5 CLOSED (MGP-TRIAGE-ALWTTT-R3, E1) — `PhraseSlot.totalSlotsInPhrase` is
+constant within a phrase.** `SustainLeadInPhraseSO`'s pickup branch built THREE
+slots (silent lead-in, pickup attack, sustain) while hardcoding
+`totalSlotsInPhrase = 2` on the first two and `3` on the last — the observed
+`slot=1/2` then `slot=2/3` under one `phraseId`. All three now carry `3`.
+
+**The gap was misclassified as inert, and that matters.** The original note
+justified "no render impact" by observing that nothing consumes
+`PhraseState.TotalNotesInPhrase` — true, and still true. But the SLOT field has
+a second consumer: `MelodyTrackComposer.IsFinalSlotOfPart` is literally
+`slotIndexInPhrase == totalSlotsInPhrase - 1`, which a drifting denominator
+satisfies MORE THAN ONCE. On the part's last chord span that made
+`MelodyPartState.IsFinalSlotOfPart` true for both the pickup grace note and the
+landing, and `AscendingClimbMelodyStrategy` short-circuits every such slot to
+`ComputeTargetTonicAbove(..., octavesUp: 2)`. The audible result was a grace
+note leaping two octaves to the tonic followed by a second cadence computed
+from that leap. Scope: `AscendingClimb` base strategy + a pickup SustainLeadIn
+phrase on the final chord span. Other strategies ignore the flag, which is why
+the fault survived a full session of listening.
+
+**Semantics, now stated.** The field counts SLOTS, not audible notes.
+`EvenFlowPhraseSO` counts its rest slots, so SustainLeadIn's silent lead-in
+counts too (3, not 2). Every archetype owes three things: a constant
+denominator equal to the slot count, dense `0..n-1` indices, and exactly one
+slot satisfying the final-slot predicate.
+
+**Determinism note.** The fix CHANGES the melody rng draw sequence on affected
+renders only: the slot that used to short-circuit to the cadence now runs the
+normal ascending path, which draws from `PickWeightedRandom`. Any golden
+pinning procedural melody bytes for an AscendingClimb part must be re-pinned.
+`PhraseState.TotalNotesInPhrase` still has no strategy consumer, so no other
+path shifts. Rhythm / backing / bass streams are untouched (rng is per track).
+
+Parity checked: `EvenFlowPhraseSO` and `BurstThenHoldPhraseSO` were already
+correct and are now pinned.
+
+Test surface: `Tests/Editor/PhraseArchetype_SlotBookkeepingTests.cs`.
 
 **Pitch bend seam (available, NOT consumed).** Since MGP-ALWTTT-BASS-BEND-1 the
 package has a shared post-build pitch bend writer, `PitchBendWriter`

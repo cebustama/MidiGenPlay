@@ -96,7 +96,12 @@ namespace MidiGenPlay.Composition
             // 1) Single explicit override
             if (progressionOverride != null)
             {
-                return ScriptableObject.Instantiate(progressionOverride);
+                // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3b): keep the pre-clone
+                // name -- Instantiate would append "(Clone)" and the runtime
+                // clone's identity would stop matching the reported asset name.
+                var clone = ScriptableObject.Instantiate(progressionOverride);
+                clone.name = progressionOverride.name;
+                return clone;
             }
 
             // 2) Palette-based override
@@ -162,7 +167,11 @@ namespace MidiGenPlay.Composition
                 }
                 pickInfo.fromPalette = false;
                 pickInfo.sourceAssetName = progressionOverride.name; // pre-clone
-                return ScriptableObject.Instantiate(progressionOverride);
+                // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3b): the clone carries the
+                // pre-clone name, so clone.name == pickInfo.sourceAssetName.
+                var overrideClone = ScriptableObject.Instantiate(progressionOverride);
+                overrideClone.name = progressionOverride.name;
+                return overrideClone;
             }
 
             // 2) TS-aware palette pick via the shared Finder (clone-on-pick).
@@ -176,7 +185,11 @@ namespace MidiGenPlay.Composition
                     pickInfo.fromPalette = true;
                     pickInfo.sourceAssetName = picked.name; // pre-clone
                     pickInfo.paletteName = progressionPalette.name;
-                    return ScriptableObject.Instantiate(picked);
+                    // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3b): same identity rule
+                    // on the palette path -- this is the path ALWTTT observed.
+                    var pickedClone = ScriptableObject.Instantiate(picked);
+                    pickedClone.name = picked.name;
+                    return pickedClone;
                 }
             }
 

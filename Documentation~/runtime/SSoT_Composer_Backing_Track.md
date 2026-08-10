@@ -163,10 +163,24 @@ mutually exclusive with `tonalityMismatch` by construction.
 against the ADOPTED tonality, which makes `DiatonicToPart` on the asset a
 near-no-op there.
 
-**Lifetime.** The tonality is mutated IN PLACE on the `PartConfig`. It
-persists after the card that caused it is gone, until something else changes
-it. Restoring a base tonality is HOST policy, not package behaviour — this is
-by design, not a leak.
+**Lifetime — and a COMMITTED consumer surface.** The tonality is mutated IN
+PLACE on the `PartConfig`. It persists after the card that caused it is gone,
+until something else changes it. Restoring a base tonality is HOST policy, not
+package behaviour — this is by design, not a leak.
+
+Since MGP-TRIAGE-ALWTTT-R3 this is a COMMITTED surface, not an implementation
+detail: a consumer may read `PartConfig.Tonality` after `GenerateSinglePart`
+returns and rely on it reflecting any adoption that occurred. A refactor that
+composed against an internal copy, or reverted the mutation on exit, would
+silently hand consumers the pre-adoption mode and make them generate against the
+wrong scale. See `SSoT_CONTRACTS.md` §12.
+
+**Preferred read path.** Consumers should nonetheless prefer the readback:
+`PartRender.resolvedByTrack[{musicianId, Backing}].tonalityAdopted` /
+`.adoptedTonality`. It is explicit, testable, per-track, and it distinguishes
+"adopted to X" from "was already X" — which reading the mutated field cannot.
+The in-place mutation is the compatibility guarantee; the readback is the
+supported interface.
 
 ## 3. Meter normalization contract
 
@@ -211,6 +225,55 @@ site is `SongOrchestrator.TrySeedDefaultProgression` (the backing-less path,
 > normalizes to `x4`. **Any new `ChordProgressionData` field must be added to
 > that copy list.** Pinned by
 > `ChordProgressionRequalityTests.PolicySurvivesFieldByFieldCloning_NormalizationParity`.
+> **The copy list includes `UnityEngine.Object.name`** — see §3.1. It is not a
+> serialized field, which is exactly why it was missed for four batches.
+
+### 3.1 Clone identity contract (MGP-TRIAGE-ALWTTT-R3, E3)
+
+**Invariant.** Every runtime clone of a `ChordProgressionData` that reaches the
+shared progression channel carries the PRE-CLONE asset name. Consequently
+`PartRender.sharedProgressionData.name == PartRender.sharedProgressionAssetName`
+on every precedence step: `RenderOverride`, `CardOverride`, `CardPalette`,
+`TrackParameters`, `Procedural`, `HostDefault`.
+
+**What was broken.** `NormalizeProgressionForPartIfNeeded` builds its clone from
+`ScriptableObject.CreateInstance`, which leaves `.name` EMPTY, and never copied
+it. That clone is published to the shared cache and snapshotted onto
+`sharedProgressionData`, so consumers received a nameless object. The remaining
+`Instantiate` sites (card override, card palette, per-render override, library
+template) had the milder form of the same defect: a `(Clone)` suffix instead of
+the asset name.
+
+**Not source-specific.** ALWTTT observed it on `CardPalette` and left
+`CardOverride` unverified. The distinction does not exist: the loser is
+normalization, not the source, and normalization fires on nearly every render
+(`sub x1` authored, `x4` wanted). The already-correct sites — `SeedDefaultCore`,
+`ApplyDiatonicRequality`, the P7 snapshot — all followed the no-`(Clone)`
+convention already; these four had simply been missed.
+
+**Not the same thing as `sharedProgressionAssetName`.** That readback field was
+correct throughout on every source. The reported name and the clone's object
+identity are separate surfaces; only the latter was broken.
+
+**Readback taxonomy note (found while pinning this).**
+`ResolvedSource.TrackParameters` is effectively UNREACHABLE for Backing through
+the orchestrator. Step 2 asks `ctx.GetProgressionForPart` first, and the
+orchestrator wires that delegate with an authored fallback
+(`SongOrchestrator.FindProgressionForPart`) returning the first Backing track's
+`Parameters.Pattern`. A Backing track carrying its own authored progression is
+therefore always served by the cache delegate and reports
+`SharedProgression`; the `else if (cfg.Parameters?.Pattern is
+ChordProgressionData)` branch below is dead on that path. It remains reachable
+for a SECOND Backing track in the same part (the fallback returns only the
+first one's Pattern) and for composers driven with a null
+`GetProgressionForPart`. Behaviour is correct; only the taxonomy is
+misleading, since a host reading the readback cannot distinguish "authored on
+my own track" from "another track published it". NOT changed here — changing
+either the fallback or the enum is a runtime decision, not a documentation one.
+
+Test surface: `Tests/Editor/ChordProgression_CloneIdentityTests.cs` (one test
+per REACHABLE precedence step, plus the impose-a-published-clone round trip
+that mirrors the host's JAM-1 carry).
 
 ## 4. Boundary with authoring
 

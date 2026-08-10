@@ -1,0 +1,51 @@
+# ============================================================
+# Set: alwttt-tier1  -- the unblocking subset.
+#
+# Use this ONLY if you are doing a single small run instead of a
+# full mirror refresh. It covers the four Tier-1 blockers of the
+# ALWTTT refresh inventory (2026-08-10) plus the bass surface
+# that actually moved between MGP-20260729 and today, without
+# which BasslineCardConfigSO alone is still not readable.
+#
+# If you can run the full set, run mgp-export_pk-mirror.txt
+# instead: re-exporting everything is cheaper than choosing, and
+# the manifest SHA256 shows you what really changed.
+#
+# Paths relative to the MidiGenPlay PACKAGE ROOT. Bare filenames
+# are searched recursively.
+# ============================================================
+
+
+# --- Tier 1: the four blockers
+Runtime/CoreScripts/Composition/Data/BasslineCardConfigSO.cs
+# The PK copy (2026-07-27) knows only Off / SlapPocket.
+# SelfPocket + the SelfPocket vocabulary land after that date.
+Documentation~/runtime/SSoT_Composer_Bass_Track.md
+TrackStyleBundleSO.cs
+# Bare filename: package path not registered in ssot_manifest.yaml.
+TrackRole.cs
+# EXPECT "MISSING": no dedicated file confirmed. Locate once with
+#   Get-ChildItem -Recurse -Filter *.cs | Select-String 'enum TrackRole'
+# and replace this line with the real filename.
+Runtime/CoreScripts/Composition/Interfaces/ITrackComposer.cs
+# Most likely home of the TrackRole enum.
+
+
+# --- Bass surface that moved after the mirror (required to read the card)
+Runtime/CoreScripts/Composition/Composers/BassTrackComposer.cs
+# Interprets pocket / walk / SelfPocket. Tier 4 in the inventory,
+# but it is what makes the card fields mean anything.
+Runtime/CoreScripts/Composition/Articulation/PitchBendWriter.cs
+# NEW since the mirror (MGP-ALWTTT-BASS-BEND-1, 2026-08-05).
+Runtime/CoreScripts/Composition/Data/ChordExpressionType.cs
+# MGP-ARTIC-RATE-1 (2026-08-03) changed rate-sentinel behaviour.
+Documentation~/SSoT_CONTRACTS.md
+# Carries the pitch-bend contract (11).
+
+
+# --- Minimum baseline so the above can be dated and trusted
+Documentation~/CURRENT_STATE.md
+Documentation~/SSoT_INDEX.md
+changelog-ssot.md
+# The diff instrument: eight batches landed between 2026-07-29
+# and 2026-08-08.

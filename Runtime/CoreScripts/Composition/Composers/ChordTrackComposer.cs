@@ -114,6 +114,18 @@ namespace MidiGenPlay.Composition
             int dstTotal = Mathf.Max(1, dstStepsPerMeasure * measures);
 
             var dst = ScriptableObject.CreateInstance<ChordProgressionData>();
+            // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3=A). CLONE IDENTITY: this
+            // reprojection builds dst field-by-field, and CreateInstance
+            // leaves UnityEngine.Object.name EMPTY. The result is published
+            // to the shared progression cache and snapshotted onto
+            // PartRender.sharedProgressionData, so the consumer received a
+            // nameless clone -- and, when it fed that clone back as a
+            // per-render override, the package logged an empty name at itself.
+            // Same F-NORM-DROP hazard class as the field copies below; .name
+            // is simply not a serialized field, which is why it was missed.
+            // Pre-clone name, no "(Clone)" drift: matches the convention of
+            // SeedDefaultCore / ApplyDiatonicRequality / the P7 snapshot.
+            dst.name = srcProg.name;
             dst.DisplayName = srcProg.DisplayName;
             dst.TimeSignature = dstTS;
             dst.Measures = measures;
@@ -325,6 +337,11 @@ namespace MidiGenPlay.Composition
                 if (renderOverride is ChordProgressionData overrideProg)
                 {
                     prog = ScriptableObject.Instantiate(overrideProg); // clone-on-apply
+                    // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3b): Instantiate
+                    // appends "(Clone)"; keep the pre-clone name so the
+                    // runtime clone's identity equals sourceAssetName on
+                    // every precedence step.
+                    prog.name = overrideProg.name;
                     resolvedChoice.source = ResolvedSource.RenderOverride;
                     resolvedChoice.sourceAssetName = overrideProg.name; // pre-clone (D-DBG3)
 
@@ -1047,6 +1064,9 @@ namespace MidiGenPlay.Composition
                 {
                     // Instantiate so we get a runtime copy and don't mutate the asset.
                     var progTemplate = ScriptableObject.Instantiate(templateEntry.progression);
+                    // MGP-TRIAGE-ALWTTT-R3 (E3, D-MGPT-3b): last clone site on
+                    // a path that publishes to the shared progression channel.
+                    progTemplate.name = templateEntry.progression.name;
 
                     if (verbose)
                     {

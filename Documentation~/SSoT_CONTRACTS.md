@@ -176,3 +176,28 @@ per-track channel stamp, the consumer mix-gain CC7 (§8) — and, since BEND-1,
   consumer needing a wider range must negotiate it via RPN.
 - **Determinism.** Same gestures + same file ⇒ same bytes. The writer draws no
   rng and reads no external state.
+
+## 12. PartConfig mutation contract (MGP-TRIAGE-ALWTTT-R3)
+
+Composers generally treat `SongConfig.PartConfig` as read-only input. There is
+exactly ONE sanctioned exception, and because a consumer depends on it, it is a
+contract rather than an implementation detail.
+
+- **The exception.** `ChordTrackComposer` step 2a* (`adoptProgressionTonality`,
+  `runtime/SSoT_Composer_Backing_Track.md` §2.3) assigns `part.Tonality` in
+  place during compose. Card-level opt-in, default OFF, deterministic, zero rng
+  draws.
+- **Committed.** The mutation is visible to the caller after
+  `GenerateSinglePart` returns and MUST remain so. Composing against an internal
+  copy of the `PartConfig`, or reverting the mutation on exit, is a BREAKING
+  change to consumers and requires a boundary-record entry, not a refactor note.
+  The failure mode is silent: the consumer keeps the stale mode and generates
+  its remaining tracks against the wrong scale.
+- **Preferred interface.** `ResolvedTrackChoice.tonalityAdopted` /
+  `.adoptedTonality`, reachable via `PartRender.resolvedByTrack`. Explicit,
+  per-track, testable, and able to distinguish adoption from coincidence. New
+  consumers should read this; the in-place mutation exists so existing ones do
+  not break.
+- **Scope limit.** This licenses ONE field on ONE opt-in path. No other
+  composer may mutate the `PartConfig`, and no new mutation may be added
+  without extending this section.

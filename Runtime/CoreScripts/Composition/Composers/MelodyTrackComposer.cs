@@ -246,7 +246,13 @@ namespace MidiGenPlay.Composition
                     $"[MelodyTrackComposer] Effective leading='{effectiveLeading.name}' ({leadingSrc}) " +
                     $"palette='{(effectiveLeading.phrasePalette != null ? effectiveLeading.phrasePalette.name : "null")}' ({paletteSrc}) " +
                     $"noteSource={effectiveLeading.noteSource} " +
-                    $"maxStep={effectiveLeading.maxStepSemitones} " +
+                    // MGP-TRIAGE-ALWTTT-R3 (E2, D-MGPT-2=B): PREF, not a
+                    // bound. ScaleFlow multiplies an over-step candidate's
+                    // weight by 0.01 (ComputeMotionWeight) rather than
+                    // excluding it, and AscendingClimb's no-candidate
+                    // fallbacks leave the limit deliberately. Named so the
+                    // log cannot be read as a contract.
+                    $"maxStepPref={effectiveLeading.maxStepSemitones} " +
                     $"chanceRepeat={effectiveLeading.chanceRepeatNote:0.##} " +
                     $"restrictDegrees={effectiveLeading.restrictToScaleDegrees} " +
                     $"allowedDegrees={(allowedDegrees != null ? allowedDegrees.Count.ToString() : "-")}");
@@ -511,6 +517,13 @@ namespace MidiGenPlay.Composition
                             degreeIdx = idx;
 
                         // Step in semitones from previous melody note (0 if none)
+                        // MGP-TRIAGE-ALWTTT-R3 (E2, D-MGPT-2=B): this is the
+                        // distance between EMITTED notes -- measured after the
+                        // strategy, after ConstrainedMelodyStrategy's contour
+                        // snap AND after ApplyIntervalDirective, which moves
+                        // the note by design. It is NOT the quantity
+                        // maxStepSemitones weights, so emittedStep > maxStepPref
+                        // is expected and is not a contract violation.
                         int stepFromLast = 0;
                         if (lastMelody != null)
                         {
@@ -523,7 +536,7 @@ namespace MidiGenPlay.Composition
                             $"[MelodySlot] chord={chordIndex} " +
                             $"beat={slot.whenBeat:F2} dur={slot.durBeats:F2} " +
                             $"note={picked} degree={degreeIdx} " +
-                            $"chordTone={isChordTone} step={stepFromLast} " +
+                            $"chordTone={isChordTone} emittedStep={stepFromLast} " +
                             $"vel={velocityVal} accent={slot.isAccent} " +
                             $"phraseEnd={slot.isPhraseEnd} " +
                             $"phraseId={slot.phraseId} slot={slot.slotIndexInPhrase}/{slot.totalSlotsInPhrase}");
