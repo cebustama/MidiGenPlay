@@ -71,7 +71,6 @@
 |   |   +---PinkTrombone_Performance_Backbone_Proposal.md
 |   |   +---PinkTrombone_Proposal_Agent_Review.md
 |   |   +---PinkTrombone_Rendering_POC_Verdict.md
-|   |   +---PinkTrombone_Voice_Levers.md
 |   |   \---README.md
 |   +---runtime
 |   |   +---README.md
@@ -173,6 +172,8 @@
 |   |   |   |   +---TrackStyleBundleSO.cs
 |   |   |   |   +---VelocityJitter.cs
 |   |   |   |   \---VoiceLeadingConfig.cs
+|   |   |   +---Diagnostics
+|   |   |   |   \---TonalityAudit.cs
 |   |   |   +---Factories
 |   |   |   |   \---ComposerFactories.cs
 |   |   |   +---Interfaces
@@ -524,7 +525,9 @@
 |       \---SongOrchestratorSeedTests.cs
 +---make-tree-unity.bat
 +---MGP-20260729_export.zip
++---MGP-20260810_export.zip
 +---mgp-export.bat
++---mgp-export_custom.txt
 +---mgp-export_pk-mirror.txt
 +---mgp-export_session-b.txt
 +---package.json

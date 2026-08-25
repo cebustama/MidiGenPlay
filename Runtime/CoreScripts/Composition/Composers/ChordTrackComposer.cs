@@ -743,6 +743,17 @@ namespace MidiGenPlay.Composition
 
                     var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
 
+                    // MGP-TONALITY-1 Task 2 (log-only): audit the reshaped
+                    // voicing the articulator will strike. chordPcs here is
+                    // accidental-aware (F-TON-ACC-1: melody/bass are not).
+                    for (int ai = 0; ai < emitVoicing.Count; ai++)
+                        Diagnostics.TonalityAudit.Check(
+                            "Backing", emitVoicing[ai], scaleNames, chordPcs,
+                            startBeats, beatsPerBar,
+                            part.Tonality, part.RootNote,
+                            "backing-grid", effectiveExpression.ToString(),
+                            _settings == null || _settings.tonalityAuditShowInfo);
+
                     _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,
                                       effectiveExpression, effectiveRate,
@@ -1642,6 +1653,17 @@ namespace MidiGenPlay.Composition
                             ? articRoller.NextRate() : arpeggioRate;
                     // CA-T2: same reshape+emit as the grid path.
                     var emitVoicing = _reshaper.Reshape(playable, chordPcs, effectiveExpression);
+
+                    // MGP-TONALITY-1 Task 2 (log-only): same audit as the
+                    // grid site (both-sites discipline, argument-granular
+                    // per the MGP-ARTIC-RATE-1 lesson).
+                    for (int ai = 0; ai < emitVoicing.Count; ai++)
+                        Diagnostics.TonalityAudit.Check(
+                            "Backing", emitVoicing[ai], scaleNames, chordPcs,
+                            startBeats, beatsPerBar,
+                            part.Tonality, part.RootNote,
+                            "backing-progression", effectiveExpression.ToString(),
+                            _settings == null || _settings.tonalityAuditShowInfo);
 
                     _articulator.Emit(pb, emitVoicing, startBeats, durBeats, beatSpan,
                                       beatsPerBar, e.velocity, stepsPerBeat,

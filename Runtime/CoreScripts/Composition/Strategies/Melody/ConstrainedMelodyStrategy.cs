@@ -95,8 +95,23 @@ namespace MidiGenPlay.Composition
                     int cycle = (_replayCount / n) + 1;
                     _replayCount++;
 
-                    var echoed = MelodyStrategyCommon.Transpose(
-                        _motif[idx], _repeat.transposeSemitones * cycle);
+                    // MGP-TONALITY-1 D-TON6=A: ScaleDegrees echoes the motif
+                    // as a DIATONIC sequence (degree-wise, per cycle);
+                    // ChromaticSemitones is the legacy raw-semitone path,
+                    // byte-identical for every existing asset (enum default).
+                    Note echoed;
+                    if (_repeat.transposeMode ==
+                        RepeatLastNotesDirective.MotifTransposeMode.ScaleDegrees)
+                    {
+                        echoed = TransposeByScaleDegrees(
+                            _motif[idx], _repeat.transposeSemitones * cycle,
+                            scaleNames, degreeLookup);
+                    }
+                    else
+                    {
+                        echoed = MelodyStrategyCommon.Transpose(
+                            _motif[idx], _repeat.transposeSemitones * cycle);
+                    }
                     return ClampToInstrument(echoed, instrument);
                 }
                 // Buffer still filling: fall through to the inner strategy and
@@ -142,12 +157,47 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// MGP-MEL-1 F3: nearest candidate of the strategies' own harmonic
-        /// pool STRICTLY above/below <paramref name="refSemis"/>. Returns null
-        /// when no candidate exists on the required side (instrument-range
-        /// edge) -- the caller keeps the inner pick: a soft contour miss beats
-        /// an out-of-scale note. Pure and rng-free.
+        /// MGP-TONALITY-1 D-TON6=A. Transposes a note by
+        /// <paramref name="degreeSteps"/> positions along the 7-degree scale,
+        /// crossing octaves as needed. Semitone delta is computed from the
+        /// scale's own interval structure (ascending offsets from the tonic),
+        /// so the result is in-scale by construction whenever the source
+        /// pitch class is. A source pitch class NOT in the scale (cannot
+        /// happen for pool-built motifs today) degrades to the legacy
+        /// chromatic transpose of the same count. Pure and rng-free.
         /// </summary>
+        private static Note TransposeByScaleDegrees(
+            Note src,
+            int degreeSteps,
+            NoteName[] scaleNames,
+            Dictionary<NoteName, int> degreeLookup)
+        {
+            if (src == null) return null;
+            if (degreeSteps == 0) return src;
+            if (scaleNames == null || scaleNames.Length < 7 ||
+                degreeLookup == null ||
+                !degreeLookup.TryGetValue(src.NoteName, out var srcDeg))
+            {
+                // Degrade: chromatic same count (documented fallback).
+                return MelodyStrategyCommon.Transpose(src, degreeSteps);
+            }
+
+            // Ascending semitone offset of each degree from the tonic.
+            // A well-formed 7-PC scale yields a strictly increasing array.
+            int tonic = (int)scaleNames[0];
+            Span<int> off = stackalloc int[7];
+            for (int i = 0; i < 7; i++)
+                off[i] = (((int)scaleNames[i] - tonic) + 12) % 12;
+
+            int total = srcDeg + degreeSteps;
+            int newDeg = ((total % 7) + 7) % 7;
+            int octShift = (int)Math.Floor(total / 7.0)
+                         - (int)Math.Floor(srcDeg / 7.0); // srcDeg in 0..6 => second term 0
+
+            int deltaSemis = off[newDeg] - off[srcDeg] + 12 * octShift;
+            return MelodyStrategyCommon.Transpose(src, deltaSemis);
+        }
+
         private static Note NearestPoolNote(
             bool above,
             int refSemis,

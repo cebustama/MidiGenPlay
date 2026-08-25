@@ -498,6 +498,10 @@ namespace MidiGenPlay.EditorTools
                     if (GUILayout.Button("Load from SO"))
                         LoadFromSetup();
                 }
+                // Deliberately outside the DisabledScope: this is the path
+                // that exists precisely for when no asset is assigned yet.
+                if (GUILayout.Button("Save as new…"))
+                    SaveAsNewSetup();
             }
             EditorGUILayout.HelpBox(
                 "Assign the SAME asset to the runtime CompositionSmokeRunner. " +
@@ -521,7 +525,41 @@ namespace MidiGenPlay.EditorTools
             EditorUtility.SetDirty(setup);
             AssetDatabase.SaveAssets();
             Debug.Log($"[CompositionSmokeWindow] Saved {setup.entries.Count} " +
-                      $"track(s) to '{setup.name}'.");
+              $"track(s) to '{setup.name}'.");
+        }
+
+        /// <summary>
+        /// Creates a NEW SmokeSetupSO at a user-chosen project path, assigns it
+        /// to <see cref="setup"/>, and writes the current inline state into it
+        /// via the existing <see cref="SaveToSetup"/> — so there is exactly one
+        /// serialization path and the two buttons cannot drift.
+        /// Cancelling the panel leaves the current assignment untouched.
+        /// </summary>
+        private void SaveAsNewSetup()
+        {
+            string defaultDir = setup != null
+                ? System.IO.Path.GetDirectoryName(
+                      AssetDatabase.GetAssetPath(setup))
+                : "Assets";
+            if (string.IsNullOrEmpty(defaultDir)) defaultDir = "Assets";
+
+            string path = EditorUtility.SaveFilePanelInProject(
+                "Save Smoke Setup as new",
+                setup != null ? setup.name + "_copy" : "SmokeSetup_",
+                "asset",
+                "Choose where to create the new SmokeSetupSO.",
+                defaultDir);
+            if (string.IsNullOrEmpty(path))
+                return; // cancelled — keep the current assignment
+
+            var created = ScriptableObject.CreateInstance<SmokeSetupSO>();
+            AssetDatabase.CreateAsset(created, path);
+
+            setup = created;
+            SaveToSetup();          // single write path (also SaveAssets)
+            AssetDatabase.Refresh();
+            EditorGUIUtility.PingObject(created);
+            Debug.Log($"[CompositionSmokeWindow] Created setup asset at '{path}'.");
         }
 
         private void LoadFromSetup()

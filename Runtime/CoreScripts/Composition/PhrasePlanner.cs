@@ -220,6 +220,14 @@ namespace MidiGenPlay.Composition
             if (slotsArch == null)
                 slotsArch = new List<PhraseSlot>(0);
 
+            // MGP-TONALITY-1 D-TON7: give the phrase-end slot room to
+            // breathe. Inter-phrase silence is impossible without this —
+            // every archetype fills its whole span and spans tile
+            // contiguously (S2's structural cause). Deterministic, no draws;
+            // fully inert at endRestFraction == 0.
+            if (picked != null && picked.endRestFraction > 0f && slotsArch.Count > 0)
+                ApplyEndRest(slotsArch, chordBeats, picked.endRestFraction);
+
             FinalizePhraseSlots(slotsArch, contourDirArch);
             _memory.lastPhraseId = chordIndex;
             _memory.lastContourDir = contourDirArch;
@@ -277,13 +285,35 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// Hook to post-process / validate slots for a phrase.
-        /// (E.g. clamp durations, ensure monotonically increasing whenBeat,
-        /// ensure only one final isPhraseEnd, etc.)
-        ///
-        /// Right now the Build* methods already produce valid slots,
-        /// so this is intentionally left light.
+        /// MGP-TONALITY-1 D-TON7. Shortens the phrase-end slot so the span
+        /// ends in silence. The trim is a fraction of the SPAN (musically
+        /// "a quarter bar of air"), clamped so the final note always keeps
+        /// the greater of 1/8 beat and 25% of its planned length — a short
+        /// closing slot therefore trims little or nothing rather than
+        /// vanishing. Pure, RNG-free, idempotent per phrase.
         /// </summary>
+        private static void ApplyEndRest(
+            List<PhraseSlot> slots, double spanBeats, float fraction)
+        {
+            int idx = -1;
+            for (int i = slots.Count - 1; i >= 0; i--)
+                if (slots[i].isPhraseEnd) { idx = i; break; }
+            if (idx < 0) idx = slots.Count - 1;
+            if (idx < 0) return;
+
+            var s = slots[idx];
+            if (!s.playNote) return; // already a rest: nothing to trim
+
+            const double MinSoundingBeats = 0.125;
+            double keep = Math.Max(MinSoundingBeats, s.durBeats * 0.25);
+            double maxTrim = Math.Max(0.0, s.durBeats - keep);
+            double trim = Math.Min(spanBeats * fraction, maxTrim);
+            if (trim <= 0.0) return;
+
+            s.durBeats -= trim;
+            slots[idx] = s;
+        }
+
         private void FinalizePhraseSlots(List<PhraseSlot> slots, int contourDir)
         {
             // Here we could clamp durations, merge overlaps, ensure monotonic time, etc.

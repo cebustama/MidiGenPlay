@@ -26,10 +26,10 @@ namespace MidiGenPlay.MusicTheory
 
         private static readonly Dictionary<TempoRange, (int Min, int Max)> TempoRanges = new()
         {
-            { TempoRange.VerySlow, (61, 90) },
-            { TempoRange.Slow, (91, 120) },
-            { TempoRange.Moderate, (121, 160) },
-            { TempoRange.Fast, (161, 200) },
+            { TempoRange.VerySlow, (70, 100) },
+            { TempoRange.Slow, (101, 120) },
+            { TempoRange.Moderate, (131, 170) },
+            { TempoRange.Fast, (171, 200) },
             { TempoRange.VeryFast, (201, 240) }
         };   
 

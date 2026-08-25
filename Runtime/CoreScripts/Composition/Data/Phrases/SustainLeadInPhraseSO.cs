@@ -28,6 +28,14 @@ namespace MidiGenPlay.Composition.Phrases
             bool doPickup = rng.NextDouble() < pickupChance;
             double pickupDur = pickupSubdivisionBeats;
 
+            // D-TON8: the pickup slider is continuous, so an authored value
+            // like 0.3 lands off-grid; snapping it down puts the lead-in on
+            // a real subdivision. The pickup itself is split in half by the
+            // branch below, so a snapped 0.25 gives two 1/32 slots — still
+            // metric. RNG-free; the pickupChance draw above is untouched.
+            if (meterFitSlots)
+                pickupDur = SnapDurationToMeter(pickupDur, allowTupletSubdivisions);
+
             if (doPickup && pickupDur * 2 < spanBeats)
             {
                 // MGP-TRIAGE-ALWTTT-R3 / F5 (E1). The pickup branch emits

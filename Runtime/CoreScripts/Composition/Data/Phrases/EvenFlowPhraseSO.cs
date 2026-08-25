@@ -25,7 +25,13 @@ namespace MidiGenPlay.Composition.Phrases
         {
             if (forcedContourDir != 0) contourDir = forcedContourDir;
 
+            // D-TON8: the DRAW is unchanged and unconditional; only its
+            // result is snapped, so toggling meterFitSlots cannot shift the
+            // rng stream for later phrases (same discipline as CA-V1/POCKET-1).
             int slotsInPhrase = Mathf.Clamp(rng.Next(minSlots, maxSlots + 1), 1, 32);
+            if (meterFitSlots)
+                slotsInPhrase = SnapSlotCountToMeter(
+                    slotsInPhrase, spanBeats, allowTupletSubdivisions);
             double slotDur = spanBeats / slotsInPhrase;
 
             var list = new List<PhrasePlanner.PhraseSlot>(slotsInPhrase);

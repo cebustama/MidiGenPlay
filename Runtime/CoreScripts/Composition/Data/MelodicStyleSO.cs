@@ -152,6 +152,30 @@ namespace MidiGenPlay.Composition
     {
         public bool enabled = false;
         [Range(1, 8)] public int notesToRepeat = 2;
+
+        /// <summary>
+        /// MGP-TONALITY-1 D-TON6=A. How the per-cycle motif transpose is
+        /// interpreted. ChromaticSemitones (0, serialized default) is the
+        /// legacy behavior: raw semitones, may leave the scale (this was
+        /// S1's root cause with transposeSemitones=2 on 'Showtime').
+        /// ScaleDegrees moves the motif N SCALE DEGREES per cycle — the
+        /// classic diatonic sequence — and can never leave the scale for
+        /// motif notes that are in it. Existing assets serialize 0 and are
+        /// byte-identical.
+        /// </summary>
+        public enum MotifTransposeMode
+        {
+            ChromaticSemitones = 0,
+            ScaleDegrees = 1
+        }
+
+        public MotifTransposeMode transposeMode =
+            MotifTransposeMode.ChromaticSemitones;
+
+        [Tooltip("Per completed motif cycle. In ChromaticSemitones: raw " +
+                 "semitones (+/-12 = octave; other values can leave the " +
+                 "key). In ScaleDegrees: diatonic degrees (+1 = one scale " +
+                 "step up per cycle). 0 = exact ostinato in both modes.")]
         public int transposeSemitones = 0;
     }
 }

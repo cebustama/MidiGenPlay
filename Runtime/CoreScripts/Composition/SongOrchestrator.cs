@@ -1411,9 +1411,21 @@ namespace MidiGenPlay.Composition
                     // 2) Concrete chord labels using MusicTheory
                     var chordLabels = pr.events.Select(e =>
                     {
+                        // MGP-TONALITY-1 D-TON10: ChordPitchClasses is
+                        // accidental-agnostic; re-spell the root here so the
+                        // log names the chord the composers actually play
+                        // (was printing 'BMajor' for a bII that renders Bb).
                         var pcs = ChordPitchClasses(p.Tonality, p.RootNote, e.degree, e.quality);
                         if (pcs == null || pcs.Length == 0)
                             return "?";
+
+                        if (e.degreeAccidental != 0)
+                        {
+                            var accRoot = TransposeNoteName(pcs[0], e.degreeAccidental);
+                            pcs = GetChordNoteNames(accRoot, e.quality);
+                            if (pcs == null || pcs.Length == 0)
+                                return "?";
+                        }
 
                         var rootPc = pcs[0];
 

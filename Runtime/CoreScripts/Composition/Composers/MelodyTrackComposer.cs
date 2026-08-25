@@ -331,7 +331,12 @@ namespace MidiGenPlay.Composition
                 var ce = evts[chordIndex];
 
                 // --- 1. Harmonic context: chord pitch classes for this span ---
-                var degreeRoot = scaleNames[(int)ce.degree];
+                // MGP-TONALITY-1 D-TON10 (F-TON-ACC-1): same accidental law
+                // as backing and bass. Feeds the candidate pool, so with
+                // PreferChordTones the melody now targets the chord that is
+                // actually sounding. Identity when degreeAccidental==0.
+                var degreeRoot = TransposeNoteName(
+                    scaleNames[(int)ce.degree], ce.degreeAccidental);
                 var chordPitchClasses = GetChordNoteNames(degreeRoot, ce.quality);
 
                 // --- 2. Convert chord event timing (steps) -> beats ---
@@ -474,6 +479,12 @@ namespace MidiGenPlay.Composition
                         partState,
                         allowedDegrees);
 
+                    // MGP-TONALITY-1 Task 2: remember the strategy's pick so
+                    // the emission audit can attribute a violation to the
+                    // interval directive when it changes the pitch class.
+                    // Log-only local; never read by generation.
+                    var preIntervalPick = picked;
+
                     // Apply inter-phrase interval pattern here
                     picked = ApplyIntervalDirective(
                         picked,
@@ -491,6 +502,32 @@ namespace MidiGenPlay.Composition
                         rng);
 
                     if (picked == null) { lastMelody = null; continue; }
+
+                    // MGP-TONALITY-1 Task 2 (log-only): audit the EMITTED
+                    // note against the part scale and this span's chord PCs
+                    // (accidental-blind, as this composer computes them
+                    // today -- F-TON-ACC-1 measures belief, not truth).
+                    {
+                        string tonOrigin =
+                            (interval != null && interval.enabled &&
+                             (preIntervalPick == null ||
+                              preIntervalPick.NoteName != picked.NoteName))
+                                ? "interval-directive"
+                                : repeat != null
+                                    ? "strategy+motif"
+                                    : contour != ContourConstraint.None
+                                        ? "strategy+contour"
+                                        : "strategy";
+                        Diagnostics.TonalityAudit.Check(
+                            "Melody", picked, scaleNames, chordPitchClasses,
+                            slot.whenBeat, beatsPerBar,
+                            part.Tonality, part.RootNote,
+                            tonOrigin,
+                            archetypesBySpan.Count > 0
+                                ? archetypesBySpan[archetypesBySpan.Count - 1]
+                                : null,
+                            _settings == null || _settings.tonalityAuditShowInfo);
+                    }
 
                     // Track phrase-first and phrase-peak for future slots this phrase
                     if (phraseFirstNote == null) phraseFirstNote = picked;
@@ -689,9 +726,25 @@ namespace MidiGenPlay.Composition
                 (double)pattern.TotalBeats, part.Measures, beatsPerBar,
                 MinNoteBeats);
 
+            // MGP-TONALITY-1 Task 2 (log-only): tripwire audit. Authored
+            // patterns are diatonic by construction; a red hit here means a
+            // tonality/root plumbing fault, not an authoring one. No chord
+            // context on this path (chordPcs: null).
+            var auditScaleNames = GetNotesFromScale(
+                    GetScaleFromTonality(part.Tonality, part.RootNote),
+                    part.RootNote, 4, 7)
+                .Select(n => n.NoteName).ToArray();
+
             var capturedMelody = new List<MidiGenerator.GuideNote>(resolved.Count);
             foreach (var rn in resolved)
             {
+                Diagnostics.TonalityAudit.Check(
+                    "Melody", rn.Note, auditScaleNames, null,
+                    rn.WhenBeats, beatsPerBar,
+                    part.Tonality, part.RootNote,
+                    "authored-pattern", pattern.name,
+                    _settings == null || _settings.tonalityAuditShowInfo);
+
                 var startTs = BeatsToSpan(rn.WhenBeats, beatSpan);
                 var durTs = BeatsToSpan(rn.DurBeats, beatSpan);
 
@@ -856,7 +909,10 @@ namespace MidiGenPlay.Composition
                 if (e == null) continue;
 
                 // Get chord notes
-                var degreeRoot = scaleNames[(int)e.degree];
+                // MGP-TONALITY-1 D-TON10: accidental-aware, as in the
+                // procedural path and in ChordTrackComposer.
+                var degreeRoot = TransposeNoteName(
+                    scaleNames[(int)e.degree], e.degreeAccidental);
                 var chordPcs = GetChordNoteNames(degreeRoot, e.quality);
 
                 // pick one tone in a simple cycle (root/3rd/5th[/7th])

@@ -65,6 +65,12 @@ namespace MidiGenPlay
 
             _orchestrator = new SongOrchestrator(settings, _factories, _voicer);
 
+            // MGP-TONALITY-1 D-TON9: the audit master switch lives on the
+            // config asset; synced once per generator construction. Null
+            // settings (test fixtures) keep the default (enabled).
+            Composition.Diagnostics.TonalityAudit.Enabled =
+                settings == null || settings.enableTonalityAudit;
+
             if (settings != null && settings.logGenerator)
             {
                 var roles = string.Join(", ", _factories.Keys.Select(r => r.ToString()));

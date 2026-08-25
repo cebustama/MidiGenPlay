@@ -32,6 +32,17 @@ public class MidiGenPlayConfig : ScriptableObject
     [Header("Dev / QA")]
     public bool debugDumpMidi = false;
 
+    [Header("Tonality Audit (MGP-TONALITY-1)")]
+    [Tooltip("Master switch for the per-note tonal audit (red OUT-OF-KEY " +
+             "warnings + counters). Log-only: toggling can never change " +
+             "generated MIDI.")]
+    public bool enableTonalityAudit = true;
+    [Tooltip("Also show yellow CHORD-TONE-CHROMATIC lines (chord tones of " +
+             "borrowed/altered chords). Independent of Log Generator, so " +
+             "you can keep ONLY audit lines with all other generator " +
+             "debugging off.")]
+    public bool tonalityAuditShowInfo = true;
+
     [Header("Defaults / fallbacks")]
     public Tonality defaultTonality = Tonality.Ionian;
     public TimeSignature defaultTimeSignature = TimeSignature.FourFour;

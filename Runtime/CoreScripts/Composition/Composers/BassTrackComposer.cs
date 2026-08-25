@@ -467,6 +467,13 @@ namespace MidiGenPlay.Composition
             // (low is safe on a bass).
             int registerCeiling = ResolveRegisterCeiling(inst.octaveMax);
 
+            // F-TON-WALK-DRIFT-1 (D-W2-FLOOR=B): the walk's lower bound — one
+            // octave BELOW the §2 band floor. The octave of slack preserves
+            // the documented allowance that an approach note may dip under the
+            // band (B3 acta, "low is safe on a bass"); what it stops is the
+            // CUMULATIVE drift of a long event window bottoming out at MIDI 0.
+            int registerFloor = NoteTheory.Get(NoteName.C, minOct).NoteNumber - 12;
+
             var rng = ctx?.rng ?? new System.Random();
 
             // POCKET-1: per-Compose segment buffer (local — no composer state).
@@ -496,7 +503,15 @@ namespace MidiGenPlay.Composition
             for (int eventIndex = 0; eventIndex < orderedEvents.Count; eventIndex++)
             {
                 var ce = orderedEvents[eventIndex];
-                var degreeRoot = scaleNames[(int)ce.degree];
+                // MGP-TONALITY-1 D-TON10 (F-TON-ACC-1): the authored
+                // accidental is part of the chord's identity — bII is Db in
+                // C, not D. ChordTrackComposer has always applied it; the
+                // bass did not, so on accidental-bearing progressions the
+                // two tracks played DIFFERENT chords a semitone apart
+                // (confirmed in runtime on Prog_Min_Napolitana_bII).
+                // Inert (identity) for every event with degreeAccidental==0.
+                var degreeRoot = TransposeNoteName(
+                    scaleNames[(int)ce.degree], ce.degreeAccidental);
                 var chordPcs = GetChordNoteNames(degreeRoot, ce.quality);
 
                 // choose pitch class: root or random chord tone
@@ -727,7 +742,11 @@ namespace MidiGenPlay.Composition
                     // events — this branch sits behind the pocket
                     // substitution, §3.7 verbatim.
                     var nextCe = orderedEvents[(eventIndex + 1) % orderedEvents.Count];
-                    var nextRootPc = scaleNames[(int)nextCe.degree];
+                    // D-TON10: the approach target must be the REAL next
+                    // root (D-W2-LAST's recorded accidental-blindness is
+                    // hereby retired, together with the main lookup above).
+                    var nextRootPc = TransposeNoteName(
+                        scaleNames[(int)nextCe.degree], nextCe.degreeAccidental);
 
                     var grid = ChordArticulator.PlanHits(
                         effectiveExpression, effectiveRate, startBeats, lenBeats,
@@ -735,7 +754,7 @@ namespace MidiGenPlay.Composition
                     var line = BuildWalkLine(
                         chordPcs, nextRootPc, oct, registerCeiling, grid.Count,
                         effectiveExpression == ChordExpressionType.ArpeggioDown,
-                        walkSeed, eventIndex);
+                        walkSeed, eventIndex, registerFloor);
 
                     for (int k = 0; k < grid.Count; k++)
                     {
@@ -781,6 +800,18 @@ namespace MidiGenPlay.Composition
                 // segments): one unconditional articulator call site.
                 foreach (var seg in _segments)
                 {
+                    // MGP-TONALITY-1 Task 2 (log-only): audit every note-on
+                    // this segment will strike. chordPcs is the event's own
+                    // harmonic context, accidental-blind as the bass computes
+                    // it today (F-TON-ACC-1).
+                    for (int ai = 0; ai < seg.playable.Length; ai++)
+                        Diagnostics.TonalityAudit.Check(
+                            "Bass", seg.playable[ai], scaleNames, chordPcs,
+                            seg.startBeats, beatsPerBar,
+                            part.Tonality, part.RootNote,
+                            "bass-segment", seg.expression.ToString(),
+                            _settings == null || _settings.tonalityAuditShowInfo);
+
                     _articulator.Emit(pb, seg.playable, seg.startBeats, seg.lenBeats,
                                       beatSpan, beatsPerBar, seg.velocity, stepsPerBeat,
                                       seg.expression, seg.rate, seg.jitter);
@@ -1715,6 +1746,12 @@ namespace MidiGenPlay.Composition
         /// Approach notes may dip below the §2 band floor — accepted, low is
         /// safe on a bass (B3 acta). Under a tight ceiling a fold may land on
         /// the previous pitch; the ceiling wins over variety.
+        /// F-TON-WALK-DRIFT-1 (D-W2-FLOOR=B): middle-hit selection is
+        /// prev-relative only and carries a negative expected drift, so over
+        /// long event windows the line used to descend out of the band to the
+        /// MIDI floor. Notes now also fold +12 while below
+        /// <paramref name="floor"/> (ceiling wins). This CONTAINS the drift;
+        /// the selection asymmetry itself is deferred (D-W2-DRIFT).
         /// </summary>
         public static NoteTheory[] BuildWalkLine(
             NoteName[] chordPcs,
@@ -1724,14 +1761,15 @@ namespace MidiGenPlay.Composition
             int hitCount,
             bool descendBias,
             int walkSeed,
-            int eventIndex)
+            int eventIndex,
+            int floor = int.MinValue)
         {
             if (hitCount <= 0 || chordPcs == null || chordPcs.Length == 0)
                 return Array.Empty<NoteTheory>();
 
             var line = new NoteTheory[hitCount];
-            line[0] = FoldUnderCeiling(
-                NoteTheory.Get(chordPcs[0], rootOct).NoteNumber, ceiling);
+            line[0] = FoldIntoRegister(
+                NoteTheory.Get(chordPcs[0], rootOct).NoteNumber, ceiling, floor);
             if (hitCount == 1) return line;
 
             // Middle hits: chord tones near the previous note.
@@ -1765,7 +1803,7 @@ namespace MidiGenPlay.Composition
                 double r = WalkMix01(walkSeed, eventIndex, k, 0u);
                 int idx = r < 0.55 ? 0 : (r < 0.85 ? 1 : 2);
                 if (idx > cands.Count - 1) idx = cands.Count - 1;
-                line[k] = FoldUnderCeiling(cands[idx], ceiling);
+                line[k] = FoldIntoRegister(cands[idx], ceiling, floor);
             }
 
             // Last hit: approach note into the next event's root.
@@ -1777,7 +1815,7 @@ namespace MidiGenPlay.Composition
             if (approach == prevN) approach = target - offset; // never re-strike
             if (approach < 0) approach = target + Math.Abs(offset);   // MIDI floor
             if (approach > 127) approach = target - Math.Abs(offset); // MIDI top
-            line[hitCount - 1] = FoldUnderCeiling(approach, ceiling);
+            line[hitCount - 1] = FoldIntoRegister(approach, ceiling, floor);
             return line;
         }
 
@@ -1793,11 +1831,27 @@ namespace MidiGenPlay.Composition
             return (reference - below <= above - reference) ? below : above;
         }
 
-        /// <summary>B3 WALK-2 (D-W2-REG): per-note register fold — -12 while
-        /// above the ceiling, stopped only by the MIDI floor. Total.</summary>
-        private static NoteTheory FoldUnderCeiling(int noteNumber, int ceiling)
+        /// <summary>
+        /// B3 WALK-2 (D-W2-REG + D-W2-FLOOR=B): two-sided per-note register
+        /// fold. -12 while above <paramref name="ceiling"/> (verbatim WALK-2
+        /// behaviour), then +12 while below <paramref name="floor"/> — the
+        /// F-TON-WALK-DRIFT-1 containment. Folding is octave-wise, so pitch
+        /// class, chord-tone membership and approach intervals are invariant.
+        ///
+        /// The CEILING WINS: the up-fold never lifts a note above the ceiling,
+        /// so a degenerate asset (floor >= ceiling) degrades to the old
+        /// ceiling-only behaviour rather than oscillating. floor ==
+        /// int.MinValue disables the up-fold entirely (byte-identical to
+        /// pre-fix WALK-2 — the default for callers that do not pass one).
+        /// Total.
+        /// </summary>
+        private static NoteTheory FoldIntoRegister(
+            int noteNumber, int ceiling, int floor)
         {
             while (noteNumber > ceiling && noteNumber - 12 >= 0) noteNumber -= 12;
+            while (noteNumber < floor &&
+                   noteNumber + 12 <= 127 &&
+                   noteNumber + 12 <= ceiling) noteNumber += 12;
             if (noteNumber < 0) noteNumber = 0;
             if (noteNumber > 127) noteNumber = 127;
             return NoteTheory.Get((SevenBitNumber)noteNumber);
