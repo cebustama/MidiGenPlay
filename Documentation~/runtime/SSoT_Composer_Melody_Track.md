@@ -58,6 +58,28 @@ It produces `PhraseSlot` structures carrying information such as:
 - accent / phrase-end information
 - phrase-local state cues for strategies
 
+**A phrase may end before its span does (MGP-TONALITY-1).**
+`PhraseArchetypeSO.endRestFraction` (0 = legacy) shortens the phrase-end slot
+so consecutive phrases do not run together. Before MGP-TONALITY-1 every
+archetype filled 100% of its chord span and spans tile contiguously, making
+inter-phrase silence structurally impossible. The trim is clamped: the final
+note always keeps the greater of 1/8 beat and 25% of its planned duration, so
+a short closing slot trims little or nothing rather than vanishing.
+
+**Slot counts and burst/pickup durations may be snapped to a metric grid.**
+`meterFitSlots` (off = legacy) restricts the resulting slot duration to a
+power of two in beats (16 … 1/16); `allowTupletSubdivisions` additionally
+admits the triplet family (a power of two divided by 3). The constraint is on
+the resulting DURATION, not on the count: over a 12-beat span, 3 slots are
+legal without tuplets (12/3 = 4 beats), while over an 8-beat span they are not
+(8/3 = 2.667). The snap is applied to the RESULT of the slot-count draw, never
+in place of it, so toggling `meterFitSlots` cannot shift an RNG stream.
+
+RNG neutrality exception on record: `BurstThenHoldPhraseSO.restProbMid` gates
+its per-note roll on `> 0`, so raising it above zero shifts that archetype's
+draw stream. Deliberate — an unconditional roll would break byte-identity for
+every pre-existing asset.
+
 ### Missing palette / planner return contract (MEL-NULL-1)
 
 `PhrasePlanner.PlanPhraseSlotsForSpan` **never returns null.** When it cannot plan,
@@ -279,9 +301,18 @@ per-musician cache the procedural path populates — so a `HarmonyTrackComposer`
 harmonize an authored melody just as it does a procedural one.
 
 `GuideNote.startBeats` / `.durBeats` are in **Part beat units**, not quarters. The payload
-is unchanged by MEL-BEATUNIT-1, but any future consumer must convert with the Part's
-`beatSpan` (or `BeatsToSpan`); reusing `MusicalTimeSpan.Quarter` would reintroduce F-1 one
-layer downstream. There is no in-package consumer today.
+is unchanged by MEL-BEATUNIT-1, but every consumer must convert with the Part's
+`beatSpan` (or `BeatsToSpan`); reusing `MusicalTimeSpan.Quarter` reintroduces F-1 one
+layer downstream.
+
+**There is one in-package consumer: `HarmonyTrackComposer`** (PASS 2). It did
+reintroduce F-1 exactly as warned — it converted with `MusicalTimeSpan.Quarter`
+from its introduction until MGP-ALWTTT-HARMONY-1 (2026-09-01, F-HARM-1), which
+routed both its emission and its chord lookup through
+`MelodyTrackComposer.BeatsToSpan`. The channel's full contract — who is
+followed, what the consumer may write back, and what the cache's lifetime is —
+lives in `SSoT_Runtime_Generation_Orchestration.md` §5.9; this section owns only
+the payload's units.
 
 ### Boundary
 
@@ -290,6 +321,40 @@ has no editor dependency. It consumes `MelodyPatternData`, whose authoring seman
 in `authoring/SSoT_Authoring_Melody_Composition.md` §5/§7; it does not own them.
 
 ### 7.2 Directive layer, motif and contour (MGP-MEL-1b)
+
+**Post-pool pitch mutation (chromatic escapes).** The candidate pool is in-key
+by construction (`BuildCandidatesWithFilter` → strategy), but two mechanisms
+alter the picked note after the strategy has returned it, and neither is
+scale-validated:
+
+1. **Motif replay** (`ConstrainedMelodyStrategy`, repeat directive) — echoes
+   the stored motif transposed by `transposeSemitones × cycle`. In
+   `ChromaticSemitones` mode this is a raw semitone shift, **cumulative per
+   cycle**, and any value other than 0 or ±12 will leave the tonality. Since
+   MGP-TONALITY-1 (D-TON6=A) the directive also offers `ScaleDegrees` mode, in
+   which the transpose counts SCALE DEGREES (diatonic sequence) and cannot
+   leave the scale for a motif note that is in it. `ChromaticSemitones` remains
+   the serialized default for asset compatibility.
+2. **Interval directive** (`ApplyIntervalDirective`) — the `FixedSemitones` /
+   `PerDirectionSemitones` modes shift in raw semitones; with
+   `pitchClassSource = ComputedRegister` the resulting chromatic pitch class is
+   the one EMITTED. With `Anchor` / `Candidate` the pitch class stays in-key and
+   only the register changes.
+
+There is no tonal validation at the emission point. `TonalityAudit`
+(diagnostics, log-only) observes and classifies violations but never alters
+output. This was the confirmed root cause of the "Showtime" out-of-key defect:
+`MelodicStyle_Showtime` at `transposeSemitones = 2` echoed the motif `G5 B5 A5`
+at +2 and +4, emitting `C#6 D#6 C#6` — three `OUT-OF-KEY … origin=strategy+motif`
+warnings, matched slot-by-slot. The same asset under `ScaleDegrees` yields zero
+reds with the audible sequence effect preserved.
+
+**Harmonic context is accidental-aware (MGP-TONALITY-1, D-TON10).** The
+melody's harmonic context is derived from
+`TransposeNoteName(scaleNames[(int)e.degree], e.degreeAccidental)` in BOTH the
+procedural path and the simple chord-tone-cycle path — the same law the backing
+track uses, and the shared chord-identity contract of `SSoT_CONTRACTS.md` §13.
+Prior to MGP-TONALITY-1 both paths were accidental-blind.
 
 **Intent contract (F1).** `RepeatLastNotesDirective` and
 `InterPhraseIntervalDirective` are `[Serializable]` classes and always
@@ -413,6 +478,16 @@ re-derive the seam or write a second bend path.
   contract, the always-draws-a-directive property, the motif buffer semantics
   or its chromatic transpose, the contour snapping rule, or the P3 / P6.2
   signals;
+- either post-pool chromatic escape changes (§7.2, MGP-TONALITY-1): a motif
+  transpose mode is added or its default flips, the interval directive's
+  `pitchClassSource` law moves, or a tonal validation is introduced at the
+  emission point;
+- the archetype phrase surface changes (§4, MGP-TONALITY-1): `endRestFraction`
+  and its 25%/(1/8 beat) clamp, `meterFitSlots` / `allowTupletSubdivisions` and
+  the duration-not-count constraint, or the recorded `restProbMid` RNG-neutrality
+  exception;
+- the accidental-awareness of either melody path changes (§7.2, D-TON10) —
+  this is the shared contract of `SSoT_CONTRACTS.md` §13, not a melody-local rule;
 
 Update this SSoT when:
 

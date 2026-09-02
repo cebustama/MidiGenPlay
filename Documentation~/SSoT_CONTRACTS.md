@@ -201,3 +201,27 @@ contract rather than an implementation detail.
 - **Scope limit.** This licenses ONE field on ONE opt-in path. No other
   composer may mutate the `PartConfig`, and no new mutation may be added
   without extending this section.
+
+## 13. Chord identity contract (MGP-TONALITY-1, D-TON10)
+
+The sounding chord of a progression event is defined by the triple
+**(degree, degreeAccidental, quality)**. Every composer, and every component
+that names or derives a chord for display, must resolve the root as
+`TransposeNoteName(scaleNames[(int)degree], degreeAccidental)`. Reading
+`degree` alone is a contract violation: it makes two tracks harmonize against
+different chords a semitone apart on any accidental-bearing progression.
+
+Current adherents: `ChordTrackComposer` (both emission sites),
+`BassTrackComposer` (main selection + walk approach target),
+`MelodyTrackComposer` (both paths), `HarmonyTrackComposer`
+(MGP-ALWTTT-HARMONY-1, F-HARM-2), and `SongOrchestrator`'s chord-label printer.
+Added in MGP-TONALITY-1 after a confirmed audible defect; the defect survived
+two prior batches because no contract stated the rule.
+
+**Verification.** `TonalityAudit`'s counters CANNOT detect a breach on their
+own — a composer with a wrong chord belief judges its own wrong notes as
+in-chord and reports green. The detector is the canonical re-classification of
+the MGP-TONALITY-2 matrix (`beliefDiv`, D-TON2-PARITY=A), which recomputes each
+event's chord pitch classes under this contract and re-judges every emitted
+note against them. Any parity claim must come from `beliefDiv`, never from the
+audit counters. Held at `beliefDiv == 0` across 476 cells on 2026-09-01.

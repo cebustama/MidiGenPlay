@@ -19,7 +19,7 @@
 | Cadence as authored metadata (`ChordProgressionData.cadence : CadenceType`, CADENCE-META; composers ignore it, consuming games may gate on it) | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` (consumer use) |
 | `tonalities` as descriptive metadata (B2 TONFILTER-1: no revert, no draw; the part's tonality is the card's authority) **and the F-B2-LIBRARY exception** (`PickTemplateForPart` still filters on the procedural library path) | `runtime/SSoT_Composer_Backing_Track.md` §2.2 | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3 (authoring side of both), `planning/active/Roadmap_Composition_Expressivity.md` §B2 (the out-of-scope decision) |
 | Modulation planning primitive (`ModulationPlanner`, MOD-1; pure host-facing plan — functional dominant, ranked pivots, common tones; D-MOD-OUT=A) | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.6 | `runtime/SSoT_Composer_Backing_Track.md` §6 (the distinct directional-hint transient), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5 (the `patternOverride` surface the host consumes it through), `planning/active/Roadmap_Chord_Expressivity.md` |
-| Bass register contract (B3 BASS-REG-1: ceiling-capped two-octave band `ResolveOctaveBand`; `octaveMax` as a hard ceiling `ResolveRegisterCeiling` over everything emitted; whole-voicing walk fold D-REG-3=B, per-note fold D-W2-REG, pop fold D-REG-2=B) | `runtime/SSoT_Composer_Bass_Track.md` §2 | `runtime/SSoT_Composer_Bass_Track.md` §3.6 / §3.6bis / §3.7.1 (the three fold sites), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
+| Bass register contract (B3 BASS-REG-1: ceiling-capped two-octave band `ResolveOctaveBand`; `octaveMax` as a hard ceiling `ResolveRegisterCeiling` over everything emitted; whole-voicing walk fold D-REG-3=B, per-note TWO-SIDED fold D-W2-REG + D-W2-FLOOR=B, pop fold D-REG-2=B) | `runtime/SSoT_Composer_Bass_Track.md` §2 | `runtime/SSoT_Composer_Bass_Track.md` §3.6 / §3.6bis / §3.7.1 (the three fold sites), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
 | Improvised walking bass (B3 WALK-2, `arpeggioToneMode = ImprovisedWalk`; composer owns pitches, engine owns rhythm/dynamics; variation as a pure mix over `ResolveWalkSeed`) | `runtime/SSoT_Composer_Bass_Track.md` §3.6bis | `runtime/SSoT_Composer_Backing_Track.md` §8 (the engine, `PlanHits`), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.1 (`ResolveWalkSeed`), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
 | Track-list order independence (`SSoT_CONTRACTS.md` §10) and the composition-pass structure: PASS 0 Backing / PASS 1 / PASS 2 Harmony, deferred index-ordered merge, the harmony-source sniff `BackingTrackCarriesHarmonySource` and the `sharedProgressionSource` / `ResolvedSource.HostDefault` readback (MGP-ALWTTT-BASS-ORDER-1) | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 | `SSoT_CONTRACTS.md` §10 (the contract itself), `runtime/SSoT_Composer_Bass_Track.md` §1 (bass-side consequence), `runtime/SSoT_Composer_Backing_Track.md` §2 (PASS-0 consequence) |
 | SelfPocket — the order-free autonomous slap/pop figure, its articulation vocabulary (`Ghost` / `GhostPop` / `HammerOn` / `PullOff`, `QuarterBeat`) and the per-class velocity-factor and gate-ceiling laws (MGP-ALWTTT-BASS-SLAPFIG-1 / -2 / -2b) | `runtime/SSoT_Composer_Bass_Track.md` §3.7.2–§3.7.3 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.5 (authoring surface only), `SSoT_CONTRACTS.md` §10 (the swing doctrine's constraint) |
@@ -27,6 +27,12 @@
 | Shared-progression carry channel (`PartRender.sharedProgressionData`, MGP-MEL-1 P7) and the host jam-continuity recipe built on it | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.8 | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 (`sharedProgressionAssetName`, which its name preservation matches), `reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md` (consumer side) |
 | Tonality adoption from the resolved progression (`BackingCardConfigSO.adoptProgressionTonality`, MGP-MEL-1 P4; compose-time adoption wins over any pre-render tonality, `PartConfig` mutated in place) | `runtime/SSoT_Composer_Backing_Track.md` §2.3 | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.7 (how to author a progression for adoption), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 (PASS-0 visibility guarantee) |
 | Procedural melody precedence and the directive layer (layer table, `.enabled` intent contract, motif buffer + chromatic transpose hazard, scale-aware contour snapping, P3 / P6.2 signals; MGP-MEL-1b) | `authoring/SSoT_Authoring_Melody_Composition.md` §4b | `runtime/SSoT_Composer_Melody_Track.md` §7.2 (composer-side law and the F1 rng-sequence change) |
+| Bassline card authoring: the SelfPocket text DSL (`S P . - g G H L`), the editor window's working-copy/persistence contract, and its advisory set (MGP-BASSCARD-WIZARD-1) | `authoring/SSoT_Authoring_Bass_Cards.md` | `authoring/SSoT_Authoring_Tools.md` §3.A (registration), `runtime/SSoT_Composer_Bass_Track.md` §3.7.x (the articulation-class meaning it deliberately does NOT govern), `reference/package/PhrasePresets_Bass_Spec.md` |
+| SelfPocket phrase — bar substitutions, meter anchoring, within-bar indexing, seeded/round-robin variant selection (MGP-ALWTTT-BASS-PHRASE-1) | `runtime/SSoT_Composer_Bass_Track.md` §3.7.4 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.5 (card surface only), `authoring/SSoT_Authoring_Bass_Cards.md` (how the patterns are typed) |
+| Chord identity — the (degree, degreeAccidental, quality) triple every composer and chord-naming component must resolve through `TransposeNoteName` (MGP-TONALITY-1, D-TON10) | `SSoT_CONTRACTS.md` §13 | `runtime/SSoT_Composer_Bass_Track.md` §1, `runtime/SSoT_Composer_Melody_Track.md` §7.2, `runtime/SSoT_Composer_Backing_Track.md` §3 (the adherents) |
+| Melody guide-note cache — the PASS 1 → PASS 2 channel: lifetime, which melody Harmony follows (D-H1-5a=B), what it writes back (D-H1-5b=A), stem isolation (MGP-ALWTTT-HARMONY-1) | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.9 | `runtime/SSoT_Composer_Melody_Track.md` "Guide-note handoff" (payload units only) |
+| Diagnostic / regression harnesses that author nothing (the MGP-TONALITY-2 tonality matrix; `beliefDiv` canonical re-classification as the only admissible parity detector) | `authoring/SSoT_Authoring_Tools.md` §3.F | `SSoT_CONTRACTS.md` §13 (the contract it verifies), `runtime/SSoT_Composer_Bass_Track.md` §3.6bis (the defect it found) |
+| Phrase archetype materialization — `endRestFraction`, `meterFitSlots`, `allowTupletSubdivisions`, the `restProbMid` RNG-neutrality exception (MGP-TONALITY-1) | `runtime/SSoT_Composer_Melody_Track.md` §4 | `authoring/SSoT_Authoring_Melody_Composition.md` §4b (the authoring side and the field defaults) |
 | Rhythm / drum composer behavior | `runtime/SSoT_Composer_Rhythm_Track.md` | `authoring/SSoT_Authoring_Rhythm_Patterns.md`, `planning/active/Roadmap_Rhythm_Authoring_MVP.md`, `archive/absorbed/SSoT_Composer_RhythmTrack.md` |
 | Melody composer behavior | `runtime/SSoT_Composer_Melody_Track.md` | `authoring/SSoT_Authoring_Melody_Composition.md`, `archive/absorbed/melody_pipeline.md` |
 | Chord progression authoring assets and tool flow | `authoring/SSoT_Authoring_Chord_Progressions.md` | `authoring/SSoT_Authoring_Tools.md`, `archive/absorbed/ChordProgressionEditorWindow_Overview.md` |
@@ -159,3 +165,48 @@
 - **F-B2-LIBRARY, recorded at B4 (2026-07-28).** `ChordTrackComposer.PickTemplateForPart` still discards library entries whose allowed tonality list excludes the part's tonality. This is INTENDED code — B2 left the legacy procedural path out of scope and said so on `planning/active/Roadmap_Composition_Expressivity.md` §B2 — but the only record of the nuance lived in a roadmap, which `SSoT_CONTRACTS.md` §6 forbids treating as authority. Both SSoTs now carry the exception. Retiring the filter changes renders and is an unscheduled RUNTIME candidate, not a documentation one.
 
 - **Standing governance gap, recorded at B4 (2026-07-28), NOT resolved:** `changelog-ssot.md` is cited by the `SSoT_CONTRACTS.md` §9 completion contract as a mandatory update target, yet it is registered in no authority class in `ssot_manifest.yaml`. Registering it is a governance decision with its own scope and was deliberately not taken in a documentation batch.
+
+- **Five batches applied at DOC-SWEEP-3 (2026-09-01): PRIMARY-HOME FLIP (one).**
+  `authoring/SSoT_Authoring_Bass_Cards.md` is NEW and now primary for bassline
+  card authoring — the SelfPocket DSL and the editor window contract. Nothing
+  was relocated into it: the articulation classes it types stay primary under
+  `runtime/SSoT_Composer_Bass_Track.md` §3.7.x, and the new document says so in
+  its own header. Registered in `ssot_manifest.yaml` (authority_class
+  `subsystem_ssot`, four governs, nine invariants) and in `SSoT_INDEX.md`.
+  **Six rows were ADDED above** for concepts that did not previously exist —
+  bass card authoring, the SelfPocket phrase surface, the chord-identity
+  contract, the melody guide-note cache, diagnostic harnesses, and phrase
+  archetype materialization. One row was EXTENDED (bass register contract, now
+  two-sided). No row was relocated.
+  Homing notes:
+  (1) **The chord-identity rule is homed on `SSoT_CONTRACTS.md` §13, not on any
+  composer SSoT.** It is cross-cutting by construction — the defect it fixes
+  existed precisely because four independent components each read `degree`
+  alone and no single composer's document could have caught it. Same shape as
+  §12 (PartConfig mutation), added at DOC-SWEEP-2.
+  (2) **The tonality matrix is homed under `authoring/SSoT_Authoring_Tools.md`
+  §3.F, a NEW category** for tools that author nothing. This widens that
+  document's scope, taken as sweep decision D-S3-3=B. `CompositionSmokeWindow`
+  remains intentionally ungoverned — **D-SMOKE-DOC-1=A is unchanged**, and
+  MGP-TONALITY-2's proposed "Save as new…" clause was skipped rather than
+  silently reversing it. §3.F restates that boundary in place.
+  (3) The Harmony role still has **no composer SSoT** (HARMONY-1 audit item 9,
+  deferred). Its contract is split between Orchestration §5.9 (the channel) and
+  the Melody SSoT (payload units), and `CURRENT_STATE.md` "Docs to update next"
+  registers the absence rather than papering over it.
+  **New test files**, registered in this closure-notes convention (D-2=A):
+  `Tests/Editor/BassTrackComposer_PhraseTests.cs`,
+  `Tests/Editor/BassPatternTextParserTests.cs` (15 pins),
+  `Tests/Editor/HarmonyTrackComposer_GuideFollowTests.cs` (9 tests).
+
+- **Anchor amendment recorded at DOC-SWEEP-3 (D-S3-4=A).** `MGP-TONALITY-2`'s
+  diffs cited Bass SSoT **§3.6.1**, which does not exist; the anchors resolve in
+  **§3.6bis**, which rows 22–23 above already cite by name. Applied amended.
+  This file was the tiebreaker, which is the §3-of-the-update-protocol case
+  working as intended.
+
+- **Pre-existing omission fixed at DOC-SWEEP-3, recorded here.**
+  `runtime/SSoT_Composer_Bass_Track.md` was missing from `SSoT_INDEX.md`'s
+  "Primary runtime SSoTs" list although registered in `ssot_manifest.yaml` and
+  cited as primary by this file since CA-F2 (2026-07-15). A list omission, not
+  an authority change; listed, with the omission noted in place.

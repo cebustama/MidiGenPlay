@@ -60,7 +60,17 @@ On record (pre-existing, deliberately unchanged by CA-F2):
   now DOES receive both transforms, because the Backing composer consumes it
   via its shared-cache step — a strict improvement over D-SOLO-NORM=A, on
   record.
-- `degreeAccidental` is ignored (same recorded gap as the backing grid path).
+- **`degreeAccidental` IS applied (MGP-TONALITY-1, D-TON10).** The degree root
+  is `TransposeNoteName(scaleNames[(int)ce.degree], ce.degreeAccidental)`, and
+  the improvised walk's next-root lookup (the approach-note target) applies the
+  same transform to the next event. This is the shared chord-identity law of
+  `SSoT_CONTRACTS.md` §13. Before MGP-TONALITY-1 the bass derived both the chord
+  root and the walk's approach target from the degree alone, so on any
+  accidental-bearing progression it harmonized against a chord a semitone away
+  from the backing track's — a confirmed audible defect
+  (`Prog_Min_Napolitana_bII`: backing `[ASharp D F]` against bass
+  `[B DSharp FSharp]`, clashing on root, third and fifth at once). Sealed by the
+  MGP-TONALITY-2 matrix at `beliefDiv == 0` across 476 cells.
 
 **Order independence (MGP-ALWTTT-BASS-ORDER-1, D-ORD-MECH=A).** The bass no
 longer depends on the Backing track's POSITION in the track list. The
@@ -161,8 +171,10 @@ ceiling on everything the bass emits, not only on the draw: the ceiling is
 `octaveMax * 12 + 11` (B at the top of the declared register, clamped to 127;
 seam `ResolveRegisterCeiling`), and every structure built ABOVE the drawn note
 — walk tops (§3.6), pops (§3.7) — is guaranteed to sit at or below it. The
-ceiling wins over the band floor: low is safe on a bass. The only stop on
-downward folding is the MIDI floor itself.
+ceiling wins over the band floor: low is safe on a bass. Downward folding
+stops at the MIDI floor for every emission path EXCEPT the WALK-2 improvised
+line, which since D-W2-FLOOR=B also folds UP under a floor one octave below
+the §2 band (§3.6bis).
 
 **Determinism note.** B3 changed the octave draw's RANGE, not its count or
 order, so the §2 contract above is intact — but a given seed now selects a
@@ -381,9 +393,23 @@ re-striking it) — usually the closest such tone, sometimes the 2nd/3rd
 closest, with `ArpeggioDown` biasing equal-distance ties downward; the LAST hit
 is a chromatic (±1) or whole-step (±2) approach note into the NEXT event's root
 — the thing that makes a walk read as a walk. The next-root lookup mirrors the
-selection loop's own degree lookup exactly (including its
-accidental-blindness, on record); the last event wraps to the first event's
+selection loop's own degree lookup exactly (accidental-aware since
+MGP-TONALITY-1 — the recorded accidental-blindness of this lookup no longer
+holds, retired with D-TON10); the last event wraps to the first event's
 root (D-W2-LAST=A, loop-friendly).
+
+**Approach notes are expected out-of-key (audit note).** The improvised walk's
+approach notes are deliberately chromatic and `TonalityAudit` will report them
+as `OUT-OF-KEY`. That is correct: they sit on the last beat of a chord window
+and resolve by semitone into the next root. It does NOT follow that every bass
+red is an approach note. Under D-W2-LAST=A the walk emits exactly ONE approach
+note per chord window, at the window's end, resolving by 1–2 semitones into the
+next root; a red that is not at a window edge, or that does not resolve into
+the next root, is a defect candidate — F-TON-WALK-DRIFT-1 presented exactly
+this way. Judge bass reds by position and resolution, not by track alone.
+A future refinement may tag them `origin=walk-approach` to separate intentional
+chromaticism from defects in the audit counters; until then the MGP-TONALITY-2
+runner infers the tag positionally rather than requiring it.
 
 **Home (D-W2-HOME=A) — division of labor.** Composer-side, but the ENGINE still
 owns rhythm and dynamics: the composer calls the public pure
@@ -412,11 +438,42 @@ branch runs after both selection draws and reads no rng — the D-WALK-RNG=A
 argument). Same seed ⇒ same line (the held-loop replay guarantee); a later
 event over the same chord walks a different line (`eventIndex` is in the mix).
 
-**Register (D-W2-REG, under D-REG-1=C).** Every planned note folds −12 while
-above the register ceiling — the per-note adaptation of D-REG-3=B (the unit
-here is the note; there is no voicing shape to preserve). Approach notes may
-dip below the §2 band floor: accepted, low is safe on a bass. Under a tight
-ceiling a fold may land on the previous pitch; the ceiling wins over variety.
+**Register (D-W2-REG, under D-REG-1=C; floor added by D-W2-FLOOR=B).** Every
+planned note folds −12 while above the register ceiling AND +12 while below
+the walk floor — the per-note adaptation of D-REG-3=B (the unit here is the
+note; there is no voicing shape to preserve). Folding is octave-wise, so pitch
+class, chord-tone membership and the approach interval are invariant under it.
+
+The walk floor sits ONE OCTAVE BELOW the §2 band floor (`C` at `minOct`, minus
+12; seam `FoldIntoRegister`). The octave of slack is deliberate: a single
+approach note may still dip under the band — low is safe on a bass — while a
+window's CUMULATIVE descent cannot leave the register. The CEILING WINS: the
+up-fold never lifts a note above the ceiling, so a degenerate asset
+(floor >= ceiling) degrades to the pre-existing ceiling-only behaviour rather
+than oscillating. Under a tight ceiling — or, now, a tight band — a fold may
+land on the previous pitch; the ceiling wins over variety.
+
+**Why the floor exists (F-TON-WALK-DRIFT-1).** Middle-hit selection is
+prev-relative only: each candidate is `NearestPitch(pc, prev)` with `prev`
+excluded, and the resulting candidate set is asymmetric — from G1 over
+[G A♯ D] the options are +3 and −5, weighted ≈0.55/0.45 by the mix, an
+expected drift of ≈ −0.6 semitones per hit. With no lower bound the only stop
+was the MIDI floor inside the fold, so a long window (24 hits in 6/8 over a
+normalized progression) walked the line four octaves under the instrument and
+bottomed out at note 0 — whose pitch class is C by construction, which is why
+only Lydian surfaced it as OUT-OF-KEY. The floor CONTAINS this; it does not
+remove the drift. See D-W2-DRIFT below.
+
+**D-W2-DRIFT (open).** The selection asymmetry itself is unresolved. Removing
+it (re-anchoring to the event root per bar, or symmetrizing the candidate set)
+changes the walk's musical character and needs its own decision and a listening
+pass. Deferred to a follow-up batch; until then the line still tends downward
+and rests against the floor in long windows.
+
+**Scope.** `BuildWalkVoicing` (ChordToneWalk, §3.6) is NOT affected and stays
+byte-identical; the floor is a WALK-2 (`ImprovisedWalk`) law only. Callers that
+pass no floor (`floor = int.MinValue`, the default) get the pre-fix
+ceiling-only behaviour — which is what the WALK-2 unit tests exercise.
 
 **Gating and interactions.** Same activation gate as §3.6 (resolved figure
 `ArpeggioUp`/`ArpeggioDown`, at least 2 chord pcs, `ArpeggioFits` true);
@@ -429,7 +486,10 @@ iteration order — and with it the §2 draw order — is identical to the previ
 foreach.
 
 Test surface: `Tests/Editor/BassTrackComposer_WalkImprovTests.cs`
-(BuildWalkLine purity / anchor / vocabulary / approach / variation / ceiling;
+(BuildWalkLine purity / anchor / vocabulary / approach / variation / ceiling —
+every assertion is a property invariant under octave-wise folding, and each
+calls BuildWalkLine WITHOUT the floor argument, so the suite pins the
+ceiling-only path; a floor-specific test belongs with D-W2-DRIFT;
 NearestPitch; the card surface pin; and four orchestrator-level gates in the
 Dbg1Fixtures + FNV idiom).
 
@@ -814,6 +874,102 @@ Test surface: `Tests/Editor/BassTrackComposer_SelfPocketVocabularyTests.cs`
 legato render: determinism, bend presence, closing invariant, the fewer
 note-ons law, and the anti-no-op pin).
 
+#### 3.7.4 SelfPocket phrase — bar substitutions (MGP-ALWTTT-BASS-PHRASE-1)
+
+The v1 cycled pattern is bar-blind: the figure is identical measure after
+measure. PHRASE-1 makes the bar matter. The card gains:
+
+- `selfPocketPhraseLengthBars` (default 4, `[Min(1)]`) — the phrase length
+  in bars (D-PH-LEN=A: authored, fixed, purely modular over the part; a
+  trailing partial phrase truncates — there is no part-end lookahead).
+- `selfPocketBarSubstitutions` — a table of `{ barIndex, variants[] }`
+  entries (D-PH-SURF=D). Each entry replaces ONE phrase slot's bar with one
+  of its pattern variants; the canonical authoring is a single entry at
+  slot `length-1`, the phrase-closing fill (the *Aeroplane* gesture).
+  Unity cannot serialize `List<List<T>>`, hence the two wrapper classes
+  (`SelfPocketBarSubstitution`, `SelfPocketPatternVariant`).
+- `selfPocketVariantSelection` (default `SeededMix`) — how a slot with
+  several variants picks one per phrase occurrence.
+
+**The single ON/OFF gate is the table (D-PH-BYTE=A).** Null/empty table —
+or a table where nothing survives validation — keeps every phrase field
+inert and the planner on the SLAPFIG-2b path, byte-identical by
+construction: the pre-PHRASE `BuildSelfPocketPlan` signature delegates to
+the extended overload with a null table, and the null-table branch is the
+v1 lookup verbatim (test-pinned plan-for-plan; the Ghost-vocabulary render
+canary keeps watching the bytes).
+
+**Anchoring and slot law (D-PH-ANCHOR=A).** Bar = `floor(part beat /
+beatsPerBar + ε)` — METER absolute, part beat 0 anchored, the same footing
+as the v1 grid. `beatsPerBar` is the TS table's integer `BeatsPerMeasure`
+(7/8 ⇒ 7 part beats), though the math stays in doubles under the planner's
+epsilon discipline. Slot = `bar % phraseLengthBars`; phraseIndex =
+`bar / phraseLengthBars`. Chord-event windows never move the anchor: an
+event slicing a phrase mid-bar sees exactly the bars the meter says
+(test-pinned across split windows). Parts whose first chord event starts
+late still count the phrase from part beat 0.
+
+**Indexing (D-PH-INDEX=A).** With the phrase ACTIVE, EVERY effective
+pattern — substituted variants AND the body on unsubstituted bars —
+indexes from its bar start (`(g − barStart/step) % length`), cycling
+within the bar. For a body whose length divides the bar's grid steps this
+coincides with the v1 absolute indexing; for a non-divisor length,
+enabling the phrase re-phases the body (restart every bar) — a declared,
+opt-in change with no baseline to preserve. Pattern lengths that do not
+divide the bar's steps warn once per Compose (informative, never fatal).
+
+**Variant selection (D-PH-FILL=C / SD-PH-2=A / SD-PH-3=A).**
+- `SeededMix` (default): `variant = floor(PhraseMix01(phraseSeed,
+  phraseIndex, slot, salt=0) × count)` — a pure integer mix, the WalkMix01
+  idiom deliberately DUPLICATED (lowbias32 avalanche verbatim; own fold
+  constants `0xC2B2AE35` / `0x27D4EB2F` so the (phraseIndex, slot) matrix
+  is asymmetric and no other seam's byte-identity radius grows). Exact
+  goldens are test-pinned; moving either constant re-picks serialized
+  cards' variants and is a declared render-affecting change.
+- `RoundRobin`: `phraseIndex % count`, seed-independent — mechanical
+  alternation for A/B auditioning.
+- One variant short-circuits to index 0 under both laws.
+
+The phrase seed is a dedicated derived substream key —
+`StableHash32($"{trackSeed}|selfphrase")` — consumed ONLY as the mix key,
+never as a stream: **zero new `ctx.rng` draws**, and no stream exists that
+a toggle could shift. Recorded deviation: the derivation lives
+composer-side (`BassTrackComposer.ResolvePhraseSeed`, calling the same
+public `StableHash32`) rather than beside the `Resolve*` family in
+`SongOrchestrator` — a batch-scoped choice to hold the touched file set to
+the two verified-fresh files. Relocating it (same string, same hash) is a
+no-render-change refactor candidate.
+
+**Table validation (SD-PH-1=A).** `ResolvePhraseSubstitutions` is a pure
+seam with LOCAL degradation: a duplicate `barIndex` keeps the LAST entry;
+an out-of-range `barIndex` is inert; a variant with no steps is dropped;
+an entry left with zero variants is inert. An all-Rest variant is LEGAL —
+a silent break bar renders as absence. Every defect appends one message,
+batched into ONE `LogWarning` per Compose. The one GLOBAL degrade is
+`phraseLengthBars < 1` (a phrase of no bars addresses no slots): table
+disabled, warn, decoupled v1 cycling continues.
+
+**Scope (D-PH-SCOPE=A).** SelfPocket only. SlapPocket takes its grid from
+the drummer's published onsets; a phrase there would fight the external
+source. The planner stays a pure static function — zero rng, zero
+cross-track reads — so the SLAPFIG-1 autonomy pin
+(`SelfPocket_IgnoresTheRhythmTrack_BassStemIsByteIdentical`) and the
+dormant ALWTTT §8.4 consumer hash duty are untouched.
+
+**Authoring.** The body and every variant are authored as text in the
+Bassline Card Editor (`authoring/SSoT_Authoring_Bass_Cards.md`,
+MGP-BASSCARD-WIZARD-1); that document governs the DSL and the window, not
+the semantics above.
+
+**Deferred (recorded, NOT designed):**
+- Adaptive phrase length — derived from the progression, or coupled to the
+  rhythm track pocket-style (would wake cross-track questions; explicitly
+  out of v1).
+- Extending the phrase surface to SlapPocket.
+- Part-end awareness (a fill on the part's final bar even mid-phrase).
+- Partial-bar substitution (only the last N steps); authoring the tail
+  inside the variant covers the need.
+
 ## 4. MIDI plumbing
 
 Unchanged by CA-F2: channel forcing on all ChannelEvents; bank/patch stamping
@@ -886,3 +1042,8 @@ Update this document when any of the following change:
   the post-build application point relative to `ForceAllChannel` /
   `StampBankAndPatch`, or the assumed ±2 semitone range / the decision to
   emit RPN.
+- the SelfPocket PHRASE surface (§3.7.4) changes: a phrase field is added
+  or re-lawed, the anchoring/slot/indexing law moves, a variant-selection
+  law is added or its mix constants change (render-affecting for
+  serialized cards — the PhraseMix01 goldens are the tripwire), or the
+  single-gate OFF semantics (D-PH-BYTE=A) are widened.

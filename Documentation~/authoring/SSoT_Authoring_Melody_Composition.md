@@ -144,20 +144,33 @@ completed cycle. `transpose = 0` is an exact ostinato; `+2` is an ascending
 sequence. Rests never enter the motif. The buffer is phrase-scoped — one
 decorator instance per chord span.
 
-> **AUTHORING HAZARD — `transposeSemitones` is CHROMATIC, not diatonic.**
-> Verified benign in E Ionian only because that motif's intervals happened to
-> land in-scale (B→+2→C♯, A→+2→B). A motif containing degree 7 transposed +2
-> leaves the scale (D♯ → F♮ in E major). Until a diatonic variant exists
-> (`transposeScaleSteps`, not scheduled), prefer `transpose = 0` or verify the
-> specific motif degrees against the mode. The transposition also ACCUMULATES
-> per cycle and stops only at the instrument-range clamp — pair a non-zero
-> transpose with short burst archetypes.
+> **AUTHORING HAZARD — `transposeSemitones` is CHROMATIC by default.**
+> `RepeatLastNotesDirective.transposeMode` selects how the value is read:
 >
-> **Field observation (ALWTTT R3, 2026-08-08).** One unreproduced sighting of a
-> motif leaving the scale under transposition. Consistent with this hazard as
-> documented — it is the feature behaving as specified, not a defect, and no
-> package work is warranted on a single sighting. Recorded as one data point for
-> the priority of `transposeScaleSteps`, which remains unscheduled.
+> - `ChromaticSemitones` (`0`, the serialized default, kept for asset
+>   compatibility) — a raw semitone shift. Verified benign in E Ionian only
+>   because that motif's intervals happened to land in-scale (B→+2→C♯,
+>   A→+2→B). A motif containing degree 7 transposed +2 leaves the scale
+>   (D♯ → F♮ in E major). The shift also ACCUMULATES per cycle and stops only
+>   at the instrument-range clamp — pair a non-zero transpose with short burst
+>   archetypes.
+> - `ScaleDegrees` (`1`, added by MGP-TONALITY-1, D-TON6=A) — the value counts
+>   SCALE DEGREES, so a motif note that is in the scale cannot be transposed
+>   out of it. This is the diatonic sequence, and it is what most authors mean
+>   by "+2".
+>
+> **Guidance:** set `transposeMode = ScaleDegrees` for any non-zero transpose
+> unless you specifically want chromatic drift. Under `ChromaticSemitones`,
+> prefer `transpose = 0` or verify the specific motif degrees against the mode.
+>
+> **History.** This hazard carried two field data points — the MEL-1b note and
+> an ALWTTT R3 sighting (2026-08-08) of a motif leaving the scale under
+> transposition — and named a hypothetical `transposeScaleSteps` as the fix.
+> MGP-TONALITY-1 shipped that fix as `transposeMode = ScaleDegrees`, on the
+> evidence of a THIRD sighting: `MelodicStyle_Showtime` at
+> `transposeSemitones = 2` emitted `C#6 D#6 C#6` against the mode. The
+> follow-up is **closed under a different name**; there is no outstanding
+> `transposeScaleSteps` work.
 
 ### Contour semantics (F3, D9)
 
@@ -175,10 +188,38 @@ Intra-phrase rests **already exist and already fire**: a `PhraseSlot` with
 which is why `[MelodySlot]` lines can start at `slot=1/…`. Rest density is an
 ARCHETYPE property, not a leading or style property.
 
-What does NOT exist is a phrase-final breath. Sustaining archetypes fill the
-remainder of the chord span with the held note (observed `dur=7.75` on an
-8-beat span), so consecutive phrases run together and read as continuous
-singing. The authoring workaround today is shorter spans or denser palettes.
+**Phrase-final breath EXISTS since MGP-TONALITY-1.**
+`PhraseArchetypeSO.endRestFraction` (float, default `0` = legacy) shortens the
+phrase-end slot so consecutive phrases do not run together. Before it,
+sustaining archetypes filled the remainder of the chord span with the held note
+(observed `dur=7.75` on an 8-beat span) and spans tile contiguously, so
+inter-phrase silence was structurally impossible and the only workaround was
+shorter spans or denser palettes.
+
+The trim is clamped: the final note keeps the greater of 1/8 beat and 25% of
+its planned duration, so a short closing slot trims little or nothing rather
+than vanishing. Authoring guidance: start around `0.25`–`0.5` and listen; the
+clamp means a large value on a short slot is quietly ignored rather than
+producing a dropout.
+
+**Metric fit (MGP-TONALITY-1).** `meterFitSlots` (bool, default `false` =
+legacy) constrains the resulting slot DURATION to a power of two in beats
+(16 … 1/16); `allowTupletSubdivisions` (bool, default `false`) additionally
+admits the triplet family. The constraint is on the duration, not the count:
+over a 12-beat span 3 slots are legal without tuplets (12/3 = 4 beats), over an
+8-beat span they are not (8/3 = 2.667). Use this when a palette keeps producing
+onsets off the grid — the pre-fix symptom was 9 slots over an 8-beat span, with
+onsets at 0.89 / 1.78 / 2.67.
+
+The snap is applied to the RESULT of the slot-count draw, never in place of it,
+so toggling `meterFitSlots` cannot shift an RNG stream. **One recorded
+exception:** `BurstThenHoldPhraseSO.restProbMid` (float, default `0`) gates its
+per-note roll on `> 0`, so raising it above zero DOES shift that archetype's
+draw stream and re-renders every seed. Deliberate — an unconditional roll would
+have broken byte-identity for every pre-existing asset.
+
+All four fields are per-archetype asset data; all four defaults preserve legacy
+behaviour exactly.
 
 ### Inert / reserved fields (P2 registry)
 
@@ -469,6 +510,12 @@ Authoring owns the pattern's *meaning* (this document); runtime owns *how it is
 consumed* (the runtime SSoT). Authoring tools never depend on the runtime path.
 
 ## 8. Update triggers
+
+- the archetype phrase fields change (§4b): `endRestFraction` and its clamp,
+  `meterFitSlots` / `allowTupletSubdivisions` and the duration-not-count
+  constraint, or the recorded `restProbMid` RNG-neutrality exception;
+- `RepeatLastNotesDirective.transposeMode` gains a mode or its default flips
+  away from `ChromaticSemitones`;
 
 - the procedural precedence table, the directive intent contract, the motif /
   contour semantics, the rest-and-breathing statement, or the reserved-field

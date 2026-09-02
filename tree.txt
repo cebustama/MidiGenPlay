@@ -20,6 +20,7 @@
 |   |   \---README.md
 |   +---authoring
 |   |   +---README.md
+|   |   +---SSoT_Authoring_Bass_Cards.md
 |   |   +---SSoT_Authoring_Chord_Progressions.md
 |   |   +---SSoT_Authoring_LLM_Generation.md
 |   |   +---SSoT_Authoring_Melody_Composition.md
@@ -61,12 +62,14 @@
 |   |   +---package
 |   |   |   +---Documentation_Update_Protocol_Addendum.md
 |   |   |   +---Palette_Card_Identity_Design.md
+|   |   |   +---PhrasePresets_Bass_Spec.md
 |   |   |   +---PK_Mirror_Export_HowTo.md
 |   |   |   +---README.md
 |   |   |   \---Tests_Authoring_HowTo.md
 |   |   \---README.md
 |   +---research
 |   |   +---Deep_Research_Prompt_MidiMusicManager.md
+|   |   +---MGP-ALWTTT-CARDEXPR-1_report.md
 |   |   +---MIDI_Jamplay_Runtime_Composition_Design-1.md
 |   |   +---PinkTrombone_Performance_Backbone_Proposal.md
 |   |   +---PinkTrombone_Proposal_Agent_Review.md
@@ -125,7 +128,9 @@
 |   +---RhythmGenreVocabularyBuilder.cs
 |   +---SimplifiedMelodyGenerator.cs
 |   +---SoundFontCacheSOEditor.cs
-|   \---SoundFontDropdownDrawer.cs
+|   +---SoundFontDropdownDrawer.cs
+|   +---TonalityMatrixRunner.cs
+|   \---TonalityMatrixWindow.cs
 +---Runtime
 |   +---CoreScripts
 |   |   +---Attributes
@@ -505,6 +510,7 @@
 |       +---DrumPatternPaletteSOTests.cs
 |       +---DrumPatternTextParserTests.cs
 |       +---FakeLLMClient.cs
+|       +---HarmonyTrackComposer_GuideFollowTests.cs
 |       +---LaneAliasDictionaryTests.cs
 |       +---MelodyMidiImporterTests.cs
 |       +---MelodyTrackComposer_PatternDeterminismTests.cs

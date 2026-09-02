@@ -305,6 +305,21 @@ Additional hooks currently present on the bundle (but not yet wired into generat
   degrades to an attacked note, and a chain whose accumulated interval exceeds
   ±2 semitones clamps.
 
+- Phrase surface (MGP-ALWTTT-BASS-PHRASE-1); see
+  `runtime/SSoT_Composer_Bass_Track.md` §3.7.4 for the authoritative semantics:
+  - `selfPocketPhraseLengthBars` (int, default 4, min 1) — PHRASE-1 phrase
+    length in bars. Inert while the substitution table is empty.
+  - `selfPocketBarSubstitutions` (list of `{ barIndex, variants[] }`) — the
+    PHRASE-1 bar-substitution table; EMPTY = phrase machinery off,
+    byte-identical v1 cycling (the single gate). Wrapper classes exist
+    because Unity cannot serialize nested lists.
+  - `selfPocketVariantSelection` (enum, default `SeededMix`; append-only) —
+    multi-variant slot selection law: seeded pure mix (deterministic per
+    seed) or round-robin by phrase index.
+- All of the above, including the body pattern, are authorable as text in the
+  package's Bassline Card Editor (MGP-BASSCARD-WIZARD-1); the DSL is governed
+  by `authoring/SSoT_Authoring_Bass_Cards.md`.
+
 > **Pre-existing drift, NOT introduced by these batches.** This subsection
 > listed only `chordExpression` and `arpeggioRate`; every POCKET-1 and
 > SLAPFIG-1 field was already missing. The additive block above records the gap

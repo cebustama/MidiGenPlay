@@ -685,11 +685,14 @@ namespace MidiGenPlay.EditorTools
             md.AppendLine();
             md.AppendLine("## DoD verdicts");
             md.AppendLine();
-            md.AppendLine(beliefBad.Count == 0 && residualBad.Count == 0 && failed.Count == 0
+            // (1) Parity is beliefDiv-only: it asks whether every composer used
+            // the canonical chord, independently of whether intentional walk
+            // chromaticism was fully explained (that is question 2).
+            md.AppendLine(beliefBad.Count == 0
                 ? "- **(1) Chord-pitch-class parity: HOLDS** on every rendered cell " +
-                  "(beliefDiv == 0 for every track; no canonical red outside the " +
-                  "walk-approach inference)."
-                : $"- **(1) Parity: SUSPECT** — {beliefBad.Count} cell(s) with " +
+                  "(beliefDiv == 0 for every track on every cell)." +
+                  (failed.Count > 0 ? $" NOTE: {failed.Count} cell(s) failed to render — parity unmeasured there." : "")
+                : $"- **(1) Parity: BROKEN** — {beliefBad.Count} cell(s) with " +
                   "beliefDiv != 0 (composer belief diverges from canonical chord).");
             md.AppendLine(residualBad.Count == 0
                 ? "- **(2) No profile or track combination produces reds beyond " +

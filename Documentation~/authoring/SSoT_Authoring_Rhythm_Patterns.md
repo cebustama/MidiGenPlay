@@ -76,6 +76,27 @@ effectiveVelocity = (step.velocity > 0) ? step.velocity : lane.defaultVelocity
 
 This is implemented in `StepState.ResolveVelocity(int laneDefault)`.
 
+### Authoring in compound meters (6/8, 9/8, 12/8) — MGP-TONALITY-1
+
+One grid beat is `GetBeatSpan(TimeSignature)` — an eighth note in x/8 meters,
+so a 6/8 bar has SIX beats, not two. The felt pulse is the dotted quarter
+(beats 1 and 4 of six in 6/8). Place the groove's main accents on the felt
+pulse, not on every grid beat: a pattern that kicks on every beat of 6/8 will
+sound at roughly double the density of the equivalent 4/4 pattern at the same
+BPM, because BPM is quarter-notes-per-minute in both. Check `subdivisions` with
+the same lens: `subdivisions = 3` over an eighth-note beat produces
+1/24-of-a-whole-note steps, which is almost certainly not the intended swing
+triplet.
+
+This is authoring guidance, not an engine defect. `SSoT_CONTRACTS.md` §5
+defines one beat as `MusicTheory.GetBeatSpan(TimeSignature)`, and every
+composer and importer honours it; the mismatch is between that definition and
+the FELT pulse of a compound meter, which is a musical fact the author has to
+hold. Observed on `DrumPatternPalette-CompoundSwing`, whose six `SixEight`
+entries carry `subdivisions` 1–2 (and one at 3) — patterns that sound at double
+the perceived tempo of their 4/4 counterparts, with no reprojection involved
+(pattern TS == part TS).
+
 ### Migration note for existing assets
 
 The `List<bool>` model used before Phase 6 is **not** Unity-serialization-compatible
@@ -429,6 +450,10 @@ See also:
 - `CURRENT_STATE.md`
 
 ## 9. Update triggers
+
+- the compound-meter authoring guidance (§2) stops matching
+  `SSoT_CONTRACTS.md` §5's beat definition, or a felt-pulse concept enters the
+  data model;
 
 Update this SSoT when:
 

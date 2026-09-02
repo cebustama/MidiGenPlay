@@ -42,12 +42,21 @@ Primary runtime SSoTs:
 - `runtime/SSoT_Composer_Backing_Track.md`
 - `runtime/SSoT_Composer_Rhythm_Track.md`
 - `runtime/SSoT_Composer_Melody_Track.md`
+- `runtime/SSoT_Composer_Bass_Track.md` (primary since CA-F2, 2026-07-15 —
+  omitted from this list until DOC-SWEEP-3, 2026-09-01; it has been registered
+  in `ssot_manifest.yaml` and cited as primary by `coverage-matrix.md`
+  throughout, so this is a list omission, not an authority change)
 
 Primary authoring SSoTs:
 
 - `authoring/SSoT_Authoring_Chord_Progressions.md`
 - `authoring/SSoT_Authoring_Rhythm_Patterns.md`
 - `authoring/SSoT_Authoring_Melody_Composition.md`
+- `authoring/SSoT_Authoring_Bass_Cards.md` — bassline card authoring: the
+  SelfPocket text DSL, the editor window contract, and the advisory set.
+  Authoring only; the articulation classes themselves are governed by
+  `runtime/SSoT_Composer_Bass_Track.md` §3.7.x. (Primary since
+  MGP-BASSCARD-WIZARD-1, applied 2026-09-01.)
 - `authoring/SSoT_Authoring_Tools.md`
 - `authoring/SSoT_Authoring_LLM_Generation.md` (cross-cutting; primary since Batch
   L3, 2026-05-28 — omitted from this list until 2026-07-24)

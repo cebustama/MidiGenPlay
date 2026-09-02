@@ -38,7 +38,7 @@ This pattern is demonstrated by both `ChordProgressionEditorWindow` and
 
 ### A. Mature package-owned editor windows
 
-Three tools currently hold Category A status as dedicated, scene-independent package
+Four tools currently hold Category A status as dedicated, scene-independent package
 authoring entry points (the third, the Melody Pattern Editor, currently authors
 pattern data that is not yet runtime-consumed — see its entry for scope):
 
@@ -195,6 +195,17 @@ Current limitations (known, not blocking):
   2026-06-22 under "Closure scope = A" (editor polish treated as satisfied by the
   Phase 2–3 closures), so this is a standing limitation rather than pending work
 
+#### `BasslineCardEditorWindow`
+
+**Bassline Card Editor** (`MidiGenPlay/Bassline Card Editor...`,
+MGP-BASSCARD-WIZARD-1). Authors `BasslineCardConfigSO`: whole-card editing
+over a working copy, with text-mode authoring for the SelfPocket body and
+the PHRASE-1 substitution table. Follows normalize → preview →
+apply/save; the shared Resources store owns the write
+(`typeFolder = "Basslines"`). The DSL, its divergences from the drum DSL,
+and the window's advisory contract are governed by
+`authoring/SSoT_Authoring_Bass_Cards.md`.
+
 ### B. Legacy runtime-scene MVP panel
 
 `RhythmPatternPanelController` + `PatternGrid` + `PatternGridCell` + `RhythmRowHeader`
@@ -308,6 +319,67 @@ without the window knowing the field names — this is the supported way to answ
 catalogue-wide questions (consumer integration data, `PatchName`/`PatchIndex`
 hygiene, `volume01` authoring state) instead of opening assets one by one.
 
+### F. Diagnostic and regression harnesses
+
+A third shape, distinct from both the Category-A editors and the §3.E
+catalogues: these tools AUTHOR NOTHING. They read the package's own render
+path and report on it. They are registered here because they are package-owned
+editor windows subject to the §1 principles (data-driven, no silent writes),
+not because they produce authoring data.
+
+`CompositionSmokeWindow` remains intentionally ungoverned (D-SMOKE-DOC-1=A,
+IMPORT-QOL-1) and that decision is unchanged; the entry below governs the
+MGP-TONALITY-2 matrix runner only.
+
+#### Tonality regression matrix (MGP-TONALITY-2)
+
+`Editor/TonalityMatrixRunner.cs` + `TonalityMatrixWindow.cs`
+(Tools ▸ MidiGenPlay ▸ Tonality Matrix). An Editor-side cartesian sweep over
+the smoke render path: every `MidiGenPlayConfig.tonalityProfiles` entry × {4/4,
+6/8} × the supplied progressions × the 7 melody/bass/backing combinations ×
+{ChordToneWalk, ImprovisedWalk} where bass is present × {Block, ArpeggioUp}
+where backing is present. Adds NO runtime dependency and modifies no composer.
+
+Per cell it resets and snapshots the `TonalityAudit` counters with
+`SuppressLogs = true`, renders through `SmokeSongConfigAssembler` +
+`SongOrchestrator.GenerateSinglePart` with an explicit seed, and writes no
+.mid. `config.logGenerator` is forced off IN MEMORY ONLY and restored in a
+`finally`; nothing is ever marked dirty.
+
+Two measurements per cell, and the distinction matters:
+
+- **Audit counters** — what each composer BELIEVED, tiered InScale /
+  ChordToneChromatic / OutOfScaleAndChord.
+- **Canonical re-classification** (D-TON2-PARITY=A) — the runner recomputes
+  each event's chord pcs from `(degree, degreeAccidental, quality)` under the
+  shared chord-identity law (`SSoT_CONTRACTS.md` §13) and re-judges every
+  emitted note against them. `beliefDiv` = canonical reds − audit reds; nonzero
+  means a composer used a different chord than the canonical one. **The audit
+  alone cannot detect this** — pre-D-TON10 the bass's wrong notes were
+  consistent with the bass's wrong chord belief, so the counters were green.
+  Any parity claim must come from `beliefDiv`, never from the counters.
+
+Bass reds under `ImprovisedWalk` are separated by positional inference
+(D-TON2-WALK=B+): a red in the last beat of its chord window and within 2
+semitones of the next event's canonical root is `walk-approach(inferred)` —
+intentional chromaticism per D-W2-LAST=A, not a defect. `residualReds` is the
+defect signal. Tagging approach notes at the composer (`origin=walk-approach`)
+remains a recorded follow-up; the runner infers rather than requiring it.
+
+Seeding (D-TON2-SEED=A): one configured seed for every cell, recorded per row;
+a cell reproduces exactly from axes + seed via "Re-run cell (verbose)", which
+replays it with audit logs unsuppressed.
+
+Output: timestamped CSV (per-cell axes, seed, bpm, both tiers per track,
+beliefDiv, origin breakdown) plus a markdown summary carrying the two DoD
+verdicts, under `persistentDataPath/TonalityMatrix/`.
+
+**Known blind spot.** The MIDI-floor pitch class is C, which is diatonic in
+most profiles, so a defect that bottoms a line out at note 0 surfaces only
+under profiles where C is not in the scale. F-TON-WALK-DRIFT-1 appeared in
+Lydian/6/8/Backing cells alone for exactly this reason; the matrix
+under-reports that class of defect by construction.
+
 ## 4. Package-owned vs cross-project-owned tools
 
 A tool belongs in MidiGenPlay package docs when it authors or edits package-owned musical assets.
@@ -405,6 +477,13 @@ For the rhythm subsystem, current package sequencing is:
 5. phrasing / feel semantic enrichment (Phase 9)
 
 ## 10. Update triggers
+
+- a Category-A window is added or its persistence contract changes — the
+  Bassline Card Editor (§3.A) is the fourth; its DSL and advisory contract are
+  governed by `authoring/SSoT_Authoring_Bass_Cards.md`, not here;
+- the §3.F harness set changes: a diagnostic tool is added, the tonality
+  matrix's axes or its two-measurement method move, or D-SMOKE-DOC-1=A is
+  revisited;
 
 Update this SSoT when:
 

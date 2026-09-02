@@ -320,8 +320,10 @@ package exercises internal access, and the members its comment cited as
 "internal seams" (`ChordTrackComposer.TryDirectionalFirstChordCore`,
 `SongOrchestrator.ResolveTrackSeedPart`) are public — as are
 `BassTrackComposer.ResolveArticulation`, `TrySeedDefaultProgression`,
-`DefaultProgressionSeedResult`, `ChordProgressionRequality.TryMapCoreQuality`
-and the §5 onset-channel factories. The directive is therefore INERT (likely a
+`DefaultProgressionSeedResult`, `ChordProgressionRequality.TryMapCoreQuality`,
+the §5 onset-channel factories, and (MGP-ALWTTT-HARMONY-1)
+`HarmonyTrackComposer.ResolveHarmonyNotesCore`, `.ResolveGuideMelody` and
+`.ResolvedHarmonyNote`. The directive is therefore INERT (likely a
 test-assembly name mismatch) and is retained only as an escape hatch. **The
 convention on record is `public`**; a batch that wants the internal discipline
 back must first confirm the real test `.asmdef` name and re-run the suite. Doc
@@ -337,7 +339,9 @@ track list:
   unconditionally, so the resolved / TS-normalized / re-qualified progression is
   published before any consumer composes.
 - **PASS 1 — everything except `Backing` and `Harmony`.**
-- **PASS 2 — `Harmony`.** Unchanged: reads Melody via the caches.
+- **PASS 2 — `Harmony`.** Reads Melody via the guide-note cache; the cache's
+  contract, including which melody is followed and what Harmony writes back,
+  is §5.9.
 
 **Deferred merge.** Passes no longer merge into the part file as they go. Each
 track's composed, trimmed, tagged, gain-applied and shifted `MidiFile` is
@@ -422,6 +426,60 @@ mechanism is unchanged and D-ORD-GUARD stays as-is.
 
 The same recipe covers bass, melody and harmony, since all of them consume
 `GetProgressionForPart`.
+
+### 5.9 Melody guide-note cache (MGP-ALWTTT-HARMONY-1)
+
+The per-part / per-musician melody cache is the channel by which PASS 2
+(`Harmony`) follows a line composed in PASS 1 (`Melody`). Written by
+`ctx.SetMelodyForPartMusician(part, musicianId, guideNotes)`; read by
+`ctx.GetMelodyForPartMusician(part, musicianId)` and
+`ctx.GetFirstMelodyMusicianIdForPart(part)`. Payload units are Part beats
+(`SSoT_Composer_Melody_Track.md`, "Guide-note handoff").
+
+**Lifetime.** The cache is constructed fresh **per repetition** inside
+`GenerateSong`'s repetition loop, and once per call in `GenerateSinglePart`.
+Nothing written during one repetition is visible to the next. Any reasoning
+that depends on state carrying across repetitions is wrong.
+
+**Which melody is followed (D-H1-5a=B).** `HarmonyTrackComposer` resolves its
+target in two steps, in this order:
+
+1. **Its own `MusicianId`**, by exact-key lookup, if the cache holds a
+   non-empty melody for it. This is the SELF-HARMONY case and it is the normal
+   case, not an edge: one musician holding both a Melody and a Harmony track is
+   how a single voice harmonizes itself. Being an exact-key lookup, it does not
+   depend on cache enumeration order.
+2. Otherwise `GetFirstMelodyMusicianIdForPart` — the first Melody track in
+   **track-list order** that published notes. PASS 1 composes in list order and
+   the cache is insert-only, so this is stable in practice; it is nonetheless
+   an ordering dependency, and a part with two melodies and a harmony musician
+   who holds neither will follow whichever melody the host listed first.
+
+With no usable melody, Harmony warns and emits an empty file. It never
+fabricates a line.
+
+**What Harmony writes back (D-H1-5b=A).** Harmony publishes its own line into
+the SAME cache under its own `MusicianId`, so that a further voice could
+harmonize the harmony. In the self-harmony case this REPLACES the entry the
+Melody composer published under that key. This is benign for three independent
+reasons, and all three must hold for it to stay benign:
+
+1. Harmony is PASS 2, the last pass, so no non-Harmony composer reads the cache
+   after the write.
+2. The write swaps the list REFERENCE; the Melody composer's list is never
+   mutated in place, and the Melody `MidiFile` is built before publication, so
+   the rendered `mus:{id}:Melody` stem is already fixed. **Consumers hanging an
+   articulatory singer off the rendered Melody stem via `RenderSinglePart` are
+   therefore unaffected by this write** — stems are keyed
+   `MusicianTrackKey(musicianId, role)`, and `Melody` and `Harmony` are
+   distinct roles.
+3. The cache is re-created per repetition and per single-part render (see
+   Lifetime), so nothing leaks forward.
+
+**Known edge, registered not fixed.** A SECOND Harmony track for the same
+musician in the same part would resolve step 1 to the FIRST harmony's line and
+harmonize that, not the melody. Deferred with the rest of the cache-contract
+work (audit item 6).
 
 ## 6. Meter and timing rule
 

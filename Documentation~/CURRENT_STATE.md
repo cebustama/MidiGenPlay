@@ -70,6 +70,91 @@
 
 ## Just completed
 
+- **MGP-ALWTTT-HARMONY-1 — Harmony role, minimum subset (2026-09-01).**
+  Four fixes, EditMode green, new suite
+  `Tests/Editor/HarmonyTrackComposer_GuideFollowTests.cs` (9 tests).
+  **F-HARM-1: meter.** `HarmonyTrackComposer` converted guide-note beats with
+  `MusicalTimeSpan.Quarter`; guide notes are in Part beat units, so in 6/8 the
+  harmony followed the melody one chord late. Both emission and chord lookup now
+  route through `MelodyTrackComposer.BeatsToSpan`. **F-HARM-2/3: harmony was
+  built against the wrong chord** on accidental-bearing degrees —
+  `degreeAccidental` was dropped, and the composer used a private chord lookup
+  with no `lengthSteps` window and no wrap. Now the canonical
+  `ChordProgressionData.FindChordEventAt` plus `TransposeNoteName`.
+  **F-HARM-4:** `HarmonyTrackComposerFactory._settings` was never assigned, so
+  all Harmony diagnostics were dead; assigned. **D-H1-5a=B:** the composer now
+  prefers its OWN musician's cached melody (self-harmony is the normal case for
+  the consumer) before falling back to the first melody in track-list order.
+  **D-H1-5b=A:** Harmony keeps publishing into the melody cache under its own
+  id; benign, now stated as contract in
+  `SSoT_Runtime_Generation_Orchestration.md` §5.9 rather than re-derived.
+  **F-HARM-8 downgraded:** the feared melody/harmony unison cannot occur — the
+  effective strategy filters on `minDistanceFromMelody` (min 1, default 3).
+  Retro risk NIL: only Harmony-track bytes change, and no existing render has a
+  Harmony row. **The role is still verifiable only by ear** — readback does not
+  report Harmony (ID-2=A, accepted).
+  DEFERRED, registered not forgotten: audit items 3 (card→composer bridge),
+  5 (configurable melody target), 6 (cache contract), 7 (velocity), the rest of
+  8, and 9 (a Harmony composer SSoT); plus the F-HARM-8 residual — `relation`,
+  `intervalSemitones` and `diatonicSteps` are inert, and
+  `NearestDifferentChordToneHarmonyStrategy` is unreachable for any track with
+  `TrackParameters` (`HarmonyStrategyId` has one member).
+
+- **MGP-TONALITY-2 — tonal/rhythmic regression matrix (2026-09-01, closed).**
+  Regression coverage of the MGP-TONALITY-1 fixed state, plus one new defect
+  found and fixed.
+  - Added `Editor/TonalityMatrixRunner.cs` + `TonalityMatrixWindow.cs`: a
+    476-cell cartesian sweep over the smoke render path with per-cell audit
+    counters, canonical chord-parity re-classification and recorded seeds.
+  - **DoD (1) — chord-pitch-class parity HOLDS.** `beliefDiv == 0` for backing,
+    bass and melody across all 476 cells, including `Prog_Min_Napolitana_bII`
+    under all seven tonality profiles and both meters. F-TON-ACC-1 is sealed.
+  - **DoD (2) — no reds beyond intentional walk approach notes.**
+    `residualReds == 0` after the fix below.
+  - **F-TON-WALK-DRIFT-1 (found and fixed).** `BuildWalkLine` had no register
+    floor and a negative expected drift in its prev-relative middle-hit
+    selection; long windows walked the bass out of its band to MIDI 0.
+    Contained by a two-sided register fold (D-W2-FLOOR=B). ChordToneWalk
+    untouched. Surfaced only in Lydian/6/8/Backing cells because the MIDI-floor
+    pitch class is C, which is diatonic in most profiles — the matrix
+    under-reports this class of defect by construction.
+  - **D-W2-DRIFT deferred**: the selection asymmetry itself is unresolved; the
+    floor contains the symptom, and the line still rests low in long windows.
+  - Anchor unchanged: seed 12345 / Ionian G / 4/4 / 8 bars →
+    `59193145 / 95CC33FD / C8A25142 / A61E8AB6 / 6B1133C3`. Now pinned as five
+    chunks; the melody chunk `A61E8AB6` was not part of the TONALITY-1 anchor
+    because that batch changed melody by design.
+  - `CompositionSmokeWindow` gained "Save as new…".
+
+- **MGP-TONALITY-1 — tonal defect diagnosis and fixes (2026-08-11, closed).**
+  Four symptoms triaged against real assets; all code applied and verified in
+  Unity.
+  - New diagnostics component `TonalityAudit` (log-only, never alters output)
+    plus two config toggles, `enableTonalityAudit` and
+    `tonalityAuditShowInfo`. It classifies every emitted note InScale /
+    ChordToneChromatic / OutOfScaleAndChord and names an origin.
+  - **D-TON10 — accidental awareness.** `MelodyTrackComposer` (both paths) and
+    `BassTrackComposer` (main selection + the walk's approach target) now
+    resolve the degree root through `TransposeNoteName(..., degreeAccidental)`,
+    the law backing has always used. **This is the only change in the batch
+    that alters existing renders, and only for accidental-bearing
+    progressions.** Generalized into `SSoT_CONTRACTS.md` §13.
+  - **D-TON6=A — diatonic motif transposition.**
+    `RepeatLastNotesDirective.transposeMode` gains `ScaleDegrees` alongside the
+    legacy `ChromaticSemitones` (still the serialized default). This closes the
+    long-standing `transposeScaleSteps` follow-up under a different name; the
+    confirmed root cause of the "Showtime" out-of-key melody was chromatic
+    motif replay at `+2` per cycle.
+  - **Four new phrase-archetype authoring fields**, all defaulting to legacy
+    behaviour: `endRestFraction` (phrase-final breath, clamped to the greater
+    of 1/8 beat and 25% of the planned duration), `meterFitSlots`,
+    `allowTupletSubdivisions`, and `BurstThenHoldPhraseSO.restProbMid`. The
+    last one is a recorded RNG-neutrality exception: it gates its roll on
+    `> 0`, so raising it shifts that archetype's draw stream.
+  - Compound-meter drum density (S4) resolved as an AUTHORING matter, not an
+    engine defect — documented in `authoring/SSoT_Authoring_Rhythm_Patterns.md`
+    §2; the corrective `CS_*` asset work belongs to ALWTTT.
+
 - **MGP-TRIAGE-ALWTTT-R3 — ALWTTT R3 evidence bundle triaged (2026-08-08).**
   Five code changes, EditMode green. **E1: gap F5 CLOSED and reclassified from
   cosmetic to AUDIBLE.** `SustainLeadInPhraseSO`'s pickup branch hardcoded
@@ -99,6 +184,36 @@
   **MGP-MEL-1b P4 and P7 are now CONSUMER-VERIFIED** by the live ALWTTT session
   of 2026-08-08: `adoptProgressionTonality` drove JAM-2 and
   `PartRender.sharedProgressionData` drove JAM-1. Both left the blocked list.
+
+- **Bassline cards are authorable (MGP-BASSCARD-WIZARD-1, 2026-08-07).**
+  `BasslineCardConfigSO` — including the SelfPocket body and the PHRASE-1
+  substitution table — is now authored from a package-owned editor window
+  instead of enum dropdowns, via a text DSL
+  (`S P . - g G H L`; `|` and whitespace ignored; unknown glyph → rest +
+  warning). Round-trip is exact identity: the class enum carries no
+  per-step velocity, so there is nothing to snap or diff. The parser has no
+  length policy — a bass pattern's length is content, since the composer
+  cycles it. The window edits a deep clone and writes only on Apply / Save
+  As, under `Undo`, through the shared Resources store
+  (`typeFolder = "Basslines"`). Its advisories restate runtime law
+  (D-PH-INDEX=A non-divisor re-phase, SD-PH-1 table defects) and never
+  block a save. **Zero runtime change: `BassTrackComposer.cs` untouched, no
+  render byte moved.** Verified by smoke at seed 12345 over 8-bar and
+  16-bar backings — note and legato-gesture counts match the authored text
+  exactly (8 bars: 64 notes / 22 legato; 16 bars: 130 notes / 39 legato),
+  with zero parser and zero runtime warnings.
+  Files: new `Editor/BasslineCardEditorWindow.cs`,
+  `Editor/BassPatternTextParser.cs`, `Editor/BassPatternTextWarning.cs`,
+  new suite `Tests/Editor/BassPatternTextParserTests.cs` (15 pins).
+  Governed by `authoring/SSoT_Authoring_Bass_Cards.md`.
+
+- **Phrase-aware SelfPocket (MGP-ALWTTT-BASS-PHRASE-1, 2026-08-05).**
+  Authored phrase length + bar-substitution table (slot → variants),
+  meter-anchored, within-bar indexing, SeededMix/RoundRobin variant
+  selection on a dedicated `|selfphrase` substream key (pure mix, zero
+  `ctx.rng` draws). Empty table = single OFF gate, byte-identical by
+  delegation. Pinned by `Tests/Editor/BassTrackComposer_PhraseTests.cs`.
+  Governed by `runtime/SSoT_Composer_Bass_Track.md` §3.7.4.
 
 - **MGP-MEL-1b — procedural melody directive layer fixed and hardened
   (2026-08-05).** F1: the repeat directive is now gated on `.enabled` like the
@@ -1436,16 +1551,30 @@ concern; see roadmap §"Future work").
   itself is not implemented; `StepGesture` is deliberately a step.
 - **Melody slur.** `PitchBendWriter` is available to the melody composer and
   documented there as an unconsumed seam.
-- **Phrase-final breath.** Sustaining archetypes fill the remainder of the
-  chord span, so consecutive phrases run together. `tailRestFraction` and the
-  wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
-  A/B/A′ form with relatively-stored motif memory) are proposed but NOT
-  scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
-- **Phrase-final breath.** Sustaining archetypes fill the remainder of the
-  chord span, so consecutive phrases run together. `tailRestFraction` and the
-  wider MGP-MEL-2 "Phrase Form" set (`RestPhraseSO`, `transposeScaleSteps`,
-  A/B/A′ form with relatively-stored motif memory) are proposed but NOT
-  scoped — recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
+- **MGP-MEL-2 "Phrase Form"** — `RestPhraseSO` and A/B/A′ phrase form with
+  part-scoped, relatively-stored motif memory are proposed but NOT scoped;
+  recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
+  **Two of this set's original members have since shipped and are struck from
+  it** (DOC-SWEEP-3, sweep decision D-S3-6=A): the phrase-final breath, as
+  `PhraseArchetypeSO.endRestFraction`, and diatonic motif transposition, as
+  `RepeatLastNotesDirective.transposeMode = ScaleDegrees` — both in
+  MGP-TONALITY-1. The earlier wording here ("sustaining archetypes fill the
+  remainder of the chord span, so consecutive phrases run together";
+  `tailRestFraction` / `transposeScaleSteps` unscoped) asserted the opposite of
+  `runtime/SSoT_Composer_Melody_Track.md` §4 and was removed rather than left
+  standing.
+- **MGP-MEL-2 "Phrase Form"** — `RestPhraseSO` and A/B/A′ phrase form with
+  part-scoped, relatively-stored motif memory are proposed but NOT scoped;
+  recorded in `changelog-ssot.md` only, per DOC-SWEEP-1 decision D-1.
+  **Two of this set's original members have since shipped and are struck from
+  it** (DOC-SWEEP-3, sweep decision D-S3-6=A): the phrase-final breath, as
+  `PhraseArchetypeSO.endRestFraction`, and diatonic motif transposition, as
+  `RepeatLastNotesDirective.transposeMode = ScaleDegrees` — both in
+  MGP-TONALITY-1. The earlier wording here ("sustaining archetypes fill the
+  remainder of the chord span, so consecutive phrases run together";
+  `tailRestFraction` / `transposeScaleSteps` unscoped) asserted the opposite of
+  `runtime/SSoT_Composer_Melody_Track.md` §4 and was removed rather than left
+  standing.
 
 ## Docs to update next
 
@@ -1457,6 +1586,16 @@ concern; see roadmap §"Future work").
   §3.3 degrade-vs-fail clarification. Primary authority for LLM-assisted
   authoring across the package. Update when the next tool adopts the pattern or
   a §3 contract changes.
+- `runtime/SSoT_Composer_Harmony_Track.md` — **does not exist**. The Harmony
+  role's contract currently lives split across
+  `SSoT_Runtime_Generation_Orchestration.md` §5.9 (the guide-note channel) and
+  `SSoT_Composer_Melody_Track.md` (payload units). Create it when audit item 9
+  is taken, or sooner if a second Harmony batch lands — MGP-ALWTTT-HARMONY-1
+  deliberately did not create it.
+- `authoring/SSoT_Authoring_Bass_Cards.md` — created at MGP-BASSCARD-WIZARD-1
+  (applied 2026-09-01). Primary authority for the bassline card DSL and the
+  editor window's advisory contract. Update when the glyph alphabet, the
+  degradation law, or the window's persistence contract changes.
 
 ## Working rule
 

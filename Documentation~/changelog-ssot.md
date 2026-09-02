@@ -1,5 +1,341 @@
 # changelog-ssot
 
+## 2026-09-01 — DOC-SWEEP-3: the five-batch documentation backlog applied
+
+Documentation-only session, zero code, zero assets, zero test runs. Applied
+every genuinely pending `*_doc_diffs.md` to its governed documents, in
+dependency order: PHRASE-1 → BASSCARD-WIZARD-1 → TONALITY-1 → TONALITY-2 →
+HARMONY-1, with the CURRENT_STATE entries placed newest-first per that file's
+convention.
+
+### Inventory correction — the backlog was five, not two
+
+The session was briefed for TONALITY-1 and TONALITY-2 only. Verified against
+the **governed documents themselves** (the accumulator is not authority — the
+M-5 precedent and the DOC-SWEEP-1 blocker are both on record), three further
+batches were also unapplied and were swept in the same pass:
+
+- **MGP-ALWTTT-BASS-PHRASE-1** (2026-08-05). Bass SSoT had no §3.7.4; §3.7.2's
+  deferred list still named BASS-PHRASE-1 as future work. Not among the five
+  DOC-SWEEP-1 applied, and BASSCARD-WIZARD-1's own header (2026-08-07)
+  independently records it as outstanding.
+- **MGP-BASSCARD-WIZARD-1** (2026-08-07). Zero mentions of the window, the
+  parser or the new SSoT in any governed document, the manifest or the matrix.
+- **MGP-ALWTTT-HARMONY-1** (2026-09-01). Orchestration had no §5.9; the ALWTTT
+  cards doc still read "composer SSoT pending".
+
+Confirmed stale, NOT re-applied (DOC-SWEEP-1 and -2 applied them; M-5: stale
+copy, not drift): `MGP-ALWTTT-BASS-ORDER-SLAPFIG-1`,
+`MGP-ALWTTT-BASS-SLAPFIG-2` (applied in part), `MGP-ARTIC-RATE-1` (applied
+except §B.2), `MGP-ALWTTT-BASS-BEND-1` doc and code diffs, `MGP-MEL-1b`.
+
+### Sweep decisions (DOC-SWEEP-3)
+
+- **D-S3-1 = C.** `PENDING_DOC_DIFFS.md` was not available to this session. The
+  closure record lives here instead of in the accumulator. **The accumulator is
+  therefore stale in a NEW way: it does not record this sweep.** Reconciling it
+  is owed to the owner — see "Owed" below.
+- **D-S3-2 = A.** All five pending diffs applied in one pass, including the two
+  that change the authority model (a new governed SSoT, a manifest entry and an
+  index entry). The narrower option was recommended and declined.
+- **D-S3-3 = A for TONALITY-2 Diff 5, B for Diff 4.** Diff 4's target document
+  was unnamed and `coverage-matrix.md` gives the answer as "none, by decision":
+  **D-SMOKE-DOC-1=A** (IMPORT-QOL-1, 2026-07-24) leaves `CompositionSmokeWindow`
+  intentionally ungoverned. Diff 5 ("Save as new…") is a two-button convenience
+  on that window and was **SKIPPED** rather than silently reversing an accepted
+  decision; it is recorded in CURRENT_STATE only. Diff 4 governs a different
+  artefact — the matrix runner, whose `beliefDiv`-not-counters method is the
+  evidence base for the parity claim — and landed in a NEW
+  `authoring/SSoT_Authoring_Tools.md` §3.F, "Diagnostic and regression
+  harnesses", which restates D-SMOKE-DOC-1=A as unchanged.
+- **D-S3-4 = A.** TONALITY-2 Diffs 1–3 all cite **§3.6.1** of the Bass SSoT.
+  No such section exists; the find-anchors resolve inside **§3.6bis**, which is
+  what `coverage-matrix.md` rows 22–23 cite by name. Applied amended: every
+  §3.6.1 reference rewritten to §3.6bis, including the forward reference inside
+  Diff 2's own replacement text.
+- **D-S3-5 = A.** TONALITY-2 Diff 7 says "TONALITY-1 first". Read as
+  application order, not document order: `CURRENT_STATE.md` "Just completed" is
+  reverse-chronological, so the entries land HARMONY-1 / TONALITY-2 /
+  TONALITY-1 / R3. Same precedent as DOC-SWEEP-1's recorded placement deviation.
+- **D-S3-6 = A.** Two governed claims were falsified by MGP-TONALITY-1 and were
+  amended rather than left standing — the DOC-SWEEP-2 D-1=A precedent (a
+  governed document asserting the opposite of its own primary SSoT is the drift
+  class this process exists to prevent):
+  1. `CURRENT_STATE.md`'s "Phrase-final breath" blocked bullet (present TWICE —
+     a second verbatim double-write, distinct from the MEL-1b one; both copies
+     edited identically, neither de-duplicated) claimed sustaining archetypes
+     fill the whole span. `endRestFraction` ships.
+  2. The `transposeScaleSteps` follow-up, which this session was instructed to
+     carry forward as open, **is closed under a different name**:
+     MGP-TONALITY-1 D-TON6=A shipped diatonic motif transposition as
+     `RepeatLastNotesDirective.transposeMode = ScaleDegrees`. Carrying it
+     forward would have written a false claim. The authoring hazard block in
+     `authoring/SSoT_Authoring_Melody_Composition.md` was rewritten, not
+     appended to, for the same reason.
+
+### Further amendments beyond the diffs
+
+- **BASSCARD-WIZARD-1 §2** supplied a bare bullet with no heading for a section
+  whose entries are `####`-level. Applied as a `#### BasslineCardEditorWindow`
+  entry under §3.A, and §3.A's "Three tools" count corrected to "Four tools" —
+  which the diff did not mention and which would otherwise have contradicted
+  the list directly beneath it.
+- **BASSCARD-WIZARD-1 §3** proposed `authority: ssot` with unquoted `governs`
+  paths. The live manifest schema is `authority_class: subsystem_ssot` with
+  quoted paths and an `invariants` block. Applied in the live shape (the diff
+  itself asked for this confirmation); nine invariants written from the new
+  SSoT's own text. Manifest re-parsed clean.
+- **BASSCARD-WIZARD-1 §7a** specified a blanket `·` → `.` substitution across
+  `PhrasePresets_Bass_Spec.md`. That document also used `·` as a LEGEND
+  SEPARATOR, which the blanket rule would have turned into rests. The pattern
+  strings were substituted; the legend was rewritten by hand instead. The same
+  header's claim that "no bass-card wizard exists" was false as of the batch
+  that was editing it, and was corrected.
+- **`SSoT_INDEX.md` pre-existing omission recorded and fixed.**
+  `runtime/SSoT_Composer_Bass_Track.md` was absent from the "Primary runtime
+  SSoTs" list although it has been registered in `ssot_manifest.yaml` and cited
+  as primary by `coverage-matrix.md` since CA-F2 (2026-07-15). Both TONALITY
+  diffs treat it as primary. Listed, with the omission noted in place. This is
+  a list correction, not an authority change.
+
+### Not applied
+
+- **TONALITY-2 Diff 5** (Composition Smoke "Save as new…") — no governed home;
+  D-SMOKE-DOC-1=A. Recorded in `CURRENT_STATE.md` only.
+- **PHRASE-1 §5 and BASSCARD-WIZARD-1 §6** — both write accumulator entries.
+  Void under D-S3-1=C.
+- **PHRASE-1 §3** correctly asked for no contract change and got none. Its
+  conditional suggestion — append `|selfphrase` to a substream inventory in the
+  orchestration SSoT "if one exists" — was checked: no such inventory exists,
+  so nothing was appended. The derivation and its recorded composer-side
+  deviation live in Bass SSoT §3.7.4.
+
+### Owed to the owner (not actionable in a documentation session)
+
+- **`PENDING_DOC_DIFFS.md` reconciliation.** It still reads "Accumulator status:
+  EMPTY" (false since PHRASE-1) and lists eight stale copies. Seven of those
+  eight are not present in the working set at all. This sweep is unrecorded
+  there.
+- **`TonalityAudit.cs` stale comment.** The `chordPcs` XML doc still states that
+  melody and bass are accidental-blind; D-TON10 retired that and
+  `SSoT_CONTRACTS.md` §13 now says the opposite. Code comment, not a governed
+  document — flagged for the next code batch, not edited here.
+
+### Follow-ups carried forward, unscheduled
+
+- **D-W2-DRIFT** (new, MGP-TONALITY-2) — the improvised walk's negative
+  selection drift. Contained by the register floor, not cured. Bass SSoT
+  §3.6bis.
+- `AscendingClimbMelodyStrategy` hardcodes `octs = 2` for the final-slot cadence.
+- `ResolvedSource.TrackParameters` is unreachable on the Backing path; both
+  candidate fixes change what the readback reports, so both are runtime
+  decisions.
+- The `ssot_manifest.yaml` header entry for ARTIC-RATE-1 §B.2, recorded at
+  DOC-SWEEP-2 D-3 as APPLIED EXCEPT §B.2. Not written here: doing so would
+  re-apply part of a diff already swept, which this session is forbidden to do.
+- MGP-MEL-2 "Phrase Form" — reduced to `RestPhraseSO` and A/B/A′ form with
+  relatively-stored motif memory. Its other two members shipped (see D-S3-6).
+- Tagging walk approach notes at the composer (`origin=walk-approach`); the
+  matrix infers the tag positionally instead.
+- HARMONY-1's deferred audit items 3, 5, 6, 7, the remainder of 8, and 9
+  (a dedicated Harmony composer SSoT), plus the F-HARM-8 residual.
+- Bassline card catalogue browser (BASSCARD D2); extracting `ComputeAdvisories`
+  into a testable pure function.
+
+---
+
+## 2026-09-01 — MGP-ALWTTT-HARMONY-1: Harmony role, minimum subset
+
+Code closed 2026-09-01 (EditMode green). Scope was set by the consumer, not the
+package: ALWTTT's R6 finisher card needs Tier A, and asked for items 0/1/2/4 of
+MGP-HARMONY-AUDIT (2026-08-31, verdict BOUNDED GAP) plus one new question, with
+the remaining items explicitly deferred. The stated reason for the narrow scope
+is worth preserving: items 1 and 2 change Harmony-track bytes, and **no existing
+render contains a Harmony row**, so this was the cheapest window those fixes
+would ever have.
+
+### Fixed
+- **F-HARM-1 — meter.** Guide-note beats are Part beat units (MEL-BEATUNIT-1);
+  the composer multiplied `MusicalTimeSpan.Quarter`. In 6/8 the 4th eighth of
+  bar 1 was emitted and looked up as the downbeat of bar 2. Now
+  `MelodyTrackComposer.BeatsToSpan`, at both the emission site and the lookup
+  site, so a note is harmonized against the chord sounding where it actually
+  sounds. Byte-identical in beat-unit-4 meters.
+- **F-HARM-2 — accidental parity.** `degreeAccidental` now transposes the degree
+  root before chord-tone expansion, matching Melody/Bass/Backing. Secondary
+  dominants and modal borrowing — surface the consumer has used since
+  REQUALITY-2/B1 — were previously harmonized against the wrong chord.
+- **F-HARM-3 — canonical lookup.** The composer's private `FindEventAtBeat`
+  (`RoundToInt`, start-only, no length window, no wrap) is replaced by
+  `ChordProgressionData.FindChordEventAt`.
+- **F-HARM-4 — factory field.** `HarmonyTrackComposerFactory._settings` was
+  never assigned; the composer ran with `settings = null` and every Harmony
+  diagnostic was suppressed. Assigned, mirroring `MelodyTrackComposerFactory`.
+
+### Decided
+- **D-H1-STRAT = A.** No change to `HarmonyStrategyFactory`. The audit's unison
+  worry (F-HARM-8) does not materialize: the effective strategy excludes any
+  candidate closer than `minDistanceFromMelody`, whose range starts at 1 and
+  defaults to 3, so the melody note can never be returned as its own harmony.
+  The residual — `relation` inert, `NearestDifferentChordToneHarmonyStrategy`
+  unreachable — is registered as deferred, not fixed.
+- **D-H1-5a = B.** Harmony prefers its own musician's cached melody before the
+  first-in-list fallback. The audit had reasoned about Harmony as harmonizing
+  ANOTHER musician's melody; the consumer's actual case is the reverse
+  (self-harmony), and under an exact-key lookup that case stops depending on
+  track-list order entirely.
+- **D-H1-5b = A.** Harmony still publishes its line to the melody cache under
+  its own id. Assessed benign under self-harmony and written down as contract
+  (§5.9) instead of left to be re-derived: PASS 2 is last, the write swaps a
+  reference rather than mutating Melody's list, the Melody stem is already
+  built, and the cache is per-repetition. One edge registered: a second Harmony
+  track for the same musician would follow the first harmony.
+
+### Documented
+- `runtime/SSoT_Runtime_Generation_Orchestration.md` gains **§5.9**, the melody
+  guide-note cache contract (lifetime, target resolution, write-back, stem
+  isolation). §5.6's public-seam list gains the three HARMONY-1 seams; §5.7's
+  PASS 2 line points at §5.9.
+- `runtime/SSoT_Composer_Melody_Track.md` — the guide-note section asserted
+  "There is no in-package consumer today", which was false and, being false,
+  is why the hazard the same paragraph warned about went unnoticed in the one
+  consumer that existed. Corrected, with the payload/channel split made explicit.
+
+### Test surface
+- New `Tests/Editor/HarmonyTrackComposer_GuideFollowTests.cs` (9 tests) against
+  the public seams `HarmonyTrackComposer.ResolveHarmonyNotesCore` and
+  `.ResolveGuideMelody`: 6/8 guide-follow with an explicit discriminator (beat 3
+  must resolve to the bar-1 chord — the legacy quarter conversion sent it to
+  bar 2), canonical wrap, a 4/4 companion, bIII accidental parity plus a
+  zero-accidental identity control, repeat-call determinism, and three
+  target-resolution cases. This is the subset of audit item 8 that makes items 1
+  and 2 observable; the rest of item 8 is deferred.
+
+### Deferred (registered, not forgotten)
+Audit items 3 (card→composer bridge), 5 (configurable melody target), 6 (cache
+contract: no self-publication / separate key / list-backed cache), 7 (velocity
+policy — harmony velocity is still hardcoded 80), the remainder of 8, and 9 (a
+dedicated Harmony composer SSoT). Plus the F-HARM-8 residual.
+
+---
+
+## 2026-09-01 — MGP-TONALITY-2: tonality regression matrix
+
+Code closed on DoD; documentation applied at DOC-SWEEP-3 the same day.
+Evidence base: sweep `tonality_matrix_20260901_172029` — 476/476 cells, 0
+failures, `beliefDiv == 0` on every track of every cell, `residualReds == 0`;
+anchor hashes `59193145 / 95CC33FD / C8A25142 / A61E8AB6 / 6B1133C3` unchanged;
+`BassTrackComposer_WalkImprovTests` green.
+
+### Added
+- **Tonality regression matrix** (`Editor/TonalityMatrixRunner.cs` +
+  `TonalityMatrixWindow.cs`): a 476-cell cartesian sweep over the smoke render
+  path — tonality profiles × {4/4, 6/8} × progressions × the seven
+  melody/bass/backing combinations × walk modes × backing figures. No runtime
+  dependency; no composer modified; nothing marked dirty.
+- **Canonical re-classification (D-TON2-PARITY=A)** as the parity detector. The
+  audit counters alone CANNOT detect a chord-identity breach — a composer with
+  a wrong chord belief judges its own wrong notes as in-chord and reports green,
+  which is exactly how the pre-D-TON10 bass defect survived. `beliefDiv` is the
+  only admissible source for a parity claim. Written into `SSoT_CONTRACTS.md`
+  §13 as part of the contract it verifies.
+- `CompositionSmokeWindow` gained "Save as new…" — editor-only convenience,
+  delegating to the same `SaveToSetup` write path so the two buttons cannot
+  drift; cancelling leaves the current assignment untouched. **Not documented in
+  a governed SSoT** (D-SMOKE-DOC-1=A; DOC-SWEEP-3 D-S3-3).
+
+### Fixed
+- **F-TON-WALK-DRIFT-1.** `BuildWalkLine` had no register floor, and its
+  prev-relative middle-hit selection has a negative expected drift (≈ −0.6
+  semitones per hit from an asymmetric candidate set). Long windows walked the
+  line four octaves under the instrument and bottomed out at MIDI 0. Contained
+  by a two-sided octave-wise fold (**D-W2-FLOOR=B**), floor one octave below the
+  §2 band; the ceiling still wins, so a degenerate asset degrades to the
+  pre-existing behaviour rather than oscillating. `ChordToneWalk` is untouched
+  and byte-identical; callers passing no floor get the old path, which is what
+  the WALK-2 unit tests exercise. Bass SSoT §2 and §3.6bis.
+
+### Opened
+- **D-W2-DRIFT.** The selection asymmetry itself is unresolved. The floor
+  contains the symptom; the line still tends downward and rests against the
+  floor in long windows. Removing the asymmetry changes the walk's musical
+  character and needs its own decision and a listening pass.
+
+### Recorded blind spot
+The matrix under-reports this class of defect by construction: the MIDI-floor
+pitch class is C, diatonic in most profiles, so a line bottoming out at note 0
+surfaces only where C is out of scale. F-TON-WALK-DRIFT-1 appeared in
+Lydian/6/8/Backing cells alone.
+
+---
+
+## 2026-08-11 — MGP-TONALITY-1: tonal defect diagnosis and fixes
+
+Four reported symptoms triaged against real assets. All code applied and
+verified in Unity; documentation applied at DOC-SWEEP-3 (2026-09-01).
+
+### Added
+- **`TonalityAudit`** — a log-only diagnostics component, gated by
+  `enableTonalityAudit` / `tonalityAuditShowInfo`. It classifies every emitted
+  note InScale / ChordToneChromatic / OutOfScaleAndChord and names an origin.
+  It never alters output.
+- **Four phrase-archetype authoring fields**, all defaulting to legacy
+  behaviour: `PhraseArchetypeSO.endRestFraction`, `.meterFitSlots`,
+  `.allowTupletSubdivisions`, and `BurstThenHoldPhraseSO.restProbMid`.
+
+### Fixed
+- **D-TON10 — accidental awareness, and the batch's only render-affecting
+  change.** `MelodyTrackComposer` (both paths) and `BassTrackComposer` (main
+  selection AND the walk's approach target) resolved the degree root from
+  `degree` alone while `ChordTrackComposer` had always applied
+  `degreeAccidental`. On `Prog_Min_Napolitana_bII` the backing sounded
+  `[ASharp D F]` against a bass playing `[B DSharp FSharp]` — a semitone clash
+  on root, third and fifth simultaneously, reproduced in three tonalities and
+  confirmed by ear. Fixed at every site; affects only accidental-bearing
+  progressions. **Retires the recorded accidental-blindness of the walk's
+  next-root lookup (D-W2-LAST).**
+- **D-TON6=A — diatonic motif transposition.**
+  `RepeatLastNotesDirective.transposeMode` gains `ScaleDegrees` beside the
+  legacy `ChromaticSemitones`, which stays the serialized default for asset
+  compatibility. Root cause of the "Showtime" out-of-key melody:
+  `transposeSemitones = 2` in chromatic mode echoed motif `G5 B5 A5` at +2 and
+  +4, emitting `C#6 D#6 C#6`. **This closes the standing `transposeScaleSteps`
+  follow-up under a different name** — see DOC-SWEEP-3 D-S3-6.
+- **D-TON7/D-TON8/D-TON9 — phrase materialization.** Phrases could not breathe
+  (every archetype filled 100% of its span, spans tile contiguously) and slot
+  counts produced off-grid onsets (9 slots over an 8-beat span, onsets at 0.89 /
+  1.78 / 2.67). `endRestFraction` trims the phrase-end slot under a clamp of the
+  greater of 1/8 beat and 25% of planned duration; `meterFitSlots` constrains
+  the resulting slot DURATION — not the count — to a power of two in beats,
+  with `allowTupletSubdivisions` admitting the triplet family.
+
+### Committed
+- **New `SSoT_CONTRACTS.md` §13 — chord identity.** The sounding chord is the
+  triple (degree, degreeAccidental, quality), and every composer and every
+  chord-naming component must resolve the root through `TransposeNoteName`. The
+  defect survived two prior batches because no contract stated the rule; this is
+  its general form.
+
+### Determinism
+- The snap in `meterFitSlots` applies to the RESULT of the slot-count draw,
+  never in place of it, so toggling it cannot shift an RNG stream. **One
+  recorded exception:** `restProbMid` gates its per-note roll on `> 0`, so
+  raising it above zero shifts `BurstThenHoldPhraseSO`'s draw stream.
+  Deliberate — an unconditional roll would have broken byte-identity for every
+  pre-existing asset.
+- D-TON10 changes bytes on accidental-bearing progressions only. The smoke
+  anchor is unchanged.
+
+### Closed as authoring, not engine
+- **S4 — compound-meter drum density.** Not a defect. `SSoT_CONTRACTS.md` §5
+  defines one beat as `GetBeatSpan(TimeSignature)`, an eighth in x/8, so a 6/8
+  bar has six beats while the FELT pulse is the dotted quarter. A groove
+  authored "one kick per beat" pulses at eighths. Documented in
+  `authoring/SSoT_Authoring_Rhythm_Patterns.md` §2; the corrective `CS_*` asset
+  work is ALWTTT's, not the package's.
+
+---
+
 ## 2026-08-08 — MGP-TRIAGE-ALWTTT-R3: ALWTTT R3 evidence bundle triaged
 
 Code closed 2026-08-08 (EditMode green); documentation applied in the same-day
@@ -122,6 +458,51 @@ Per DOC-SWEEP-1 decision D-1=C, follow-ups are recorded here and in
   **APPLIED EXCEPT §B.2**, not to plain APPLIED — see that file for the
   evidence. Writing the missing §B.2 header entry now would be re-applying a
   diff already swept at DOC-SWEEP-1, which this batch is forbidden to do.
+
+## 2026-08-07 — MGP-BASSCARD-WIZARD-1: bassline cards become authorable
+
+Authoring-tools batch. **Zero runtime change** — `BassTrackComposer.cs` was not
+touched and no render byte moved. Code closed 2026-08-07; documentation applied
+at DOC-SWEEP-3 (2026-09-01).
+
+### Added
+- **`BasslineCardEditorWindow`** (`MidiGenPlay/Bassline Card Editor...`) —
+  whole-card editing over a deep clone, with text-mode authoring for the
+  SelfPocket body and the PHRASE-1 substitution table. Writes only on Apply /
+  Save As, under `Undo`, through the shared Resources store
+  (`typeFolder = "Basslines"`). Registered in
+  `authoring/SSoT_Authoring_Tools.md` §3.A as the FOURTH Category-A tool.
+- **A text DSL** (`S P . - g G H L`; `|` and whitespace ignored; unknown glyph →
+  rest + warning) with `BassPatternTextParser` / `BassPatternTextWarning`.
+  Motivation was arithmetic: a four-bar phrase with two variants is ~48 enum
+  dropdowns.
+- **New governed document `authoring/SSoT_Authoring_Bass_Cards.md`** (D14=A),
+  registered in `ssot_manifest.yaml` and `SSoT_INDEX.md`. It owns the DSL, the
+  window contract and the advisory set — and explicitly does NOT own the meaning
+  of any articulation class, which stays runtime law in
+  `runtime/SSoT_Composer_Bass_Track.md` §3.7.x.
+
+### Declared divergences from the drum DSL
+Deliberate, and not to be "completed" by symmetry: **no length policy** (a bass
+pattern's length is content — the composer cycles it, and PHRASE-1 variants may
+differ in length from the body); **lossless round-trip** (`SelfPocketStep`
+carries no per-step velocity, so the glyph map is bijective and no per-cell diff
+path may be added); **the warning locator is a label, not a lane index**.
+
+### Verification
+Smoke at seed 12345, G Ionian, over 8-bar and 16-bar backings: note and
+legato-gesture counts match the authored text exactly (8 bars: 64 / 22; 16 bars:
+130 / 39), zero parser and zero runtime warnings — which pins window → parser →
+asset → composer as lossless. New suite
+`Tests/Editor/BassPatternTextParserTests.cs` (15 pins).
+
+### Also
+`PhrasePresets_Bass_Spec.md` respelled to the governed alphabet and given a
+fifth demonstration card ("Forget-Me-Nots groove", legato-heavy 16th funk —
+an articulation skeleton, explicitly not a transcription; the DSL is pitch-blind
+and the composer picks the notes).
+
+---
 
 ## 2026-08-05 — DOC-SWEEP-1: the five-batch documentation backlog applied
 
@@ -313,6 +694,59 @@ is channel state and carries no dynamics.
 Zero new `ctx.rng` draws; all three seams are pure statics and the writer reads
 no state. Renders without legato classes are byte-identical, pinned by a
 render-hash canary.
+
+---
+
+## 2026-08-05 — MGP-ALWTTT-BASS-PHRASE-1: phrase-aware SelfPocket
+
+Code closed 2026-08-05; documentation applied at DOC-SWEEP-3 (2026-09-01). The
+diff sat unapplied across two documentation sweeps — DOC-SWEEP-1 (same day,
+five other batches) and DOC-SWEEP-2 — because the accumulator did not carry it.
+
+### Added
+- **Bar substitutions on the SelfPocket figure.** The v1 cycled pattern is
+  bar-blind; PHRASE-1 makes the bar matter. Three card fields:
+  `selfPocketPhraseLengthBars` (D-PH-LEN=A), `selfPocketBarSubstitutions`
+  (D-PH-SURF=D — a `{ barIndex, variants[] }` table, wrapper classes because
+  Unity cannot serialize nested lists), and `selfPocketVariantSelection`
+  (`SeededMix` default, or `RoundRobin`).
+- Bass SSoT **§3.7.4** and one §5 update trigger.
+
+### Contracts held
+- **Single OFF gate (D-PH-BYTE=A).** An empty or fully-invalid table keeps every
+  phrase field inert and the planner byte-identical, by delegation: the
+  pre-PHRASE signature calls the extended overload with a null table and the
+  null-table branch is the v1 lookup verbatim.
+- **Zero new `ctx.rng` draws.** The phrase seed is a derived substream key,
+  `StableHash32("{trackSeed}|selfphrase")`, consumed only as a mix key and never
+  as a stream, so no toggle can shift a draw order. Recorded deviation: the
+  derivation lives composer-side (`BassTrackComposer.ResolvePhraseSeed`) rather
+  than beside the `Resolve*` family in `SongOrchestrator` — a batch-scoped
+  choice to hold the touched file set to two verified-fresh files. Relocating it
+  is a no-render-change refactor candidate.
+- **Meter anchoring (D-PH-ANCHOR=A)** is absolute to part beat 0; chord-event
+  windows never move the anchor, pinned across split windows.
+- **Local degradation only (SD-PH-1=A)**, one batched `LogWarning` per Compose.
+  The single GLOBAL degrade is `phraseLengthBars < 1`. An all-Rest variant is
+  LEGAL — a silent break bar renders as absence.
+
+### Declared behaviour change
+**D-PH-INDEX=A.** With the phrase active, every effective pattern indexes from
+its bar start. For a body length that divides the bar this matches v1 absolute
+indexing; for a non-divisor length, enabling the phrase re-phases the body. Opt
+in only, with no baseline to preserve.
+
+### Scope
+SelfPocket only (D-PH-SCOPE=A). SlapPocket takes its grid from the drummer's
+published onsets and a phrase there would fight the external source. The planner
+stays pure — zero rng, zero cross-track reads — so the SLAPFIG-1 autonomy pin
+holds untouched.
+
+### Test surface
+`Tests/Editor/BassTrackComposer_PhraseTests.cs` — delegation, slot/anchor laws,
+within-bar indexing, variant selection with exact `PhraseMix01` goldens (moving
+either fold constant re-picks serialized cards' variants and is a declared
+render-affecting change), SD-PH-1 table validation, render gates.
 
 ---
 

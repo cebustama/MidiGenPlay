@@ -8,6 +8,7 @@ using UnityEngine;
 
 using static MidiGenPlay.MusicTheory.MusicTheory;
 using DryWetMidiNote = Melanchall.DryWetMidi.MusicTheory.Note;
+using TimeSignature = MidiGenPlay.MusicTheory.MusicTheory.TimeSignature;
 
 namespace MidiGenPlay.Composition
 {
@@ -15,13 +16,22 @@ namespace MidiGenPlay.Composition
     /// HarmonyTrackComposer
     /// 
     /// Goal (MVP):
-    /// - Reads the lead melody line for a specific musician in this Part
-    ///   from ctx.GetMelodyForPartMusician(part, targetMusicianId).
+    /// - Reads a guide melody line for this Part from the GenContext melody cache.
+    ///   MGP-ALWTTT-HARMONY-1 (D-H1-5a=B): the composer's OWN musician is tried first
+    ///   (self-harmony is the consumer's normal case), then the first cached melody in
+    ///   the Part (track-list order, see <see cref="ResolveGuideMelody"/>).
     /// - Reads (or builds) the chord progression for this part.
-    /// - For each melody GuideNote, picks a harmony pitch using IHarmonyStrategy.
-    /// - Emits a second melodic line (same timing grid as the melody).
+    /// - For each melody GuideNote, picks a harmony pitch using IHarmonyStrategy
+    ///   against the chord ACTUALLY sounding at that instant (canonical
+    ///   <see cref="ChordProgressionData.FindChordEventAt"/>, accidental-aware).
+    /// - Emits a second melodic line on the same timing grid as the melody, in the
+    ///   PART's beat unit (MEL-BEATUNIT-1 via <see cref="MelodyTrackComposer.BeatsToSpan"/>).
     /// - Caches that harmony line back into the context as its own "melody"
     ///   under this track's MusicianId so other tracks (e.g. 3rd voice) can use it.
+    ///
+    /// Determinism: the note-resolution seam <see cref="ResolveHarmonyNotesCore"/> is a
+    /// pure function of its inputs; the two shipped strategies draw no RNG. The only
+    /// RNG consumer is the procedural-progression fallback (no cached progression).
     /// </summary>
     public class HarmonyTrackComposer : ITrackComposer
     {
@@ -72,32 +82,29 @@ namespace MidiGenPlay.Composition
             }
             else if (_settings?.logGenerator == true)
             {
-                var seq = string.Join("  ", 
+                var seq = string.Join("  ",
                     prog.events.Select(e => ToRomanRich(e.degree, e.quality)));
                 Debug.Log($"[HarmonyTrackComposer] Using cached/authored progression: {seq}");
             }
 
-            // 2. Figure out whose melody we're harmonizing.
-            // Ask GenContext which musician has the first available melody for this Part.
-            var targetId = ctx?.GetFirstMelodyMusicianIdForPart?.Invoke(part);
+            // 2. Figure out whose melody we're harmonizing (D-H1-5a=B: self first).
+            var guideMelody = ResolveGuideMelody(ctx, part, cfg?.MusicianId, out var targetId);
 
-            if (string.IsNullOrEmpty(targetId))
-            {
-                Debug.LogWarning("[HarmonyTrackComposer] " +
-                    "No available melody in GenContext for this part, skipping harmony.");
-                return new MidiFile();
-            }
-
-            var guideMelody = ctx?.GetMelodyForPartMusician?.Invoke(part, targetId);
             if (guideMelody == null || guideMelody.Count == 0)
             {
                 Debug.LogWarning($"[HarmonyTrackComposer] " +
-                                $"No captured melody for part '{part.Name}' " +
-                                $"from musician '{targetId}', skipping harmony.");
+                                 $"No captured melody in GenContext for part '{part.Name}' " +
+                                 $"(target='{targetId ?? "none"}'), skipping harmony.");
                 return new MidiFile();
             }
 
-            // TODO: Obtain and use Tonality in pipeline too
+            if (_settings?.logGenerator == true)
+            {
+                bool self = !string.IsNullOrEmpty(cfg?.MusicianId) && targetId == cfg.MusicianId;
+                Debug.Log($"[HarmonyTrackComposer] part='{part.Name}' mus='{cfg?.MusicianId}' " +
+                          $"harmonizing melody of '{targetId}' ({(self ? "self" : "other")}), " +
+                          $"guideNotes={guideMelody.Count}");
+            }
 
             // 3. Compose harmony line aligned to that melody and progression.
             var file = ComposeHarmonyFromMelody(
@@ -116,13 +123,146 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// Core harmony writer.
-        /// For each GuideNote in the lead melody (startBeats, durBeats, melody pitch),
-        /// we:
-        ///   - find the active chord at that beat,
-        ///   - ask IHarmonyStrategy for a harmony pitch,
-        ///   - emit that harmony note (same timing),
-        ///   - store it to capturedHarmony so we can save it in ctx.
+        /// MGP-ALWTTT-HARMONY-1 (D-H1-5a=B). Guide-melody target resolution:
+        ///   1. this track's own musician, if the cache holds a non-empty melody for it
+        ///      (exact-key lookup: no dependence on cache enumeration order);
+        ///   2. otherwise <c>GetFirstMelodyMusicianIdForPart</c> — the first Melody track
+        ///      in track-LIST order that published notes (Pass 1 composes in list order;
+        ///      Dictionary enumeration follows insertion order for the insert-only cache).
+        /// Returns null when nothing usable is cached. <paramref name="targetId"/> reports
+        /// which musician was chosen (or null).
+        /// </summary>
+        public static List<MidiGenerator.GuideNote> ResolveGuideMelody(
+            MidiGenerator.GenContext ctx,
+            SongConfig.PartConfig part,
+            string ownMusicianId,
+            out string targetId)
+        {
+            targetId = null;
+            if (ctx == null) return null;
+
+            if (!string.IsNullOrEmpty(ownMusicianId))
+            {
+                var own = ctx.GetMelodyForPartMusician?.Invoke(part, ownMusicianId);
+                if (own != null && own.Count > 0)
+                {
+                    targetId = ownMusicianId;
+                    return own;
+                }
+            }
+
+            var firstId = ctx.GetFirstMelodyMusicianIdForPart?.Invoke(part);
+            if (string.IsNullOrEmpty(firstId)) return null;
+
+            targetId = firstId;
+            var first = ctx.GetMelodyForPartMusician?.Invoke(part, firstId);
+            return (first != null && first.Count > 0) ? first : null;
+        }
+
+        /// <summary>A single resolved harmony note — the deterministic output of
+        /// <see cref="ResolveHarmonyNotesCore"/>, ready to render via PatternBuilder.
+        /// Timing is in PART beat units (same as the GuideNote it follows).</summary>
+        public readonly struct ResolvedHarmonyNote
+        {
+            public readonly DryWetMidiNote Note;
+            public readonly double WhenBeats;
+            public readonly double DurBeats;
+
+            public ResolvedHarmonyNote(DryWetMidiNote note, double whenBeats, double durBeats)
+            {
+                Note = note;
+                WhenBeats = whenBeats;
+                DurBeats = durBeats;
+            }
+        }
+
+        /// <summary>
+        /// Pure note-resolution seam (byte-identical to the render loop in
+        /// <see cref="ComposeHarmonyFromMelody"/>; test target).
+        ///
+        /// For each GuideNote (Part beat units):
+        ///  - convert its onset to absolute ticks with the PART beat span
+        ///    (MGP-ALWTTT-HARMONY-1 item 1 / F-HARM-1: <see cref="MelodyTrackComposer.BeatsToSpan"/>,
+        ///    never MusicalTimeSpan.Quarter — 6/8 guide beats are eighths);
+        ///  - look up the chord sounding at that tick with the canonical
+        ///    <see cref="ChordProgressionData.FindChordEventAt"/> (item 2 / F-HARM-3: Floor,
+        ///    [startStep, startStep+lengthSteps) window, defined wrap);
+        ///  - apply <c>degreeAccidental</c> to the degree root (item 2 / F-HARM-2, same law as
+        ///    Backing/Bass/Melody: identity when 0);
+        ///  - ask the strategy for a harmony pitch (null => rest, resets voice-leading memory).
+        /// Because emission uses the same BeatsToSpan on the same beats, the lookup tick is
+        /// exactly the tick the harmony note will sound at.
+        /// </summary>
+        public static List<ResolvedHarmonyNote> ResolveHarmonyNotesCore(
+            IReadOnlyList<MidiGenerator.GuideNote> guideMelody,
+            ChordProgressionData prog,
+            Tonality tonality,
+            Melanchall.DryWetMidi.MusicTheory.NoteName rootNote,
+            TimeSignature timeSignature,
+            TempoMap tempoMap,
+            IHarmonyStrategy strategy,
+            HarmonicLeadingConfig cfg,
+            MIDIInstrumentSO instrument,
+            System.Random rng)
+        {
+            var result = new List<ResolvedHarmonyNote>();
+            if (guideMelody == null || guideMelody.Count == 0) return result;
+            if (prog == null || prog.events == null || prog.events.Count == 0) return result;
+            if (strategy == null || tempoMap == null) return result;
+
+            // Tonal info used to translate progression degrees -> actual chord tone names.
+            var scale = GetScaleFromTonality(tonality, rootNote);
+            var scaleNames =
+                GetNotesFromScale(scale, rootNote, 4, 7).Select(n => n.NoteName).ToArray();
+
+            var beatSpan = GetBeatSpan(timeSignature);
+
+            DryWetMidiNote lastHarmony = null;
+
+            for (int i = 0; i < guideMelody.Count; i++)
+            {
+                var g = guideMelody[i];
+
+                // Which chord event is active where this guide note sounds?
+                long absTicks = TimeConverter.ConvertFrom(
+                    MelodyTrackComposer.BeatsToSpan(g.startBeats, beatSpan), tempoMap);
+                var chordEvt = prog.FindChordEventAt(tempoMap, timeSignature, absTicks);
+                if (chordEvt == null)
+                    continue;
+
+                // Build the chord pitch classes for that event (accidental-aware).
+                var degreeRoot = TransposeNoteName(
+                    scaleNames[(int)chordEvt.degree], chordEvt.degreeAccidental);
+                var chordPitchClasses = GetChordNoteNames(degreeRoot, chordEvt.quality);
+
+                // Ask harmony strategy for the harmony pitch
+                var harmonyNote = strategy.PickHarmony(
+                    chordPitchClasses,
+                    g.note,            // the melody pitch at this instant
+                    lastHarmony,
+                    instrument,
+                    cfg,
+                    rng
+                );
+
+                if (harmonyNote == null)
+                {
+                    // no harmony at this moment
+                    lastHarmony = null;
+                    continue;
+                }
+
+                result.Add(new ResolvedHarmonyNote(harmonyNote, g.startBeats, g.durBeats));
+                lastHarmony = harmonyNote;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Core harmony writer: resolves the line via <see cref="ResolveHarmonyNotesCore"/>,
+        /// emits it on the Part beat unit, stamps bank/patch, forces the channel, and
+        /// publishes the line to the GenContext melody cache under THIS musician.
         /// </summary>
         private MidiFile ComposeHarmonyFromMelody(
             MIDIInstrumentSO instrument,
@@ -135,77 +275,40 @@ namespace MidiGenPlay.Composition
             MidiGenerator.GenContext ctx,
             System.Random rng)
         {
-            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
-            var pb = new PatternBuilder().MoveToStart();
-
-            // Tonal info used to translate progression degrees -> actual chord tone names.
-            var scale = GetScaleFromTonality(part.Tonality, part.RootNote);
-            var scaleNames =
-                GetNotesFromScale(scale, part.RootNote, 4, 7).Select(n => n.NoteName).ToArray();
-
-            // We iterate chord events in time order for easy lookup.
-            var evts = (prog.events ?? new List<ChordProgressionData.ChordEvent>())
-                        .OrderBy(e => e.startStep)
-                        .ToList();
-
-            if (evts.Count == 0)
+            if (prog?.events == null || prog.events.Count == 0)
                 return new MidiFile();
 
-            int stepsPerBeat = Mathf.Max(1, prog.subdivisions);
+            var tempoMap = TempoMap.Create(Tempo.FromBeatsPerMinute(bpm));
+            var beatSpan = GetBeatSpan(part.TimeSignature);
+
+            var resolved = ResolveHarmonyNotesCore(
+                guideMelody, prog, part.Tonality, part.RootNote, part.TimeSignature,
+                tempoMap, _strategy, _cfg, instrument, rng);
+
+            var pb = new PatternBuilder().MoveToStart();
 
             // collect the harmony line in beat space so future voices / doubling can reuse it.
-            var capturedHarmony = new List<MidiGenerator.GuideNote>();
+            var capturedHarmony = new List<MidiGenerator.GuideNote>(resolved.Count);
 
-            DryWetMidiNote lastHarmony = null;
-
-            foreach (var g in guideMelody)
+            foreach (var r in resolved)
             {
-                // Which chord event is active at this guide note's start?
-                var chordEvt = FindEventAtBeat(evts, g.startBeats, stepsPerBeat);
-                if (chordEvt == null)
-                    continue;
-
-                // Build the chord pitch classes for that event
-                var degreeRoot = scaleNames[(int)chordEvt.degree];
-                var chordPitchClasses = GetChordNoteNames(degreeRoot, chordEvt.quality);
-
-                // Ask harmony strategy for the harmony pitch
-                var harmonyNote = _strategy.PickHarmony(
-                    chordPitchClasses,
-                    g.note,            // the melody pitch at this instant
-                    lastHarmony,
-                    instrument,
-                    _cfg,
-                    rng
-                );
-
-                if (harmonyNote == null)
-                {
-                    // no harmony at this moment
-                    lastHarmony = null;
-                    continue;
-                }
-
                 // Emit harmony note with (for now) a softer velocity than melody default.
-                // (Later this can come from HarmonicLeadingConfig e.g. backingVelMin/Max etc.)
-                // TODO: get melofy velocity, use fraction eg 0.75
+                // Velocity policy is deferred (MGP-ALWTTT-HARMONY-1 item 7).
                 var vel = (SevenBitNumber)80;
 
-                var startTs = MusicalTimeSpan.Quarter.Multiply(g.startBeats);
-                var durTs = MusicalTimeSpan.Quarter.Multiply(g.durBeats);
+                // MGP-ALWTTT-HARMONY-1 item 1 (F-HARM-1): Part beat unit, not Quarter.
+                var startTs = MelodyTrackComposer.BeatsToSpan(r.WhenBeats, beatSpan);
+                var durTs = MelodyTrackComposer.BeatsToSpan(r.DurBeats, beatSpan);
 
                 pb.MoveToTime(startTs);
-                pb.Note(harmonyNote, durTs, vel);
+                pb.Note(r.Note, durTs, vel);
 
-                // Track for call-and-response / future harmonies
                 capturedHarmony.Add(new MidiGenerator.GuideNote
                 {
-                    startBeats = g.startBeats,
-                    durBeats = g.durBeats,
-                    note = harmonyNote
+                    startBeats = r.WhenBeats,
+                    durBeats = r.DurBeats,
+                    note = r.Note
                 });
-
-                lastHarmony = harmonyNote;
             }
 
             var file = pb.Build().ToFile(tempoMap);
@@ -222,9 +325,19 @@ namespace MidiGenPlay.Composition
                     $"cachedHarmonyNotes={capturedHarmony.Count}");
             }
 
-            // IMPORTANT:
-            // Cache this harmony line back into GenContext under THIS track's MusicianId.
-            // That means other voices (e.g. a 3rd harmony track) can harmonize *this* harmony.
+            // Cache this harmony line back into GenContext under THIS track's MusicianId,
+            // so other voices (e.g. a 3rd harmony track) can harmonize *this* harmony.
+            //
+            // MGP-ALWTTT-HARMONY-1 (D-H1-5b=A, F-HARM-5 kept as-is, documented):
+            // when this musician also holds the Melody (self-harmony), this REPLACES the
+            // cache entry the Melody composer published under the same key. Benign because
+            // (i) Harmony runs in PASS 2, the last pass, so no non-Harmony composer reads
+            // the cache afterwards; (ii) it swaps the list REFERENCE — the Melody list is
+            // never mutated, and the Melody MidiFile / stem (mus:{id}:Melody) was already
+            // built before publication; (iii) the cache is re-created per repetition and
+            // per single-part render, so nothing leaks across reps. Known edge (registered,
+            // not Tier A): a second Harmony track for the same musician would follow this
+            // harmony instead of the melody.
             if (ctx != null && ctx.SetMelodyForPartMusician != null)
             {
                 var thisMusician = trackCfg?.MusicianId;
@@ -238,38 +351,9 @@ namespace MidiGenPlay.Composition
             return file;
         }
 
-
-        /// <summary>
-        /// Given an ordered list of ChordEvents (each with startStep / lengthSteps),
-        /// find the one active at the given beat time within the part.
-        /// </summary>
-        private static ChordProgressionData.ChordEvent FindEventAtBeat(
-            List<ChordProgressionData.ChordEvent> orderedEvents,
-            double beat,
-            int stepsPerBeat)
-        {
-            // convert beat position into "step" space (integer-ish grid of the progression)
-            int stepPos = Mathf.RoundToInt((float)(beat * stepsPerBeat));
-
-            ChordProgressionData.ChordEvent candidate = null;
-            int best = int.MinValue;
-
-            foreach (var ev in orderedEvents)
-            {
-                int s = Mathf.Max(0, ev.startStep);
-                if (s <= stepPos && s >= best)
-                {
-                    candidate = ev;
-                    best = s;
-                }
-            }
-
-            return candidate ?? orderedEvents.FirstOrDefault();
-        }
-
         /// <summary>
         /// Force every ChannelEvent in the file to a given MIDI channel.
-        /// Same pattern used in MelodyTrackComposer and ChordTrackComposer. :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}
+        /// Same pattern used in MelodyTrackComposer and ChordTrackComposer.
         /// </summary>
         private static void ForceAllChannel(MidiFile file, int channel)
         {
@@ -279,7 +363,7 @@ namespace MidiGenPlay.Composition
 
         /// <summary>
         /// Stamp Bank Select + Program Change at the start of each track chunk.
-        /// Mirrors MelodyTrackComposer.StampBankAndPatch. :contentReference[oaicite:3]{index=3}
+        /// Mirrors MelodyTrackComposer.StampBankAndPatch.
         /// </summary>
         private static void StampBankAndPatch(MidiFile file, MIDIInstrumentSO inst, int channel)
         {
@@ -306,7 +390,7 @@ namespace MidiGenPlay.Composition
         }
 
         /// <summary>
-        /// Light inspection logs similar to MelodyTrackComposer.Inspect. :contentReference[oaicite:4]{index=4}
+        /// Light inspection logs similar to MelodyTrackComposer.Inspect.
         /// </summary>
         private static (int tracks, int notes, long lastTick) Inspect(MidiFile f)
         {

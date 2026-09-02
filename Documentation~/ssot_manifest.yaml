@@ -585,6 +585,24 @@ ssots:
       - "The imported reference octave is auto-centered (modal scale octave, ties lower) and reported, never user-selected; runtime re-centers on the instrument register and clamps offsets."
       - "Every lossy melody MIDI-import step (chromatic snap, off-grid snap, duration snap/floor, polyphony reduction, overlap truncation, out-of-range drop, duration clip, channel merge, measure cap) emits a warning; no silent fallback."
 
+  - path: Documentation~/authoring/SSoT_Authoring_Bass_Cards.md
+    authority_class: subsystem_ssot
+    governs:
+      - "Editor/BasslineCardEditorWindow.cs"
+      - "Editor/BassPatternTextParser.cs"
+      - "Editor/BassPatternTextWarning.cs"
+      - "Tests/Editor/BassPatternTextParserTests.cs"
+    invariants:
+      - "One glyph = one character, case-sensitive: S P . - g G H L. '|' and all whitespace are ignored before indexing."
+      - "An unknown glyph parses to Rest with one UnknownGlyph warning naming the buffer and step; the parser never throws."
+      - "No length policy: a bass pattern's length is content. There is no LengthShort/LengthLong, and no padding or truncation."
+      - "Round-trip is exact identity (SelfPocketStep carries no per-step velocity), so no per-cell diff path (ApplyTextEdits) exists or may be added."
+      - "The warning locator is a caller-supplied string label, not a lane index."
+      - "The window edits a deep clone; the asset is written only on Apply / Save As, under Undo, through the shared store (typeFolder = Basslines)."
+      - "The Preview Meter is editor-only, never serialized, and reaches no asset."
+      - "Window advisories restate runtime law (D-PH-INDEX=A, SD-PH-1) and never block a save; this document adds no law of its own."
+      - "Authoring tools produce data; they do not own runtime semantics. Articulation-class meaning is governed by runtime/SSoT_Composer_Bass_Track.md §3.7.x."
+
   - path: Documentation~/authoring/SSoT_Authoring_Tools.md
     authority_class: subsystem_ssot
     governs:

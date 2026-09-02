@@ -173,6 +173,10 @@ namespace MidiGenPlay.Composition
             HarmonicLeadingConfig harmonicCfg,
             IHarmonyStrategy strategy)
         {
+            // MGP-ALWTTT-HARMONY-1 item 4 (F-HARM-4): _settings was never assigned,
+            // so HarmonyTrackComposer received settings=null and the factory's own
+            // logGenerator block was dead. Mirrors MelodyTrackComposerFactory.
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _harmonicCfgDefault = harmonicCfg ?? throw new ArgumentNullException(nameof(harmonicCfg));
             _strategyDefault = strategy ?? throw new ArgumentNullException(nameof(strategy));
         }
