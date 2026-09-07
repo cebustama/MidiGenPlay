@@ -176,6 +176,44 @@ stops at the MIDI floor for every emission path EXCEPT the WALK-2 improvised
 line, which since D-W2-FLOOR=B also folds UP under a floor one octave below
 the §2 band (§3.6bis).
 
+**Playable floor (D-LOWNOTE=A / D-LOWSCOPE=C, MGP-D-W2-DRIFT).**
+`MIDIInstrumentSO.lowestNote` declares the lowest note the instrument can
+PHYSICALLY sound, as a MIDI note number. It is distinct from the §2 band, and
+deliberately NOTE-granular: a bass's open E is 28, which is not an octave
+boundary, so an octave-granular bound cannot express it. `octaveMin` /
+`octaveMax` remain the GENERATION band; `lowestNote` is the INSTRUMENT limit.
+
+Scope is EVERY note the bass emits — walk line, walk voicing, repeated note,
+pocket, block — lifted octave-wise at the single emission site (seam
+`LiftToPlayable`), before the tonality audit, so the audit reports what
+actually sounds. Octave-wise, so pitch class, chord-tone membership and
+approach intervals are invariant. The CEILING WINS: a degenerate asset
+(`lowestNote > ceiling`) cannot push a note through the ceiling.
+
+`lowestNote = 0` is a SENTINEL meaning "unauthored", and is a hard no-op. Every
+asset in the package ships at 0, so the law is inert until an author opts in;
+that is what kept MGP-D-W2-DRIFT byte-identical on the smoke anchor. Authoring
+it is a CONTENT decision with a render consequence, exactly like octaveMin /
+octaveMax.
+
+**F-W2-FLOOR-SUBINST-1 (open, the reason the field exists).** The §2 band can
+sit below the instrument. `Slap Bass 2` is authored `octaveMin 2 / octaveMax 4`,
+so the band is note 24..47 — and 24 is four semitones BELOW a four-string
+bass's open E. The containment floor of §3.6bis sits an octave lower still, at
+12. Verified in a real render: a long-window `ImprovisedWalk` cell held D#0
+(note 15) for three bars, thirteen semitones below any note the instrument can
+produce. The tonality audit could not see it, because it checks pitch class and
+an unplayable note has a perfectly valid one. `lowestNote` is the mechanism;
+authoring it on the shipped assets, and the anchor re-pin that follows, is NOT
+done and is the open half of this finding.
+
+**Governance note.** `MIDIInstrumentSO.cs` is read by the chord, melody and
+bass composers and is governed by NO SSoT today; this section documents the
+bass's READING of the field, exactly as it already documents its reading of
+`octaveMin` / `octaveMax`, and claims no authority over the type. Which
+document should own the instrument SO is an open governance question, recorded
+here rather than resolved by this batch.
+
 **Determinism note.** B3 changed the octave draw's RANGE, not its count or
 order, so the §2 contract above is intact — but a given seed now selects a
 different octave than pre-B3. Every bass render changed; this was the batch's
@@ -462,18 +500,75 @@ was the MIDI floor inside the fold, so a long window (24 hits in 6/8 over a
 normalized progression) walked the line four octaves under the instrument and
 bottomed out at note 0 — whose pitch class is C by construction, which is why
 only Lydian surfaced it as OUT-OF-KEY. The floor CONTAINS this; it does not
-remove the drift. See D-W2-DRIFT below.
+remove the drift. D-W2-PULL below does.
 
-**D-W2-DRIFT (open).** The selection asymmetry itself is unresolved. Removing
-it (re-anchoring to the event root per bar, or symmetrizing the candidate set)
-changes the walk's musical character and needs its own decision and a listening
-pass. Deferred to a follow-up batch; until then the line still tends downward
-and rests against the floor in long windows.
+**Correction to the figure above (MGP-D-W2-DRIFT).** The ≈ −0.6 st/hit is the
+first-step expectation FROM THE ROOT ONLY, not the drift. The walk is a Markov
+chain over chord tones: from A♯ the expected step is +0.15, from D +0.05, and
+the stationary drift over [G A♯ D] is ≈ −0.13 st/hit. It is also
+CHORD-DEPENDENT IN SIGN — over [C E G] it is POSITIVE (+2.2 net over 22 middle
+hits, measured). The dominant defect was never the bias but the VARIANCE: steps
+are 3–7 semitones with no restoring force, so a 24-hit window spreads roughly
+±24 semitones and the four-octave descent was a tail event, not a mean.
 
-**Scope.** `BuildWalkVoicing` (ChordToneWalk, §3.6) is NOT affected and stays
-byte-identical; the floor is a WALK-2 (`ImprovisedWalk`) law only. Callers that
-pass no floor (`floor = int.MinValue`, the default) get the pre-fix
-ceiling-only behaviour — which is what the WALK-2 unit tests exercise.
+**D-W2-PULL (MGP-D-W2-DRIFT — the cure).** Middle-hit selection now carries a
+direction-aware register restoring force. The candidate ORDER is untouched —
+chord-tone membership, the never-re-strike rule and the distance ordering all
+stand; only the PROBABILITY of taking the near versus the far candidate shifts,
+in proportion to how far `prev` has drifted from the §2 band centre:
+
+    pull  = clamp((bandCentre − prev) / bandHalfWidth, −1, +1)
+    shift = |pull| × WalkPullMax
+    the 0.55 / 0.85 thresholds move ±shift, toward the candidate heading home
+
+Why the thresholds and NOT the order: with a 2-candidate set the distance sort
+already puts the near tone first, and the near tone is usually the one heading
+home, so re-ordering is a MEASURED no-op (61.7% → 58.3% sub-band time). The
+drift lives in indices 1 and 2, which COLLAPSE onto the single far candidate —
+usually the descending one — 45% of the time. That collapse is an unexamined
+consequence of writing 0.55/0.30/0.15 for 3-candidate chords; D-W2-PULL
+redistributes its weight rather than re-pinning the mix.
+
+`WalkPullMax = 0.30`, compile-time. It is not an authored knob until a second
+instrument needs a different value, and `0.0` is a structural kill switch that
+returns the containment-only behaviour byte-for-byte. Calibrated against the
+`Slap Bass 2` / Lydian-C / 6-8 / 48-hit cell: 0.30 removes 92% of the sub-band
+time on TRIADS at a cost of ~1 distinct pitch per window; above 0.45 the line
+flattens toward a two-note pendulum.
+
+**Limitation — sevenths (recorded, not fixed).** Aggregated over triads AND
+sevenths the gain is roughly half: sub-band time 22.4% → 10.7%, not 32.5% →
+2.5%. Four-note chords offer more candidates and dilute the threshold shift, so
+seventh-chord windows still sink further than triad windows. The residue is
+caught by the §2 playable floor, not by the pull.
+
+**The pull is pure.** No `ctx.rng`, no state between hits beyond the line being
+built; the direction draw is a third salt on the same `(walkSeed, eventIndex,
+hitIndex)` mix (D-W2-RNG=B), so the determinism contract is unchanged and the
+existing mixes are unperturbed.
+
+**F-W2-DESCBIAS-1 (open).** `descendBias` (`ArpeggioDown`) only breaks EXACT
+distance ties, which chord tones essentially never produce; measured output
+under `descendBias = true` is identical to the last digit. The card exposes a
+downward-steering switch that does not steer the improvised walk. D-W2-PULL
+does not fix this — symmetrizing the candidate set would, and is the natural
+home for a follow-up.
+
+**F-W2-EVENTSEAM-1 (open).** Each chord event re-anchors on its own drawn
+octave regardless of where the previous event's line ended, so a register jump
+at the event seam is structural. With the drift cured the jump is now between
+reasonable registers rather than out of the sub-bass, but it remains audible
+and is a separate defect.
+
+**Scope.** `BuildWalkVoicing` (ChordToneWalk, §3.6) is NOT affected by the
+floor or the pull and stays byte-identical: it calls neither `NearestPitch` nor
+`FoldIntoRegister`, using `StackWalkVoicing` and its own ceiling loop instead
+(verified in source, not assumed). Both are WALK-2 (`ImprovisedWalk`) laws
+only. Callers that pass no floor and no band (`floor` / `bandLow` / `bandHigh`
+at their `int.MinValue` defaults) get the pre-fix ceiling-only behaviour, which
+is what the legacy WALK-2 unit tests exercise. The §2 playable floor is the one
+law that DOES cross both walk modes — it sits at the emission site, below all
+of them.
 
 **Gating and interactions.** Same activation gate as §3.6 (resolved figure
 `ArpeggioUp`/`ArpeggioDown`, at least 2 chord pcs, `ArpeggioFits` true);
@@ -488,10 +583,18 @@ foreach.
 Test surface: `Tests/Editor/BassTrackComposer_WalkImprovTests.cs`
 (BuildWalkLine purity / anchor / vocabulary / approach / variation / ceiling —
 every assertion is a property invariant under octave-wise folding, and each
-calls BuildWalkLine WITHOUT the floor argument, so the suite pins the
-ceiling-only path; a floor-specific test belongs with D-W2-DRIFT;
-NearestPitch; the card surface pin; and four orchestrator-level gates in the
-Dbg1Fixtures + FNV idiom).
+calls BuildWalkLine WITHOUT the floor argument, so those pin the ceiling-only
+path; NearestPitch; the card surface pin; and four orchestrator-level gates in
+the Dbg1Fixtures + FNV idiom). MGP-D-W2-DRIFT added three: the drift property
+(`WalkLine_LongWindows_PullHoldsTheLineNearTheBandCentre`, an AGGREGATE pin —
+a 48-hit walk has a wide per-window tail, so a per-window bound would be either
+vacuous or flaky; the population mean and the sub-band fraction are the stable
+statistics), the BC detector
+(`WalkLine_WithoutBandArgs_IsByteIdenticalToContainmentOnly`, proving the pull
+is structurally unreachable from every pre-existing call site), and
+`WalkLine_PullPreservesChordToneMembershipAndApproach`, which re-asserts the
+older property set under an active pull. No previously pinned assertion was
+changed or re-pinned.
 
 ### 3.7 SlapPocket coupling (MGP-ALWTTT-BASS-POCKET-1)
 

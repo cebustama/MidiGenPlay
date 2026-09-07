@@ -474,6 +474,20 @@ namespace MidiGenPlay.Composition
             // CUMULATIVE drift of a long event window bottoming out at MIDI 0.
             int registerFloor = NoteTheory.Get(NoteName.C, minOct).NoteNumber - 12;
 
+
+            // MGP-D-W2-DRIFT (D-W2-PULL): the §2 band's edges, as note
+            // numbers. The walk's restoring force is expressed against THESE
+            // rather than a constant, so it follows the authored band and a
+            // re-authored octaveMin/octaveMax moves the pull with it.
+            int bandLow = NoteTheory.Get(NoteName.C, minOct).NoteNumber;
+            int bandHigh = NoteTheory.Get(NoteName.B, maxOct).NoteNumber;
+
+            // MGP-D-W2-DRIFT (D-LOWSCOPE=C): the instrument's PHYSICAL low
+            // limit. Applied at the single emission site to every bass note,
+            // whatever produced it. 0 (the sentinel) => hard no-op =>
+            // byte-identity for every existing asset.
+            int playableFloor = inst != null ? inst.lowestNote : 0;
+
             var rng = ctx?.rng ?? new System.Random();
 
             // POCKET-1: per-Compose segment buffer (local — no composer state).
@@ -754,7 +768,7 @@ namespace MidiGenPlay.Composition
                     var line = BuildWalkLine(
                         chordPcs, nextRootPc, oct, registerCeiling, grid.Count,
                         effectiveExpression == ChordExpressionType.ArpeggioDown,
-                        walkSeed, eventIndex, registerFloor);
+                        walkSeed, eventIndex, registerFloor, bandLow, bandHigh);
 
                     for (int k = 0; k < grid.Count; k++)
                     {
@@ -800,6 +814,16 @@ namespace MidiGenPlay.Composition
                 // segments): one unconditional articulator call site.
                 foreach (var seg in _segments)
                 {
+                    // MGP-D-W2-DRIFT (D-LOWSCOPE=C): the instrument floor
+                    // applies to EVERY bass note — walk line, walk voicing,
+                    // repeated note, pocket, block. One site, so no figure can
+                    // escape it, and it runs BEFORE the audit so TonalityAudit
+                    // reports what actually sounds. Sentinel 0 => identity.
+                    if (playableFloor > 0)
+                        for (int ai = 0; ai < seg.playable.Length; ai++)
+                            seg.playable[ai] = LiftToPlayable(
+                                seg.playable[ai], playableFloor, registerCeiling);
+
                     // MGP-TONALITY-1 Task 2 (log-only): audit every note-on
                     // this segment will strike. chordPcs is the event's own
                     // harmonic context, accidental-blind as the bass computes
@@ -1762,7 +1786,9 @@ namespace MidiGenPlay.Composition
             bool descendBias,
             int walkSeed,
             int eventIndex,
-            int floor = int.MinValue)
+            int floor = int.MinValue,
+            int bandLow = int.MinValue,
+            int bandHigh = int.MinValue)
         {
             if (hitCount <= 0 || chordPcs == null || chordPcs.Length == 0)
                 return Array.Empty<NoteTheory>();
@@ -1801,7 +1827,48 @@ namespace MidiGenPlay.Composition
                 });
 
                 double r = WalkMix01(walkSeed, eventIndex, k, 0u);
-                int idx = r < 0.55 ? 0 : (r < 0.85 ? 1 : 2);
+
+                // MGP-D-W2-DRIFT (D-W2-PULL): direction-aware register
+                // restoring force. The candidate ORDER is untouched — chord-
+                // tone membership, the never-re-strike rule and the distance
+                // ordering all stand; only the PROBABILITY of taking the near
+                // vs the far candidate shifts, in proportion to how far prev
+                // has drifted from the band centre.
+                //
+                // Why thresholds and NOT the order: with a 2-candidate set the
+                // distance sort already puts the near tone first, and the near
+                // tone is usually the one heading home — so re-ordering is a
+                // measured no-op (61.7% -> 58.3% sub-band time). The drift
+                // lives in indices 1 and 2, which COLLAPSE onto the single far
+                // candidate — usually the descending one — 45% of the time.
+                // That collapse is an unexamined consequence of writing
+                // 0.55/0.30/0.15 for 3-candidate chords; this redistributes
+                // its weight instead of re-pinning the mix.
+                double t0 = 0.55, t1 = 0.85;
+                if (WalkPullMax > 0.0 &&
+                    bandLow > int.MinValue && bandHigh > bandLow)
+                {
+                    double centre = (bandLow + bandHigh) * 0.5;
+                    double half = (bandHigh - bandLow) * 0.5;
+                    double pull = (centre - prev) / half;   // + => home is UP
+                    if (pull > 1.0) pull = 1.0;
+                    if (pull < -1.0) pull = -1.0;
+
+                    double shift = Math.Abs(pull) * WalkPullMax;
+                    bool nearIsUp = cands[0] > prev;
+                    if ((pull > 0.0) == nearIsUp)
+                    {
+                        t0 = Math.Min(0.98, t0 + shift);
+                        t1 = Math.Max(t0, Math.Min(0.99, t1 + shift));
+                    }
+                    else
+                    {
+                        t0 = Math.Max(0.02, t0 - shift);
+                        t1 = Math.Max(t0, t1 - shift);
+                    }
+                }
+
+                int idx = r < t0 ? 0 : (r < t1 ? 1 : 2);
                 if (idx > cands.Count - 1) idx = cands.Count - 1;
                 line[k] = FoldIntoRegister(cands[idx], ceiling, floor);
             }
@@ -1857,6 +1924,28 @@ namespace MidiGenPlay.Composition
             return NoteTheory.Get((SevenBitNumber)noteNumber);
         }
 
+
+        /// <summary>
+        /// MGP-D-W2-DRIFT (D-LOWSCOPE=C): octave-wise lift of a note falling
+        /// below the instrument's authored PHYSICAL low limit. Octave-wise, so
+        /// pitch class, chord-tone membership and approach intervals are all
+        /// invariant. The CEILING WINS, so a degenerate asset
+        /// (lowestNote > ceiling) cannot push a note through it. A lowestNote
+        /// of 0 or less (the sentinel) is a hard no-op — that is what keeps
+        /// every existing asset, and the smoke anchor, byte-stable.
+        /// </summary>
+        private static NoteTheory LiftToPlayable(
+            NoteTheory note, int lowestNote, int ceiling)
+        {
+            if (lowestNote <= 0) return note;
+            int n = note.NoteNumber;
+            while (n < lowestNote && n + 12 <= 127 && n + 12 <= ceiling)
+                n += 12;
+            return n == note.NoteNumber
+                ? note
+                : NoteTheory.Get((SevenBitNumber)n);
+        }
+
         // B3 WALK-2 (D-W2-RNG=B): pure integer mix, the VelocityJitter idiom
         // (lowbias32 finalizer; distinct odd fold constants so the
         // (event, hit) matrix is not symmetric). Deliberately DUPLICATED
@@ -1864,6 +1953,19 @@ namespace MidiGenPlay.Composition
         // byte-identity radius stays zero.
         private const uint WalkEventFold = 0x9E3779B9u; // golden ratio
         private const uint WalkHitFold = 0x85EBCA6Bu;   // murmur3 finalizer
+
+
+        /// <summary>MGP-D-W2-DRIFT (D-W2-PULL): maximum threshold shift at the
+        /// band edge. 0.0 disables the pull entirely — the kill switch, and
+        /// byte-identical to containment-only WALK-2. Tuned against the
+        /// Slap Bass 2 / Lydian-C / 6-8 / 48-hit cell: 0.30 removes 92% of the
+        /// sub-band time on TRIADS at a cost of ~1 distinct pitch per window;
+        /// on SEVENTHS the gain is roughly half that (the wider candidate set
+        /// dilutes the shift) — see §3.6bis. Above 0.45 the line flattens
+        /// toward a two-note pendulum. Compile-time on purpose: it does not
+        /// become an authored knob until a second instrument needs a different
+        /// value.</summary>
+        private const double WalkPullMax = 0.30;
 
         /// <summary>Uniform double in [0, 1) for (event, hit, salt) under the
         /// walk substream seed. Pure, allocation-free, runtime-stable

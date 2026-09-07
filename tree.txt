@@ -17,6 +17,8 @@
 |   |   |   \---Session_Manifest_and_PK_Sync.md
 |   |   +---superseded
 |   |   |   \---README.md
+|   |   +---DOC-APPLY-4_Application_Report_2026-09-05.md
+|   |   +---MGP-D-W2-DRIFT_doc_diffs.md
 |   |   \---README.md
 |   +---authoring
 |   |   +---README.md
@@ -42,6 +44,7 @@
 |   |   +---archive
 |   |   |   +---README.md
 |   |   |   \---Roadmap_MIDI_Import.md
+|   |   +---Backlog_Pending_Batches.md
 |   |   +---Especificacion_Contenido_FaseA.md
 |   |   +---PENDING_DOC_DIFFS.md
 |   |   \---README.md
@@ -500,6 +503,7 @@
 |       +---ChordTrackComposer_RandomArticulationTests.cs
 |       +---ChordTrackComposer_TonalityMetadataTests.cs
 |       +---ChordTrackComposer_VelocityJitterTests.cs
+|       +---ConstrainedMelodyStrategy_ChromaticMotifTests.cs
 |       +---ConstrainedMelodyStrategy_MotifTests.cs
 |       +---DrumMidiImporterTests.cs
 |       +---DrumPatternData_SnapshotTests.cs

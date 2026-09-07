@@ -40,6 +40,23 @@ namespace MidiGenPlay
         [Range(1, 9)]
         public int octaveMax = 9;
 
+
+        /// <summary>
+        /// MGP-D-W2-DRIFT (D-LOWNOTE=A / D-LOWSCOPE=C): the lowest note this
+        /// instrument can PHYSICALLY sound, as a MIDI note number.
+        /// 0 = SENTINEL "unauthored" => every consumer is a hard no-op and
+        /// existing assets stay byte-identical (the smoke anchor included).
+        ///
+        /// octaveMin/octaveMax remain the GENERATION band; this is the
+        /// INSTRUMENT limit, and it is deliberately NOTE-granular — a bass's
+        /// open E (28) is not an octave boundary, so an octave-granular floor
+        /// cannot express it. Typical values: 28 = E1 (4-string bass /
+        /// double bass), 23 = B0 (5-string), 24 = C1 (double bass with a C
+        /// extension).
+        /// </summary>
+        [Range(0, 127)]
+        public int lowestNote = 0;
+
         [Header("Mix")]
         [Range(0f, 1f)] public float volume01 = 1f;
     }

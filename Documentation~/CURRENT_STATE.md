@@ -70,6 +70,142 @@
 
 ## Just completed
 
+- **MGP-MEL-DEGRADE-1 — the chromatic motif note, cured (2026-09-05).**
+  `ConstrainedMelodyStrategy.TransposeByScaleDegrees` fell back to
+  `Transpose(src, degreeSteps)` whenever the motif note was absent from
+  `degreeLookup` — a value counted in DEGREES fed to a SEMITONE shift. Three
+  decisions, one file of production code plus one optional constructor
+  argument.
+  **D-DEGRADE-1 = A.** A chromatic motif note is snapped to a scale degree and
+  then sequenced diatonically, so the echo is in-scale by construction. This is
+  the classic TONAL sequence, which is what the mode's own name promises;
+  `ChromaticSemitones` is the REAL sequence and is untouched, so every existing
+  asset is byte-identical. The motif's STATEMENT still sounds the chromatic
+  note — only the echo is diatonicised.
+  **D-DEGRADE-2 = floor.** Snap to the degree at or below the source. The
+  mapping stays monotone so the motif's contour can never invert, and the
+  family that reaches this path is borrowed harmony, whose alterations descend
+  (♭6 → 5, ♭2 → 1).
+  **D-DEGRADE-3 = identity.** With no usable scale, "move N degrees" is
+  undefined, so the directive degrades to the exact ostinato that
+  `transposeSemitones == 0` already means, not to a wrong-unit shift. The old
+  guard conflated this with the chromatic case; they are now separate.
+  **The false premise that hid it.** The method's XML note claimed a non-scale
+  source "cannot happen for pool-built motifs today". It cannot be true:
+  `BuildPitchClassPool` includes the CHORD's pitch classes, so any chord
+  chromatic to the part tonality feeds non-scale notes into the motif by
+  design. Three mechanisms do it — root accidental (Neapolitan ♭II), seventh
+  (`ProgSmoke_Dominant7`), and requalification with NO accidental at all
+  (`Prog_Maj_Creep_IVpiv`'s major III, whose chromatic tone is the chord's
+  third).
+  **Evidence.** Matrix `tonality_matrix_20260905_202753`: 714 cells, 0
+  failures, `beliefDiv == 0`, `residualReds == 0`. Melody reds 80 → 0, and
+  every one of the 80 carried `origin=strategy+motif` — no second mechanism
+  hiding in the residue. **Blast radius measured, not argued:** across the 476
+  cells comparable with the pre-fix sweep, exactly the 70 that had melody reds
+  changed, **0** cells without reds changed, and bass/backing counters were
+  identical in 476/476. The fix draws no rng and `ChooseVelocityForSlot`
+  ignores the picked note, so nothing downstream shifts.
+  **ANCHOR RE-PINNED (deliberate).** Seed 12345 / Ionian G / 4-4 / 8 bars:
+  `59193145 / 95CC33FD / C8A25142 / **963A6665** / 6B1133C3` — the melody chunk
+  moved from `A61E8AB6`; the other four are byte-identical. Caused by ONE snap
+  in the whole render: over the smoke progression's major III, the motif
+  `D#6 E6 E6` echoed as `F6 F#6 F#6` (F natural, out of both scale and chord)
+  and now echoes as `F#6 G6 G6`. The interval shape is identical either way,
+  so the correction cost nothing in contour. Listening pass in Ableton: PASS,
+  no out-of-place notes.
+  **Matrix axis GREW.** The progression axis went from 2 to 3
+  (`Prog_Maj_Creep_IVpiv` added), so the sweep is now **714 cells, not 476**.
+  Future batches compare against 714; the 80 → 0 claim above was verified on
+  the 476-cell intersection so it stays comparable with TONALITY-2 and
+  D-W2-DRIFT.
+  **Open, carried forward:** **F-SPELL-PROVENANCE-1** (the floor snap is a
+  heuristic; a raised alteration would ideally snap up, and `NoteName` is a
+  pitch class so the spelling is unavailable — and the provenance CANNOT be
+  read from the root's `degreeAccidental`, because requalification carries
+  none), **F-MEL-SLOTCOUNT-1** (matrix cells 327 and 378 emit one melody note
+  fewer after the fix; the verbose re-run proves the missing slot never reached
+  `PickNext`, so it was cut at `!slot.playNote`, which is pitch-independent —
+  mechanism unexplained, no red, no audible impact).
+  **DoD (5) closed by decision, not by evidence.** Why `MGP-TONALITY-2`
+  recorded `residualReds == 0` on 2026-09-01 while the same code produced 80 on
+  2026-09-02 was NOT established. The candidate "a different melody template
+  row" is largely excluded, because the anchor's melody chunk `A61E8AB6` was
+  unchanged across both batches and a row change would have moved it. The
+  surviving hypothesis is an edit to `SmokeSetup_0` between the two dates,
+  which the Composition Smoke window makes possible (its Save captures inline
+  state into the asset). Settling it needs only
+  `git log --follow -- "**/SmokeSetup_0.asset"`; it was deliberately not run.
+
+- **MGP-D-W2-DRIFT — the walk's downward drift, cured (2026-09-02).**
+  `ImprovisedWalk` no longer sinks. Three code changes, all behind sentinels or
+  new optional arguments, so nothing byte-moves until an author opts in.
+  **D-W2-PULL (option C).** A direction-aware register restoring force in
+  `BuildWalkLine`: the candidate order is untouched, only the 0.55/0.85 mix
+  thresholds shift toward the candidate heading back to the §2 band centre, in
+  proportion to the drift. `WalkPullMax = 0.30`, compile-time, `0.0` a
+  structural kill switch. Pure — a third salt on the existing
+  `(walkSeed, eventIndex, hitIndex)` mix, zero `ctx.rng`.
+  **D-LOWNOTE=A / D-LOWSCOPE=C.** New `MIDIInstrumentSO.lowestNote` (MIDI note
+  number, `0` = unauthored sentinel = hard no-op), lifted octave-wise at the
+  bass's single emission site across EVERY figure. Every shipped asset stays at
+  0 in this batch, which is what kept the anchor stable.
+  **Options A and D were rejected ON EVIDENCE, not on taste.** The listening
+  pass showed the audible artifact was the FOLD — the line hits the containment
+  floor and is bounced up an octave, heard as "it could not keep going down and
+  had to jump". That is exactly what a bassist never does, and it ruled out D
+  (do nothing). It also ruled out A (per-bar re-anchor): the chord event ALREADY
+  re-anchors, that seam is the jump the listener disliked, and A would multiply
+  it from once per window to once per bar.
+  **Corrections to the accepted baseline.** (1) The smoke bass row is
+  `ChordToneWalk`, NOT `RepeatedNote` as the TONALITY-2 handoff recorded; the
+  anchor is safe anyway because `BuildWalkVoicing` shares no helper with
+  `BuildWalkLine` (verified in source). (2) The ≈ −0.6 st/hit drift figure was
+  the first-step expectation from the root, not the stationary drift (≈ −0.13),
+  and its SIGN is chord-dependent — the real defect was variance, not bias.
+  **Evidence.** Anchor `59193145 / 95CC33FD / C8A25142 / A61E8AB6 / 6B1133C3`
+  unchanged. Full EditMode suite green, three new pins in
+  `BassTrackComposer_WalkImprovTests`, no existing assertion re-pinned.
+  Listening A/B on the Lydian-C / 6-8 / 48-hit cell, same seed both sides: bass
+  chunk `oct=[0..3] hash=3166B8DC` → `oct=[1..3] hash=C8C7F08C`; verdict PASS,
+  "stays in the line, no big jump, not monotonous". Matrix
+  `tonality_matrix_20260902_135209`: 476/476, 0 failures, `beliefDiv == 0` —
+  see the residual-reds caveat below.
+  **DoD (3): 80 residual reds across 70 cells, ROOT-CAUSED to the melody and
+  cleared for this batch.** Cell #157 (Ionian / 4-4 / `Prog_Min_Napolitana_bII`
+  / `tracks=M`, a MELODY-ONLY cell with no bass track at all) was re-run
+  verbose. Its single red is
+  `OUT-OF-KEY track=Melody bar=3 note=F5 chord=[GSharp C DSharp]
+  origin=strategy+motif`.
+  **New finding F-MEL-DEGRADE-1.** `MelodicStyle_Showtime` IS correctly
+  authored to `transposeMode = ScaleDegrees` (D-TON6=A applied), so this is not
+  the old S1. The red comes from the documented degrade INSIDE
+  `ConstrainedMelodyStrategy.TransposeByScaleDegrees`: when the motif note has
+  no entry in `degreeLookup` it returns
+  `MelodyStrategyCommon.Transpose(src, degreeSteps)` — passing a value counted
+  in DEGREES to a function that shifts SEMITONES. Traced exactly: the motif
+  note is D#5 (a chord tone of the Napolitan ♭II, `[G# C D#]`, and therefore
+  chromatic in G Ionian, `degree=-1`), `transposeSemitones = 2`, cycle 1, and
+  63 + 2 = 65 = F5 — neither a scale tone nor a chord tone. The D-TON6=A fix
+  closed the DIATONIC motif case; the chromatic case reaches the degrade and
+  re-opens it, on any progression carrying a chord chromatic to the part
+  tonality — which both swept progressions do under most profiles.
+  **This batch is exonerated on the evidence, not on argument:** the culprit
+  line is `origin=strategy+motif` in a cell with no bass. No `WalkPullMax = 0.0`
+  control run is needed and none was performed. Whether TONALITY-2's recorded
+  0 came from a different Melody row or from a different classification is NOT
+  established and belongs to the follow-up.
+  **Open, carried forward:** F-W2-FLOOR-SUBINST-1 (the §2 band can sit below
+  the instrument; `Slap Bass 2`'s band floor is 4 semitones under open E — the
+  mechanism now exists, the authoring and the anchor re-pin do not),
+  F-W2-DESCBIAS-1 (`descendBias` steers nothing), F-W2-EVENTSEAM-1 (the event
+  seam re-anchors regardless of where the line ended), **F-MEL-DEGRADE-1**
+  (above; its documentation belongs in `runtime/SSoT_Composer_Melody_Track.md`
+  §7 and is deliberately NOT written by this bass batch).
+  *Update 2026-09-05: F-MEL-DEGRADE-1 is CLOSED by MGP-MEL-DEGRADE-1 and its
+  law now lives in `runtime/SSoT_Composer_Melody_Track.md` §7.2, as this entry
+  promised. The three remaining bass findings are untouched.*
+
 - **MGP-ALWTTT-HARMONY-1 — Harmony role, minimum subset (2026-09-01).**
   Four fixes, EditMode green, new suite
   `Tests/Editor/HarmonyTrackComposer_GuideFollowTests.cs` (9 tests).
@@ -118,7 +254,12 @@
     untouched. Surfaced only in Lydian/6/8/Backing cells because the MIDI-floor
     pitch class is C, which is diatonic in most profiles — the matrix
     under-reports this class of defect by construction.
-  - **D-W2-DRIFT deferred**: the selection asymmetry itself is unresolved; the
+  - **D-W2-DRIFT — RESOLVED 2026-09-02** by MGP-D-W2-DRIFT (D-W2-PULL, option
+    C); see "Just completed". The paragraph below records the state as
+    TONALITY-2 left it. The floor STAYS as defence in depth (DoD 5 reviewed,
+    not assumed): the pull is statistical, the fold is a hard guarantee, and
+    they are orthogonal.
+  - **D-W2-DRIFT deferred (superseded)**: the selection asymmetry itself is unresolved; the
     floor contains the symptom, and the line still rests low in long windows.
   - Anchor unchanged: seed 12345 / Ionian G / 4/4 / 8 bars →
     `59193145 / 95CC33FD / C8A25142 / A61E8AB6 / 6B1133C3`. Now pinned as five

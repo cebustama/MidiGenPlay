@@ -19,14 +19,15 @@
 | Cadence as authored metadata (`ChordProgressionData.cadence : CadenceType`, CADENCE-META; composers ignore it, consuming games may gate on it) | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` (consumer use) |
 | `tonalities` as descriptive metadata (B2 TONFILTER-1: no revert, no draw; the part's tonality is the card's authority) **and the F-B2-LIBRARY exception** (`PickTemplateForPart` still filters on the procedural library path) | `runtime/SSoT_Composer_Backing_Track.md` §2.2 | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.3 (authoring side of both), `planning/active/Roadmap_Composition_Expressivity.md` §B2 (the out-of-scope decision) |
 | Modulation planning primitive (`ModulationPlanner`, MOD-1; pure host-facing plan — functional dominant, ranked pivots, common tones; D-MOD-OUT=A) | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.6 | `runtime/SSoT_Composer_Backing_Track.md` §6 (the distinct directional-hint transient), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5 (the `patternOverride` surface the host consumes it through), `planning/active/Roadmap_Chord_Expressivity.md` |
-| Bass register contract (B3 BASS-REG-1: ceiling-capped two-octave band `ResolveOctaveBand`; `octaveMax` as a hard ceiling `ResolveRegisterCeiling` over everything emitted; whole-voicing walk fold D-REG-3=B, per-note TWO-SIDED fold D-W2-REG + D-W2-FLOOR=B, pop fold D-REG-2=B) | `runtime/SSoT_Composer_Bass_Track.md` §2 | `runtime/SSoT_Composer_Bass_Track.md` §3.6 / §3.6bis / §3.7.1 (the three fold sites), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
-| Improvised walking bass (B3 WALK-2, `arpeggioToneMode = ImprovisedWalk`; composer owns pitches, engine owns rhythm/dynamics; variation as a pure mix over `ResolveWalkSeed`) | `runtime/SSoT_Composer_Bass_Track.md` §3.6bis | `runtime/SSoT_Composer_Backing_Track.md` §8 (the engine, `PlanHits`), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.1 (`ResolveWalkSeed`), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
+| Bass register contract (B3 BASS-REG-1: ceiling-capped two-octave band `ResolveOctaveBand`; `octaveMax` as a hard ceiling `ResolveRegisterCeiling` over everything emitted; whole-voicing walk fold D-REG-3=B, per-note TWO-SIDED fold D-W2-REG + D-W2-FLOOR=B, pop fold D-REG-2=B) **and the playable floor `MIDIInstrumentSO.lowestNote` (D-LOWNOTE=A / D-LOWSCOPE=C, MGP-D-W2-DRIFT: note-granular, sentinel 0, lifted octave-wise at the single emission site across every figure; F-W2-FLOOR-SUBINST-1)** | `runtime/SSoT_Composer_Bass_Track.md` §2 | `runtime/SSoT_Composer_Bass_Track.md` §3.6 / §3.6bis / §3.7.1 (the three fold sites), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
+| Improvised walking bass (B3 WALK-2, `arpeggioToneMode = ImprovisedWalk`; composer owns pitches, engine owns rhythm/dynamics; variation as a pure mix over `ResolveWalkSeed`) **and its register restoring force (D-W2-PULL, MGP-D-W2-DRIFT: threshold shift toward the band centre, `WalkPullMax` compile-time; open findings F-W2-DESCBIAS-1, F-W2-EVENTSEAM-1)** | `runtime/SSoT_Composer_Bass_Track.md` §3.6bis | `runtime/SSoT_Composer_Backing_Track.md` §8 (the engine, `PlanHits`), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.1 (`ResolveWalkSeed`), `planning/active/Roadmap_Chord_Articulation.md` §B3 |
 | Track-list order independence (`SSoT_CONTRACTS.md` §10) and the composition-pass structure: PASS 0 Backing / PASS 1 / PASS 2 Harmony, deferred index-ordered merge, the harmony-source sniff `BackingTrackCarriesHarmonySource` and the `sharedProgressionSource` / `ResolvedSource.HostDefault` readback (MGP-ALWTTT-BASS-ORDER-1) | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 | `SSoT_CONTRACTS.md` §10 (the contract itself), `runtime/SSoT_Composer_Bass_Track.md` §1 (bass-side consequence), `runtime/SSoT_Composer_Backing_Track.md` §2 (PASS-0 consequence) |
 | SelfPocket — the order-free autonomous slap/pop figure, its articulation vocabulary (`Ghost` / `GhostPop` / `HammerOn` / `PullOff`, `QuarterBeat`) and the per-class velocity-factor and gate-ceiling laws (MGP-ALWTTT-BASS-SLAPFIG-1 / -2 / -2b) | `runtime/SSoT_Composer_Bass_Track.md` §3.7.2–§3.7.3 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.5 (authoring surface only), `SSoT_CONTRACTS.md` §10 (the swing doctrine's constraint) |
 | Emitted MIDI event contract and pitch bend (`PitchBendWriter`; no-entry-no-event, same-tick ordering, the centre-reset closing invariant, single-channel scope, assumed ±2 semitone range, MGP-ALWTTT-BASS-BEND-1) | `SSoT_CONTRACTS.md` §11 | `runtime/SSoT_Composer_Bass_Track.md` §3.7.3 (the only consumer today, and the writer's manifest home), `runtime/SSoT_Composer_Melody_Track.md` §7 (documented unconsumed seam) |
 | Shared-progression carry channel (`PartRender.sharedProgressionData`, MGP-MEL-1 P7) and the host jam-continuity recipe built on it | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.8 | `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 (`sharedProgressionAssetName`, which its name preservation matches), `reference/cross-project/ALWTTT/SSoT_Runtime_CompositionSession_Bridge.md` (consumer side) |
 | Tonality adoption from the resolved progression (`BackingCardConfigSO.adoptProgressionTonality`, MGP-MEL-1 P4; compose-time adoption wins over any pre-render tonality, `PartConfig` mutated in place) | `runtime/SSoT_Composer_Backing_Track.md` §2.3 | `authoring/SSoT_Authoring_Chord_Progressions.md` §4.7 (how to author a progression for adoption), `runtime/SSoT_Runtime_Generation_Orchestration.md` §5.7 (PASS-0 visibility guarantee) |
 | Procedural melody precedence and the directive layer (layer table, `.enabled` intent contract, motif buffer + chromatic transpose hazard, scale-aware contour snapping, P3 / P6.2 signals; MGP-MEL-1b) | `authoring/SSoT_Authoring_Melody_Composition.md` §4b | `runtime/SSoT_Composer_Melody_Track.md` §7.2 (composer-side law and the F1 rng-sequence change) |
+| Chromatic motif notes under `ScaleDegrees` — the tonal-vs-real sequence split, the floor snap (D-DEGRADE-2), the no-scale identity degrade (D-DEGRADE-3), and the candidate pool's non-diatonic composition that feeds them (MGP-MEL-DEGRADE-1) | `runtime/SSoT_Composer_Melody_Track.md` §7.2 | `authoring/SSoT_Authoring_Melody_Composition.md` §4b (the authoring surface, UNCHANGED by this batch), `SSoT_CONTRACTS.md` §13 (chord identity, the source of the chromatic chord tones) |
 | Bassline card authoring: the SelfPocket text DSL (`S P . - g G H L`), the editor window's working-copy/persistence contract, and its advisory set (MGP-BASSCARD-WIZARD-1) | `authoring/SSoT_Authoring_Bass_Cards.md` | `authoring/SSoT_Authoring_Tools.md` §3.A (registration), `runtime/SSoT_Composer_Bass_Track.md` §3.7.x (the articulation-class meaning it deliberately does NOT govern), `reference/package/PhrasePresets_Bass_Spec.md` |
 | SelfPocket phrase — bar substitutions, meter anchoring, within-bar indexing, seeded/round-robin variant selection (MGP-ALWTTT-BASS-PHRASE-1) | `runtime/SSoT_Composer_Bass_Track.md` §3.7.4 | `reference/cross-project/ALWTTT/SSoT_CompositionCards_TrackStyleBundles.md` §4.5 (card surface only), `authoring/SSoT_Authoring_Bass_Cards.md` (how the patterns are typed) |
 | Chord identity — the (degree, degreeAccidental, quality) triple every composer and chord-naming component must resolve through `TransposeNoteName` (MGP-TONALITY-1, D-TON10) | `SSoT_CONTRACTS.md` §13 | `runtime/SSoT_Composer_Bass_Track.md` §1, `runtime/SSoT_Composer_Melody_Track.md` §7.2, `runtime/SSoT_Composer_Backing_Track.md` §3 (the adherents) |
@@ -204,6 +205,33 @@
   **§3.6bis**, which rows 22–23 above already cite by name. Applied amended.
   This file was the tiebreaker, which is the §3-of-the-update-protocol case
   working as intended.
+
+- **MGP-D-W2-DRIFT (2026-09-02).** No new test FILE; three new pins added to
+  the existing `Tests/Editor/BassTrackComposer_WalkImprovTests.cs`
+  (`WalkLine_LongWindows_PullHoldsTheLineNearTheBandCentre` — an AGGREGATE
+  drift pin, deliberately not per-window; `WalkLine_WithoutBandArgs_
+  IsByteIdenticalToContainmentOnly` — the BC detector for the two new optional
+  arguments; `WalkLine_PullPreservesChordToneMembershipAndApproach`). No
+  previously pinned assertion was changed or re-pinned. **Coverage gap
+  recorded:** `MIDIInstrumentSO.lowestNote` has NO test of its own — every
+  shipped asset is at the `0` sentinel, so the law is exercised only through
+  the no-op path. A pin belongs with whichever batch first authors a non-zero
+  value and re-pins the anchor.
+
+- **MGP-MEL-DEGRADE-1 (2026-09-05).** New file
+  `Tests/Editor/ConstrainedMelodyStrategy_ChromaticMotifTests.cs` (8 tests) —
+  the cell-#157 case (chromatic motif note echoes in-scale, not the old F5),
+  multi-cycle diatonic accumulation, the **floor tie-break pinned specifically
+  against ceiling** (A♯ is equidistant from A and B; the assertion fails if the
+  rule flips), both no-scale identity paths, a descending octave-crossing case,
+  and a regression guard that the DIATONIC case is byte-unchanged from
+  D-TON6=A. No previously pinned assertion was changed or re-pinned; the
+  existing `ConstrainedMelodyStrategy_MotifTests.cs` is untouched because its
+  motif test uses the `ChromaticSemitones` default, which this batch does not
+  alter. **Coverage gaps recorded:** the `logSnaps` signal has no test (it is
+  log-only and default-off, so a pin would assert on `Debug.Log`); and
+  F-MEL-SLOTCOUNT-1 has no pin because its mechanism is unexplained — pinning
+  the symptom would freeze a number nobody can justify.
 
 - **Pre-existing omission fixed at DOC-SWEEP-3, recorded here.**
   `runtime/SSoT_Composer_Bass_Track.md` was missing from `SSoT_INDEX.md`'s

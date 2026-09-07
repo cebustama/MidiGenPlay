@@ -418,11 +418,11 @@ namespace MidiGenPlay.Composition
                     }
                 }
 
-                // Wrap in constraint decorator only if needed
                 if (contour != ContourConstraint.None || repeat != null)
                     activeStrategy =
                         new ConstrainedMelodyStrategy(
-                            activeStrategy, contour, repeat);
+                            activeStrategy, contour, repeat,
+                            logSnaps: _settings?.logGenerator == true);
 
                 // track info about this phrase so we can fill in PhraseState:
                 DryWetMidiNote phraseFirstNote = null;

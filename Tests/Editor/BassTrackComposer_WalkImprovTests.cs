@@ -65,6 +65,132 @@ namespace MidiGenPlay.Tests.Editor
         // BuildWalkLine — pure seam (D-W2-VOCAB=B / D-W2-RNG=B / D-W2-REG)
         // ==================================================================
 
+
+        // ==================================================================
+        // MGP-D-W2-DRIFT (D-W2-PULL + D-LOWSCOPE=C)
+        // ==================================================================
+
+        // The Slap Bass 2 cell that produced the F-TON-WALK-DRIFT-1 evidence:
+        // authored octaveMin 2 / octaveMax 4 => §2 band 24..47, ceiling 59,
+        // walk floor 12.
+        private const int PullBandLow = 24;
+        private const int PullBandHigh = 47;
+        private const int PullCeiling = 59;
+        private const int PullFloor = 12;
+
+        private static readonly DwmNoteName[][] PullChords =
+        {
+            new[] { DwmNoteName.C, DwmNoteName.DSharp, DwmNoteName.G },
+            new[] { DwmNoteName.C, DwmNoteName.E, DwmNoteName.G },
+            new[] { DwmNoteName.C, DwmNoteName.DSharp, DwmNoteName.G,
+                    DwmNoteName.ASharp },
+            new[] { DwmNoteName.C, DwmNoteName.E, DwmNoteName.G,
+                    DwmNoteName.B },
+        };
+
+        /// <summary>Sweeps long windows across triads, sevenths and two start
+        /// octaves. Returns (population mean pitch, fraction of notes below
+        /// the band floor). Aggregate on purpose: a 48-hit walk has a wide
+        /// per-window tail, so a per-window bound would be either vacuous or
+        /// flaky. The POPULATION is the stable statistic.</summary>
+        private static (double mean, double belowBand) SweepWalk(
+            int bandLow, int bandHigh)
+        {
+            double sum = 0, below = 0;
+            int count = 0;
+            foreach (var chord in PullChords)
+                for (int rootOct = 1; rootOct <= 2; rootOct++)
+                    for (int s = 0; s < 128; s++)
+                    {
+                        var line = BassTrackComposer.BuildWalkLine(
+                            chord, DwmNoteName.FSharp, rootOct, PullCeiling,
+                            hitCount: 48, descendBias: false,
+                            walkSeed: s * 7919 + 13, eventIndex: 0,
+                            floor: PullFloor,
+                            bandLow: bandLow, bandHigh: bandHigh);
+
+                        foreach (var n in line)
+                        {
+                            sum += (int)n.NoteNumber;
+                            if ((int)n.NoteNumber < PullBandLow) below += 1;
+                            count++;
+                        }
+                    }
+            return (sum / count, below / count);
+        }
+
+        [Test]
+        public void WalkLine_LongWindows_PullHoldsTheLineNearTheBandCentre()
+        {
+            double centre = (PullBandLow + PullBandHigh) * 0.5;
+
+            var on = SweepWalk(PullBandLow, PullBandHigh);
+            var off = SweepWalk(int.MinValue, int.MinValue);
+
+            Assert.That(System.Math.Abs(on.mean - centre), Is.LessThan(4.0),
+                $"pull ON: population mean {on.mean:F1} vs band centre {centre:F1}");
+            Assert.That(on.belowBand, Is.LessThan(off.belowBand * 0.6),
+                $"pull ON leaves {on.belowBand:P1} of notes below the band " +
+                $"floor vs {off.belowBand:P1} with the pull disabled");
+        }
+
+        [Test]
+        public void WalkLine_WithoutBandArgs_IsByteIdenticalToContainmentOnly()
+        {
+            // The BC detector: every pre-existing call site omits bandLow /
+            // bandHigh, so the pull must be structurally unreachable there.
+            for (int s = 0; s < 32; s++)
+            {
+                var legacy = BassTrackComposer.BuildWalkLine(
+                    CMajorPcs, DwmNoteName.F, rootOct: 2, GenerousCeiling,
+                    hitCount: 16, descendBias: false,
+                    walkSeed: s * 7919 + 13, eventIndex: 0);
+                var explicitlyOff = BassTrackComposer.BuildWalkLine(
+                    CMajorPcs, DwmNoteName.F, rootOct: 2, GenerousCeiling,
+                    hitCount: 16, descendBias: false,
+                    walkSeed: s * 7919 + 13, eventIndex: 0,
+                    floor: int.MinValue,
+                    bandLow: int.MinValue, bandHigh: int.MinValue);
+
+                Assert.That(Numbers(legacy), Is.EqualTo(Numbers(explicitlyOff)),
+                    $"seed {s}: omitting the band args must disable the pull");
+            }
+        }
+
+        [Test]
+        public void WalkLine_PullPreservesChordToneMembershipAndApproach()
+        {
+            // The pull may only re-weight an EXISTING candidate set. Every
+            // property the containment-era suite pins must survive it.
+            foreach (var chord in PullChords)
+            {
+                var line = BassTrackComposer.BuildWalkLine(
+                    chord, DwmNoteName.FSharp, rootOct: 1, PullCeiling,
+                    hitCount: 24, descendBias: false, Seed, eventIndex: 0,
+                    floor: PullFloor,
+                    bandLow: PullBandLow, bandHigh: PullBandHigh);
+
+                var chordPcInts = chord.Select(p => (int)p).ToArray();
+                for (int k = 1; k <= line.Length - 2; k++)
+                {
+                    Assert.That(chordPcInts,
+                        Contains.Item((int)line[k].NoteNumber % 12),
+                        $"hit {k} left the chord");
+                    Assert.That((int)line[k].NoteNumber,
+                        Is.Not.EqualTo((int)line[k - 1].NoteNumber),
+                        $"hit {k} re-struck the previous note");
+                    Assert.That((int)line[k].NoteNumber,
+                        Is.LessThanOrEqualTo(PullCeiling),
+                        $"hit {k} broke the ceiling");
+                }
+
+                int approachGap = PcDistance(
+                    (int)line[line.Length - 1].NoteNumber, DwmNoteName.FSharp);
+                Assert.That(approachGap, Is.InRange(1, 2),
+                    "the last hit is still a ±1/±2 approach into the next root");
+            }
+        }
+
         [Test]
         public void WalkLine_IsPure_SameInputsSameSequence()
         {

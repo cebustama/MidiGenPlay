@@ -332,9 +332,14 @@ scale-validated:
    `ChromaticSemitones` mode this is a raw semitone shift, **cumulative per
    cycle**, and any value other than 0 or ±12 will leave the tonality. Since
    MGP-TONALITY-1 (D-TON6=A) the directive also offers `ScaleDegrees` mode, in
-   which the transpose counts SCALE DEGREES (diatonic sequence) and cannot
-   leave the scale for a motif note that is in it. `ChromaticSemitones` remains
-   the serialized default for asset compatibility.
+   which the transpose counts SCALE DEGREES (diatonic sequence).
+   `ChromaticSemitones` remains the serialized default for asset compatibility.
+   **`ScaleDegrees` is now total** (MGP-MEL-DEGRADE-1): between D-TON6=A and
+   2026-09-05 it was diatonic only for motif notes already in the scale, and a
+   chromatic one fell through a wrong-unit fallback. See "Chromatic motif notes
+   under `ScaleDegrees`" below — do NOT read the earlier phrasing "cannot leave
+   the scale for a motif note that is in it" as a guarantee for the mode; that
+   conditional was the whole defect.
 2. **Interval directive** (`ApplyIntervalDirective`) — the `FixedSemitones` /
    `PerDirectionSemitones` modes shift in raw semitones; with
    `pitchClassSource = ComputedRegister` the resulting chromatic pitch class is
@@ -371,11 +376,118 @@ authored neutral directive.
 the first `notesToRepeat` audible picks form the motif, later slots replay it
 cyclically, and `transposeSemitones` is added once per completed cycle. The
 buffer is phrase-scoped (one decorator instance per chord span) and rests never
-enter it. **The transposition is CHROMATIC**: a motif degree transposed out of
-the mode leaves the scale, and the offset accumulates per cycle until the
-instrument-range clamp. The diatonic sibling (`transposeScaleSteps`, reusing
-`MelodyTrackComposer.ScaleStepsToSemitones`) is a recorded follow-up, not
-implemented.
+enter it. Under `ChromaticSemitones` the transposition is a raw semitone shift
+— the REAL sequence — so a motif degree transposed out of the mode leaves the
+scale. Under `ScaleDegrees` it is the TONAL sequence, in-scale by construction;
+see the chromatic-motif law below.
+
+**Accumulation is MODE-INDEPENDENT, and this is a separate open hazard.** The
+echoed note is offset by `transposeSemitones × cycle` where
+`cycle = (_replayCount / n) + 1`, in BOTH branches, and the only bound is
+`ClampToInstrument`. `ScaleDegrees` fixed WHICH notes the motif lands on, not
+HOW FAR it travels — do not read the diatonic guarantee as a register
+guarantee. Measured in practice (2026-09-05 render logs): the smoke's melody
+phrase reaches cycle 1 and matrix cell 327 reaches cycle 2, so with today's
+authoring (`notesToRepeat = 3`, phrases of 7–8 slots) the ceiling is ≈ 2 cycles
+and the clamp is never approached. The ceiling is roughly `slots / notesToRepeat`,
+so a small `n` over a long phrase (n = 1 over 8 slots ⇒ 7 cycles) would reach it.
+**Latent, not live.** Same defect family as F-TON-WALK-DRIFT-1 in the bass —
+unbounded per-cycle accumulation stopped only by a range clamp — and whether
+the two deserve a shared law is an open question, not a decided one. Tracked as
+`MGP-MEL-CYCLE-1`, unscheduled.
+
+### Chromatic motif notes under `ScaleDegrees` (MGP-MEL-DEGRADE-1)
+
+**The pool is NOT diatonic, and the earlier note that said otherwise was
+wrong.** `MelodyStrategyCommon.BuildPitchClassPool` returns the CHORD's pitch
+classes under `ChordTonesOnly` and the chord ∪ scale union under
+`PreferChordTonesAllowScale`. Any chord chromatic to the part tonality
+therefore puts non-scale notes into the motif BY DESIGN, and three distinct
+mechanisms do it: a root accidental (`Prog_Min_Napolitana_bII`'s ♭II), a
+seventh (`ProgSmoke_Dominant7`), and **requalification with no accidental at
+all** (`Prog_Maj_Creep_IVpiv`'s major III and minor iv, whose chromatic tones
+are the chord's third, not its root). `ConstrainedMelodyStrategy`'s XML note
+previously claimed a non-scale source "cannot happen for pool-built motifs
+today"; it claimed it of the exact case that was failing.
+
+**F-MEL-DEGRADE-1 (found and fixed, 2026-09-05).** `TransposeByScaleDegrees`
+fell back to `MelodyStrategyCommon.Transpose(src, degreeSteps)` whenever the
+motif note was absent from `degreeLookup` — passing a value counted in DEGREES
+to a function that shifts SEMITONES. Traced exactly from tonality matrix cell
+#157 (Ionian / 4-4 / `Prog_Min_Napolitana_bII` / `tracks=M`): motif note D#5, a
+chord tone of the Neapolitan ♭II `[G# C D#]` and therefore chromatic in
+G Ionian, `transposeSemitones = 2`, cycle 1, `63 + 2 = 65 = F5` — in neither
+the scale nor the chord. The D-TON6=A fix had closed the DIATONIC motif case;
+the chromatic case reached the degrade and re-opened it on any progression
+carrying a chord chromatic to the part tonality.
+
+**The guard conflated two conditions and now separates them:**
+
+1. **No usable scale metadata** (`scaleNames` null or shorter than 7,
+   `degreeLookup` null, or a lookup index outside 0..6). "Move N degrees" is
+   undefined without a scale, so the directive degrades to the EXACT OSTINATO
+   that `transposeSemitones == 0` already means (**D-DEGRADE-3**). Degrading
+   toward an existing musical gesture, not toward a wrong-unit shift.
+2. **Chromatic source pitch class.** The note is snapped to a scale degree and
+   the sequence proceeds diatonically, so the echoed pitch class is always
+   `scaleNames[newDegree]` (**D-DEGRADE-1 = A**). This is the tonal sequence
+   the mode's name promises; `ChromaticSemitones` remains the real sequence and
+   is untouched, so every existing asset is byte-identical.
+
+**Snap rule: floor (D-DEGRADE-2).** The nearest degree AT OR BELOW the source.
+Two reasons. The mapping stays monotone, so the motif's contour can never
+invert — the most perceptually salient property of a motif. And the family that
+actually reaches this path is borrowed harmony, whose alterations are
+descending: floor reproduces ♭6 → 5 and ♭2 → 1, the textbook resolutions.
+
+**Known limitation, recorded rather than hidden — F-SPELL-PROVENANCE-1.**
+Raised alterations (the ♯4 of a secondary dominant) would ideally snap UP. The
+rule cannot tell the two apart because `NoteName` is a pitch class: `DSharp`
+and `EFlat` are the same value and the spelling is lost upstream. **MIDI has no
+concept of spelling either**, so this can never affect rendered fidelity — only
+decisions and legibility. The replacement is to carry the chord's PROVENANCE to
+the decision point, and note that it CANNOT be the root's `degreeAccidental`:
+the Creep case above generates its chromaticism by requalification with no
+accidental on the root. Provenance must be derived from the chord's pitch
+classes against the scale. Not scoped.
+
+**Where it would also pay off**, so a future batch does not re-derive it: the
+red audit line prints `chord=[GSharp C DSharp]` for what is a Neapolitan in
+A♭, which a human reading a warning must translate; and the general
+voice-leading rule that raised alterations resolve up and lowered ones down is
+today inexpressible anywhere in the package.
+
+**Evidence (2026-09-05).** Matrix `tonality_matrix_20260905_202753`: 714 cells
+(the progression axis GREW from 2 to 3 in this batch — see below), 0 failures,
+`beliefDiv == 0` on every track of every cell, `residualReds == 0`. Melody reds
+80 → 0; every one of the 80 carried `origin=strategy+motif`, with no
+`interval-directive` contamination. **Blast radius measured against the
+pre-fix sweep, not argued:** of the 476 comparable cells, exactly the 70 that
+had melody reds changed, 0 cells without reds changed, and bass/backing
+counters were identical in 476/476 — the fix consumes no rng, so no downstream
+stream shifts. Anchor RE-PINNED (see §7.2 determinism note). Listening pass:
+PASS, no out-of-place notes.
+
+**Open observation — F-MEL-SLOTCOUNT-1.** Matrix cells 327 and 378 (Locrian,
+both meters, `Prog_Min_Napolitana_bII`, `tracks=M`) emit ONE melody note fewer
+after the fix (32 → 31 audited notes). The verbose re-run proves the missing
+slot never reached `PickNext` — the replay index did not advance across it, so
+it was cut at `!slot.playNote` — which is archetype-determined and
+pitch-independent. The mechanism is therefore NOT explained. No red, no
+audible impact, 2 cells of 714. Settling it would need the pre-fix verbose log
+of the same cell, which no longer exists. Recorded so a future occurrence
+starts from the evidence rather than from zero.
+
+**Test surface:** `Tests/Editor/ConstrainedMelodyStrategy_ChromaticMotifTests.cs`
+(the #157 case, multi-cycle accumulation, the floor tie-break pinned against
+ceiling, both no-scale identity paths, and a regression guard that the DIATONIC
+case is unchanged). No existing assertion was re-pinned.
+
+**Signal.** A `logGenerator`-gated line names the snap when it fires
+(`chromatic-motif snap | note=… -> degree=… snap=…st steps=…`), wired through
+an OPTIONAL constructor argument on `ConstrainedMelodyStrategy` rather than a
+static or an interface change, so every other strategy and every existing call
+site is untouched. Log-only: it is never read by a decision.
 
 **Contour (F3, D9).** `AscendingOnly` / `DescendingOnly` snap a violating pick
 to the nearest candidate of the SAME harmonic pool strictly above/below the
@@ -422,6 +534,26 @@ consumes the per-slot draws the broken decorator short-circuited. Same seed ⇒
 a different (and correct) melody versus pre-F1. Any golden pinning procedural
 melody bytes must be re-pinned. The SEED-1 rhythm / backing / bass streams are
 untouched, since rng is per track.
+
+**Determinism note (MGP-MEL-DEGRADE-1).** The fix does NOT change the rng draw
+sequence: the replay path draws nothing, and `ChooseVelocityForSlot` ignores
+the picked note and always draws exactly one value per emitted slot. It changes
+PITCHES only, and only on slots that took the wrong-unit fallback. **The smoke
+anchor was re-pinned deliberately** (seed 12345 / Ionian G / 4-4 / 8 bars):
+
+```
+before  59193145 / 95CC33FD / C8A25142 / A61E8AB6 / 6B1133C3
+after   59193145 / 95CC33FD / C8A25142 / 963A6665 / 6B1133C3
+```
+
+Exactly one chunk moved — the melody — from exactly one snap in the whole
+render. The smoke progression is `Prog_Maj_Creep_IVpiv` (`I – III – IV – iv`);
+over its major III the motif `D#6 E6 E6` used to echo as `F6 F#6 F#6`, the
+`F` natural out of both scale and chord, and now echoes as `F#6 G6 G6`. The
+interval shape (+1, 0) is IDENTICAL in both versions, because F♯–G is also a
+semitone — the tonal sequence cost nothing in contour and bought the key, and
+the landing note F♯ is simultaneously the scale's 7th degree and the sounding
+chord's fifth. The re-pin carries a listening PASS.
 
 Test surface: `Tests/Editor/ConstrainedMelodyStrategy_MotifTests.cs`.
 
@@ -482,6 +614,16 @@ re-derive the seam or write a second bend path.
   transpose mode is added or its default flips, the interval directive's
   `pitchClassSource` law moves, or a tonal validation is introduced at the
   emission point;
+- the chromatic-motif law changes (§7.2, MGP-MEL-DEGRADE-1): the floor snap
+  rule, the no-scale identity degrade, the totality of `ScaleDegrees`, or the
+  candidate-pool composition that feeds chromatic notes into the motif at all;
+- the motif transposition gains a bound (§7.2, MGP-MEL-CYCLE-1): a cycle cap, a
+  wrap, or a register fold — and whether it is shared with the bass's
+  D-W2-FLOOR=B must be stated either way;
+- **F-SPELL-PROVENANCE-1 is taken up**: any mechanism that carries harmonic
+  provenance or pitch spelling to a decision point supersedes the floor
+  heuristic and must be recorded here, together with whether the audit's chord
+  printing adopts it;
 - the archetype phrase surface changes (§4, MGP-TONALITY-1): `endRestFraction`
   and its 25%/(1/8 beat) clamp, `meterFitSlots` / `allowTupletSubdivisions` and
   the duration-not-count constraint, or the recorded `restProbMid` RNG-neutrality
